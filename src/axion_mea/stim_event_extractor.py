@@ -8,6 +8,8 @@ from .io import AxionStimFile
 
 @dataclass(frozen=True)
 class StimEventExtractionResult:
+    """Summary of files and counts produced by raw stimulation parsing."""
+
     raw_file: Path
     csv_path: Path
     json_path: Path
@@ -19,13 +21,22 @@ class StimEventExtractionResult:
 
 
 class StimEventExtractor:
+    """Extract stimulation timing metadata from one Axion `.raw` file.
+
+    This class is intentionally narrow: it delegates all binary decoding to
+    `AxionStimFile`, then writes the normalized event exports used by the rest
+    of the repository.
+    """
+
     def __init__(self, raw_path: Path, output_dir: Path) -> None:
+        """Store paths and prepare the destination directory."""
         self.raw_path = raw_path.expanduser().resolve()
         self.output_dir = output_dir.expanduser().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.stim_file = AxionStimFile(self.raw_path)
 
     def extract(self) -> StimEventExtractionResult:
+        """Parse the raw file and return the normalized extraction summary."""
         self.stim_file.parse()
         summaries = self.stim_file.summarize_stimulation_events()
         csv_path = self.output_dir / f"{self.raw_path.stem}_stim_events.csv"
@@ -50,6 +61,7 @@ class StimEventExtractor:
 
     @staticmethod
     def print_summary(result: StimEventExtractionResult) -> None:
+        """Print the exact extraction outputs emitted for one recording."""
         print(f"Raw file: {result.raw_file}")
         print(f"CSV output: {result.csv_path}")
         print(f"JSON output: {result.json_path}")

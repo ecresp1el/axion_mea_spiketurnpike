@@ -1,4 +1,18 @@
 from __future__ import annotations
+"""Well-level train and pulse response analysis.
+
+This module owns the second half of the biological analysis after spikes have
+already been aligned to stimulation events. It builds three complementary views:
+
+1. train-level analysis, where one 5-pulse train is treated as one trial,
+2. pulse-by-position analysis, where P1..P5 are separated but train identity is
+   preserved, and
+3. pooled pulse analysis, where every pulse instance becomes its own pseudo-trial.
+
+The classes below are arranged in the same order they are used by the pipeline:
+window/config models, aligned dataset helpers, summary-table builders, waveform
+reconstruction helpers, and figure writers.
+"""
 
 import math
 from dataclasses import dataclass
@@ -13,55 +27,71 @@ from PIL import Image
 
 @dataclass(frozen=True)
 class AnalysisWindow:
+    """Train-level alignment window expressed in milliseconds."""
+
     pre_ms: float
     post_ms: float
 
     @property
     def start_ms(self) -> float:
+        """Return the negative pre-stimulus bound."""
         return -abs(self.pre_ms)
 
     @property
     def end_ms(self) -> float:
+        """Return the positive post-stimulus bound."""
         return abs(self.post_ms)
 
 
 @dataclass(frozen=True)
 class PulseWindow:
+    """Pulse-level alignment window expressed in milliseconds."""
+
     pre_ms: float
     post_ms: float
 
     @property
     def start_ms(self) -> float:
+        """Return the negative pre-pulse bound."""
         return -abs(self.pre_ms)
 
     @property
     def end_ms(self) -> float:
+        """Return the positive post-pulse bound."""
         return abs(self.post_ms)
 
 
 @dataclass(frozen=True)
 class PsthConfig:
+    """Histogram and smoothing settings for PSTH construction."""
+
     bin_ms: float
     boxcar_kernel: tuple[float, ...]
 
     @property
     def normalized_kernel(self) -> np.ndarray:
+        """Return the boxcar kernel normalized to unit sum."""
         kernel = np.asarray(self.boxcar_kernel, dtype=float)
         return kernel / kernel.sum()
 
 
 @dataclass(frozen=True)
 class WaveformRenderConfig:
+    """Display-resolution settings for the opto waveform proxy."""
+
     sample_dt_ms: float
     smooth_window_ms: float
 
     @property
     def smooth_window_samples(self) -> int:
+        """Convert the smoothing window from ms to discrete samples."""
         return max(1, int(round(self.smooth_window_ms / self.sample_dt_ms)))
 
 
 @dataclass(frozen=True)
 class PulseEpoch:
+    """One pulse interval inside a stimulation train."""
+
     pulse_index: int
     start_ms: float
     end_ms: float
@@ -71,6 +101,8 @@ OPTO_BLUE = "#0057ff"
 
 
 class OpsinStimDataset:
+    """Rebuild train-aligned spike tables for well-level response analysis."""
+
     def __init__(
         self,
         spike_list_csv: Path,
@@ -89,6 +121,7 @@ class OpsinStimDataset:
         self.stim_events = pd.DataFrame()
 
     def load(self) -> None:
+        """Load source CSVs and construct the train-aligned spike table."""
         self.spikes = pd.read_csv(self.spike_list_csv)
         self.well_metadata = pd.read_csv(self.well_metadata_csv)
         self.stim_events = pd.read_csv(self.stim_events_csv)
@@ -106,6 +139,7 @@ class OpsinStimDataset:
         self.aligned_spikes = self._build_aligned_spikes()
 
     def _build_aligned_spikes(self) -> pd.DataFrame:
+        """Align every spike to every stimulation train that includes its well."""
         aligned_rows: list[dict[str, object]] = []
         stimulated_wells = self._stimulated_wells()
 
@@ -152,6 +186,7 @@ class OpsinStimDataset:
         )
 
     def _stimulated_wells(self) -> list[str]:
+        """Recover the set of wells reported as stimulated in the event CSV."""
         stimulated: set[str] = set()
         if "stimulated_wells" not in self.stim_events.columns:
             return sorted(self.spikes["well"].dropna().astype(str).unique())
@@ -164,19 +199,24 @@ class OpsinStimDataset:
         return sorted(stimulated) if stimulated else sorted(self.spikes["well"].dropna().astype(str).unique())
 
     def all_trials(self) -> list[int]:
+        """Return all tagged stimulation trial indices in ascending order."""
         all_trials = self.stim_events["sequence_number"].dropna().astype(int).tolist()
         return sorted(all_trials)
 
     def spikes_for_well(self, well: str) -> pd.DataFrame:
+        """Return the aligned spikes for one well."""
         return self.aligned_spikes.loc[self.aligned_spikes["well"] == well].copy()
 
 
 class TrialLatencyAnalyzer:
+    """Summarize train-level spike timing for one well."""
+
     def __init__(self, well_spikes: pd.DataFrame, all_trials: list[int]) -> None:
         self.well_spikes = well_spikes.copy()
         self.all_trials = all_trials
 
     def build_trial_summary(self) -> pd.DataFrame:
+        """Build one summary row per train trial."""
         grouped = (
             self.well_spikes.groupby("trial_index")["aligned_time_ms"]
             .agg(
@@ -202,11 +242,14 @@ class TrialLatencyAnalyzer:
 
 
 class PulseLatencyAnalyzer:
+    """Summarize pulse-level spike timing for pooled pulse trials."""
+
     def __init__(self, pulse_aligned_spikes: pd.DataFrame, pulse_trials: pd.DataFrame) -> None:
         self.pulse_aligned_spikes = pulse_aligned_spikes.copy()
         self.pulse_trials = pulse_trials.copy()
 
     def build_pulse_summary(self) -> pd.DataFrame:
+        """Build one summary row per pulse pseudo-trial."""
         if self.pulse_trials.empty:
             return pd.DataFrame(
                 columns=[
@@ -246,6 +289,8 @@ class PulseLatencyAnalyzer:
 
 
 class OptoWaveformModel:
+    """Render the intended optical waveform from parsed raw-tag intervals."""
+
     def __init__(
         self,
         opto_on_intervals_ms: list[tuple[float, float, float]],
@@ -257,6 +302,7 @@ class OptoWaveformModel:
         self.render_config = render_config
 
     def step_trace(self, start_ms: float, end_ms: float) -> tuple[np.ndarray, np.ndarray]:
+        """Return a piecewise-constant command trace over a requested window."""
         if not self.opto_on_intervals_ms:
             return np.array([start_ms, end_ms]), np.array([0.0, 0.0])
 
@@ -281,6 +327,7 @@ class OptoWaveformModel:
         return np.asarray(x), np.asarray(y)
 
     def sampled_proxy(self, start_ms: float, end_ms: float) -> tuple[np.ndarray, np.ndarray]:
+        """Return a smoothed sampled proxy used for visually readable overlays."""
         dt = self.render_config.sample_dt_ms
         x = np.arange(start_ms, end_ms + dt, dt, dtype=float)
         y = np.zeros_like(x)
@@ -295,6 +342,7 @@ class OptoWaveformModel:
         return x, smooth
 
     def max_level_intervals(self, start_ms: float, end_ms: float) -> list[tuple[float, float]]:
+        """Return intervals that reached the maximum optical intensity."""
         if not self.opto_on_intervals_ms:
             return []
         max_intensity = max(intensity for _, _, intensity in self.opto_on_intervals_ms)
@@ -309,6 +357,8 @@ class OptoWaveformModel:
 
 
 class PulseAlignedSpikeBuilder:
+    """Convert train-aligned spikes into pulse-aligned pseudo-trials."""
+
     def __init__(
         self,
         well_spikes: pd.DataFrame,
@@ -322,12 +372,15 @@ class PulseAlignedSpikeBuilder:
         self.pulse_window = pulse_window
 
     def build(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Return pulse-aligned spikes plus the pulse-trial manifest table."""
         pulse_rows: list[dict[str, object]] = []
         spike_rows: list[dict[str, object]] = []
         pulse_trial_index = 1
 
         for train_trial_index in self.all_trials:
             for pulse_idx, pulse in enumerate(self.pulse_epochs):
+                # Truncate the pulse-alignment window at the next pulse onset so
+                # late spikes are not misattributed across adjacent pulses.
                 next_start = (
                     self.pulse_epochs[pulse_idx + 1].start_ms
                     if pulse_idx + 1 < len(self.pulse_epochs)
@@ -393,6 +446,8 @@ class PulseAlignedSpikeBuilder:
 
 
 class PsthBuilder:
+    """Build peristimulus time histograms from aligned spike times."""
+
     def __init__(
         self,
         well_spikes: pd.DataFrame,
@@ -406,6 +461,7 @@ class PsthBuilder:
         self.time_column = time_column
 
     def build(self, window: AnalysisWindow | PulseWindow) -> pd.DataFrame:
+        """Return a PSTH table with raw counts, rates, and smoothed rates."""
         edges = np.arange(window.start_ms, window.end_ms + self.config.bin_ms, self.config.bin_ms)
         counts, edges = np.histogram(self.well_spikes[self.time_column], bins=edges)
         centers = (edges[:-1] + edges[1:]) / 2
@@ -425,6 +481,8 @@ class PsthBuilder:
 
 
 class OpsinWellFigure:
+    """Compose the train-level summary figure for one well."""
+
     def __init__(
         self,
         well: str,
@@ -454,6 +512,7 @@ class OpsinWellFigure:
         self.well_context_label = well_context_label
 
     def save(self, output_dir: Path, output_name: str | None = None) -> Path:
+        """Render and save the full train-level summary panel."""
         fig, axes = plt.subplots(
             4,
             2,
@@ -486,6 +545,7 @@ class OpsinWellFigure:
         return output_path
 
     def _draw_waveform(self, axis: plt.Axes) -> None:
+        """Draw the train-level opto waveform and pulse labels."""
         waveform_x, waveform_y = self.waveform_model.step_trace(
             self.window.start_ms, self.window.end_ms
         )
@@ -540,6 +600,7 @@ class OpsinWellFigure:
         axis.legend(loc="upper left", fontsize=8)
 
     def _draw_raster(self, axis: plt.Axes) -> None:
+        """Draw the train-aligned raster for one well."""
         self._draw_trial_epoch_overlay(axis)
         for trial_index in self.trials:
             trial_spikes = self.well_spikes.loc[self.well_spikes["trial_index"] == trial_index]
@@ -561,6 +622,7 @@ class OpsinWellFigure:
         axis.set_ylabel("trial")
 
     def _draw_psth(self, axis: plt.Axes) -> None:
+        """Draw the train-level PSTH as raw and smoothed histograms."""
         self._draw_trial_epoch_overlay(axis)
         axis.bar(
             self.psth["bin_center_ms"],
@@ -591,6 +653,7 @@ class OpsinWellFigure:
         axis.legend(loc="upper right")
 
     def _draw_trial_boxplots(self, axis: plt.Axes) -> None:
+        """Draw per-trial spike-time distributions with mean/median overlays."""
         boxplot_data = []
         positions = []
         for trial_index in self.trials:
@@ -646,6 +709,7 @@ class OpsinWellFigure:
         axis.legend(loc="upper right")
 
     def _draw_delay_boxplot(self, axis: plt.Axes) -> None:
+        """Compare first-spike delays measured at train and pulse scales."""
         train_delay_values = (
             self.trial_summary["first_post_stim_spike_ms"]
             .dropna()
@@ -707,10 +771,12 @@ class OpsinWellFigure:
         axis.set_ylabel("delay from onset (ms)")
 
     def _draw_trial_epoch_overlay(self, axis: plt.Axes) -> None:
+        """Shade the full train stimulation epoch behind a panel."""
         for start_ms, end_ms in self._merged_trial_epochs():
             axis.axvspan(start_ms, end_ms, color="#f59e0b", alpha=0.12, linewidth=0)
 
     def _merged_trial_epochs(self) -> list[tuple[float, float]]:
+        """Merge nearby opto intervals into one train-level shaded region."""
         if not self.opto_on_intervals_ms:
             return []
 
@@ -728,6 +794,8 @@ class OpsinWellFigure:
         return [(start, end) for start, end in merged]
 
 class PulseAlignedWellFigure:
+    """Compose the pulse-by-position diagnostic figure for one well."""
+
     def __init__(
         self,
         well: str,
@@ -749,6 +817,7 @@ class PulseAlignedWellFigure:
         self.well_context_label = well_context_label
 
     def save(self, output_dir: Path, output_name: str | None = None) -> Path:
+        """Render and save the pulse-by-position figure."""
         ncols = max(len(self.pulse_epochs), 1)
         fig, axes = plt.subplots(
             2,
@@ -775,6 +844,7 @@ class PulseAlignedWellFigure:
         return output_path
 
     def _draw_pulse_waveform(self, axis: plt.Axes, pulse: PulseEpoch) -> None:
+        """Draw one pulse-centered waveform panel."""
         x, y, proxy_x, proxy_y = self._pulse_waveform_trace(pulse)
         axis.axvspan(0, pulse.end_ms - pulse.start_ms, color="#f59e0b", alpha=0.12, linewidth=0)
         for start_ms, end_ms in self.waveform_model.max_level_intervals(
@@ -810,6 +880,7 @@ class PulseAlignedWellFigure:
             axis.legend(loc="upper left", fontsize=7)
 
     def _draw_pulse_raster(self, axis: plt.Axes, pulse: PulseEpoch) -> None:
+        """Draw one pulse-specific raster while preserving train trial order."""
         pulse_df = self.pulse_aligned_spikes.loc[
             self.pulse_aligned_spikes["pulse_index"] == pulse.pulse_index
         ]
@@ -833,6 +904,7 @@ class PulseAlignedWellFigure:
         axis.set_ylabel("train trial")
 
     def _pulse_waveform_trace(self, pulse: PulseEpoch) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return step and smoothed traces recentered around one pulse onset."""
         abs_start = pulse.start_ms + self.pulse_window.start_ms
         abs_end = pulse.start_ms + self.pulse_window.end_ms
         step_x, step_y = self.waveform_model.step_trace(abs_start, abs_end)
@@ -846,6 +918,8 @@ class PulseAlignedWellFigure:
 
 
 class PulseTrialSummaryFigure:
+    """Compose the pooled pulse-as-trial summary figure for one well."""
+
     def __init__(
         self,
         well: str,
@@ -871,6 +945,7 @@ class PulseTrialSummaryFigure:
         self.well_context_label = well_context_label
 
     def save(self, output_dir: Path, output_name: str | None = None) -> Path:
+        """Render and save the pooled pulse pseudo-trial figure."""
         fig, axes = plt.subplots(
             4,
             2,
@@ -903,6 +978,7 @@ class PulseTrialSummaryFigure:
         return output_path
 
     def _draw_waveform(self, axis: plt.Axes) -> None:
+        """Draw the single-pulse waveform template used for pooled trials."""
         if not self.pulse_epochs:
             axis.set_visible(False)
             return
@@ -936,6 +1012,7 @@ class PulseTrialSummaryFigure:
         axis.legend(loc="upper left", fontsize=8)
 
     def _draw_raster(self, axis: plt.Axes) -> None:
+        """Draw the pooled pseudo-trial raster in appearance order."""
         for pulse_trial_index in self.pulse_trials["pulse_trial_index"].astype(int).tolist():
             pseudo_spikes = self.pulse_aligned_spikes.loc[
                 self.pulse_aligned_spikes["pulse_trial_index"] == pulse_trial_index
@@ -972,6 +1049,7 @@ class PulseTrialSummaryFigure:
         axis.set_facecolor("white")
 
     def _draw_psth(self, axis: plt.Axes) -> None:
+        """Draw the pooled pulse PSTH using fixed-width histogram bins."""
         axis.axvspan(0, self._pulse_duration_ms(), color="#f59e0b", alpha=0.12, linewidth=0)
         axis.bar(
             self.psth["bin_center_ms"],
@@ -991,6 +1069,7 @@ class PulseTrialSummaryFigure:
         axis.legend(loc="upper right")
 
     def _draw_delay_scatter(self, axis: plt.Axes) -> None:
+        """Draw first-post-pulse delays across pseudo-trials."""
         palette = sns.color_palette("tab10", n_colors=max(len(self.pulse_epochs), 1))
         for pulse_idx, pulse in enumerate(self.pulse_epochs, start=1):
             pulse_df = self.pulse_summary.loc[self.pulse_summary["pulse_index"] == pulse_idx]
@@ -1015,6 +1094,7 @@ class PulseTrialSummaryFigure:
             axis.legend(loc="upper right", ncols=min(len(self.pulse_epochs), 5), fontsize=8)
 
     def _draw_delay_boxplot(self, axis: plt.Axes) -> None:
+        """Draw pooled delay distributions for all pulses and for each pulse index."""
         grouped_values: list[np.ndarray] = []
         labels: list[str] = []
 
@@ -1071,12 +1151,14 @@ class PulseTrialSummaryFigure:
         axis.set_ylabel("delay from onset (ms)")
 
     def _pulse_duration_ms(self) -> float:
+        """Return the duration of the first pulse template."""
         if not self.pulse_epochs:
             return 0.0
         first_pulse = self.pulse_epochs[0]
         return first_pulse.end_ms - first_pulse.start_ms
 
     def _pulse_waveform_trace(self, pulse: PulseEpoch) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return step and smoothed traces recentered around one pulse onset."""
         abs_start = pulse.start_ms + self.pulse_window.start_ms
         abs_end = pulse.start_ms + self.pulse_window.end_ms
         step_x, step_y = self.waveform_model.step_trace(abs_start, abs_end)
@@ -1090,6 +1172,8 @@ class PulseTrialSummaryFigure:
 
 
 class ReportPanelComposer:
+    """Combine the three major per-well figures into one stacked report image."""
+
     def compose_report_panel(
         self,
         train_path: Path,
@@ -1097,6 +1181,7 @@ class ReportPanelComposer:
         per_pulse_path: Path,
         output_path: Path,
     ) -> Path:
+        """Compose and save the combined per-well report panel."""
         train = Image.open(train_path)
         pooled = Image.open(pooled_pulse_path)
         per_pulse = Image.open(per_pulse_path)
@@ -1119,6 +1204,7 @@ class ReportPanelComposer:
 
     @staticmethod
     def _resize_to_height(image: Image.Image, target_height: int) -> Image.Image:
+        """Resize an image while preserving aspect ratio to a target height."""
         if image.height == target_height:
             return image
         scale = target_height / image.height
@@ -1127,6 +1213,7 @@ class ReportPanelComposer:
 
     @staticmethod
     def _resize_to_width(image: Image.Image, target_width: int) -> Image.Image:
+        """Resize an image while preserving aspect ratio to a target width."""
         if image.width == target_width:
             return image
         scale = target_width / image.width

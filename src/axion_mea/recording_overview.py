@@ -1,4 +1,18 @@
 from __future__ import annotations
+"""Recording-level CSV parsing and overview plotting utilities.
+
+This module is the first structured stage in the pipeline. It converts Axion's
+CSV exports into normalized tables that later stages can trust:
+
+1. `read_spike_list()` parses per-spike rows plus the embedded `Well Information`
+   footer that carries treatment and active/control metadata.
+2. `read_spike_counts()` converts the wide spike-count export into long-format
+   well-level and electrode-level tables.
+3. `read_environment()` extracts environmental telemetry when the file is
+   present.
+4. The plotting helpers generate recording-level context plots before any
+   stimulation-locked analysis is performed.
+"""
 
 import csv
 import json
@@ -16,6 +30,7 @@ ELECTRODE_RE = re.compile(r"^(?P<well>[A-F][1-8])_(?P<channel>\d{2})$")
 
 
 def find_first_file(data_dir: Path, suffix: str) -> Path | None:
+    """Return the first non-resource-fork file in `data_dir` matching `suffix`."""
     matches = sorted(
         path
         for path in data_dir.glob(f"*{suffix}")
@@ -25,11 +40,20 @@ def find_first_file(data_dir: Path, suffix: str) -> Path | None:
 
 
 def sanitize_name(name: str) -> str:
+    """Convert free text into a filesystem-safe project or folder name."""
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip())
     return cleaned.strip("_") or "recording"
 
 
 def read_spike_list(path: Path) -> tuple[pd.DataFrame, dict[str, str], pd.DataFrame]:
+    """Parse the Axion spike-list export and its embedded metadata blocks.
+
+    Returns:
+    - `spikes`: one row per spike with well, electrode, time, and amplitude.
+    - `recording_metadata`: key-value metadata collected from the header rows.
+    - `well_metadata`: parsed `Well Information` table with treatment labels and
+      activity flags when present.
+    """
     recording_metadata: dict[str, str] = {}
     spike_rows: list[dict[str, object]] = []
     well_info_rows: list[list[str]] = []
@@ -79,6 +103,7 @@ def read_spike_list(path: Path) -> tuple[pd.DataFrame, dict[str, str], pd.DataFr
 
 
 def parse_well_information(rows: list[list[str]]) -> pd.DataFrame:
+    """Convert the raw `Well Information` footer rows into a tidy table."""
     if not rows or not rows[0] or rows[0][0].strip() != "Well":
         return pd.DataFrame(columns=["well"])
 
@@ -112,6 +137,7 @@ def parse_well_information(rows: list[list[str]]) -> pd.DataFrame:
 
 
 def read_spike_counts(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Convert the wide spike-count export into long-format well and channel tables."""
     counts = pd.read_csv(path, encoding="utf-8-sig")
     start = pd.to_numeric(counts["Interval Start (S)"], errors="coerce")
     end = pd.to_numeric(counts["Interval End (S)"], errors="coerce")
@@ -160,6 +186,7 @@ def read_spike_counts(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def read_environment(path: Path) -> pd.DataFrame:
+    """Read environmental telemetry recorded alongside the spike export."""
     rows: list[list[str]] = []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.reader(handle)
@@ -201,6 +228,11 @@ def read_environment(path: Path) -> pd.DataFrame:
 
 
 def pick_active_wells(well_long: pd.DataFrame, well_metadata: pd.DataFrame) -> list[str]:
+    """Choose wells to display in recording-level overview plots.
+
+    The function prefers wells explicitly marked `Active == True` when that
+    annotation is present, but falls back to wells with non-zero spike counts.
+    """
     well_totals = (
         well_long.groupby("well", as_index=False)["spike_count"]
         .sum()
@@ -225,6 +257,7 @@ def save_summary(
     well_long: pd.DataFrame,
     electrode_long: pd.DataFrame,
 ) -> None:
+    """Write a compact JSON summary of the recording-level CSV stage."""
     summary = {
         "recording_name": recording_metadata.get("Recording Name", output_dir.name),
         "description": recording_metadata.get("Description", ""),
@@ -258,6 +291,7 @@ def save_summary(
 def plot_well_spikes(
     well_long: pd.DataFrame, active_wells: list[str], output_path: Path
 ) -> None:
+    """Render well-level spike activity as a heatmap plus line overview."""
     if not active_wells:
         return
 
@@ -309,6 +343,7 @@ def plot_top_channels_by_well(
     max_wells: int,
     top_channels_per_well: int,
 ) -> None:
+    """Plot the most active channels inside each selected well."""
     wells_to_plot = active_wells[:max_wells]
     if not wells_to_plot:
         return
@@ -360,6 +395,7 @@ def plot_top_channels_by_well(
 
 
 def plot_environment(env: pd.DataFrame, output_path: Path) -> None:
+    """Render temperature and CO2 traces when environmental data exists."""
     if env.empty:
         return
 

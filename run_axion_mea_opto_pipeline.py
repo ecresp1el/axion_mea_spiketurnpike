@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Top-level command-line entrypoint for the Axion MEA opto pipeline.
+
+This script exists to provide one stable command for the entire repository:
+`python run_axion_mea_opto_pipeline.py`.
+
+The actual implementation lives under `src/axion_mea/`. This wrapper:
+1. makes sure `src/` is importable when the repo is run in-place,
+2. parses user-facing CLI arguments,
+3. converts CLI arguments into a `ProjectBuildConfig`, and
+4. runs `AxionProjectBuilder`, which performs the full recording workflow.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +21,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
+    # Allow the repo to run without installing it as a site package.
     sys.path.insert(0, str(SRC_DIR))
 
 from axion_mea import AxionProjectBuilder, ProjectBuildConfig
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line options for a single recording build."""
     parser = argparse.ArgumentParser(
         description="Build a reproducible Axion MEA optogenetic response project."
     )
@@ -75,6 +88,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Build one recording project and print the final output location."""
     args = parse_args()
     config = ProjectBuildConfig(
         data_dir=args.data_dir,

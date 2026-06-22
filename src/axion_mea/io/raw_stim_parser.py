@@ -1,4 +1,19 @@
 from __future__ import annotations
+"""Low-level parser for Axion `.raw` stimulation tags.
+
+This module is intentionally narrow: it does not attempt to decode the full raw
+recording format. Instead, it extracts only the tag structures required by this
+repository:
+
+- stimulation waveform tags,
+- stimulation channel-group tags,
+- stimulation LED-group tags, and
+- stimulation event tags.
+
+Those tags are enough to recover stimulation timestamps, stimulated wells, and
+the XML micro-operation program used later to reconstruct the intended opto
+waveform shown in the report figures.
+"""
 
 import csv
 import json
@@ -12,6 +27,8 @@ import xml.etree.ElementTree as ET
 
 
 class EntryRecordType(IntEnum):
+    """Primary and subheader record types observed in Axion raw files."""
+
     TERMINATE = 0x00
     NOTES_ARRAY = 0x01
     CHANNEL_ARRAY = 0x02
@@ -24,6 +41,8 @@ class EntryRecordType(IntEnum):
 
 
 class TagType(IntEnum):
+    """Known Axion tag identifiers relevant to this parser."""
+
     DELETED = 0
     WELL_TREATMENT = 1
     USER_ANNOTATION = 2
@@ -42,11 +61,14 @@ class TagType(IntEnum):
 
 @dataclass(frozen=True)
 class EntryRecord:
+    """Decoded primary-header or subheader entry descriptor."""
+
     record_type: EntryRecordType
     length: int
 
     @classmethod
     def from_uint64(cls, value: int) -> "EntryRecord":
+        """Decode an Axion packed entry-record word."""
         record_id = (value >> 56) & 0xFF
         high = (value >> 32) & 0x00FF_FFFF
         low = value & 0xFFFF_FFFF
@@ -63,6 +85,8 @@ class EntryRecord:
 
 @dataclass(frozen=True)
 class AxionDateTime:
+    """Axion timestamp structure embedded inside tag metadata."""
+
     year: int
     month: int
     day: int
@@ -73,6 +97,7 @@ class AxionDateTime:
 
     @classmethod
     def read(cls, reader: "BinaryReader") -> "AxionDateTime":
+        """Read one Axion datetime block from the binary stream."""
         return cls(
             year=reader.read_u16(),
             month=reader.read_u16(),
@@ -86,6 +111,8 @@ class AxionDateTime:
 
 @dataclass(frozen=True)
 class TagEntry:
+    """Minimal metadata for one Axion tag revision."""
+
     start: int
     length: int
     tag_type: TagType
@@ -97,6 +124,7 @@ class TagEntry:
 
     @classmethod
     def read(cls, reader: "BinaryReader", entry_record: EntryRecord) -> "TagEntry":
+        """Read the generic tag header and skip any unparsed payload bytes."""
         start = reader.tell()
         type_code = reader.read_u16()
         try:
@@ -124,6 +152,8 @@ class TagEntry:
 
 @dataclass(frozen=True)
 class ChannelMapping:
+    """One electrode mapping inside a stimulation channel group."""
+
     well_column: int
     well_row: int
     electrode_column: int
@@ -134,6 +164,7 @@ class ChannelMapping:
 
     @classmethod
     def read(cls, reader: "BinaryReader") -> "ChannelMapping":
+        """Read one channel mapping structure."""
         return cls(
             well_column=reader.read_u8(),
             well_row=reader.read_u8(),
@@ -147,12 +178,15 @@ class ChannelMapping:
 
 @dataclass(frozen=True)
 class LedPosition:
+    """One LED position inside a stimulation LED group."""
+
     well_column: int
     well_row: int
     led_color: int
 
     @classmethod
     def read(cls, reader: "BinaryReader") -> "LedPosition":
+        """Read one LED position structure."""
         return cls(
             well_column=reader.read_u8(),
             well_row=reader.read_u8(),
@@ -162,6 +196,8 @@ class LedPosition:
 
 @dataclass(frozen=True)
 class StimulationEventData:
+    """Event-program block referenced by stimulation events."""
+
     event_data_id: int
     stimulation_duration_s: float
     artifact_elimination_duration_s: float
@@ -171,12 +207,15 @@ class StimulationEventData:
 
 @dataclass(frozen=True)
 class StimulationWaveformTag:
+    """Waveform-program tag containing block metadata and XML micro-ops."""
+
     tag_guid: str
     blocks_by_id: dict[int, StimulationEventData]
     micro_ops: str
 
     @classmethod
     def read(cls, reader: "BinaryReader", tag_entry: TagEntry) -> "StimulationWaveformTag":
+        """Read one stimulation waveform tag from the raw file."""
         reader.seek_absolute(tag_entry.start + TagEntry.BASE_SIZE)
         version = reader.read_u16()
         if version != 0:
@@ -205,11 +244,14 @@ class StimulationWaveformTag:
 
 @dataclass(frozen=True)
 class StimulationChannelsTag:
+    """Electrode stimulation group definitions referenced by events."""
+
     tag_guid: str
     groups_by_id: dict[int, list[ChannelMapping]]
 
     @classmethod
     def read(cls, reader: "BinaryReader", tag_entry: TagEntry) -> "StimulationChannelsTag":
+        """Read one stimulation-channel-group tag."""
         reader.seek_absolute(tag_entry.start + TagEntry.BASE_SIZE)
         version = reader.read_u16()
         if version != 0:
@@ -230,11 +272,14 @@ class StimulationChannelsTag:
 
 @dataclass(frozen=True)
 class StimulationLedsTag:
+    """Optical stimulation group definitions referenced by events."""
+
     tag_guid: str
     groups_by_id: dict[int, list[LedPosition]]
 
     @classmethod
     def read(cls, reader: "BinaryReader", tag_entry: TagEntry) -> "StimulationLedsTag":
+        """Read one stimulation-LED-group tag."""
         reader.seek_absolute(tag_entry.start + TagEntry.BASE_SIZE)
         version = reader.read_u16()
         if version != 0:
@@ -260,6 +305,8 @@ class StimulationLedsTag:
 
 @dataclass(frozen=True)
 class StimulationEventTag:
+    """One stimulation event linking time, waveform program, and target group."""
+
     tag_guid: str
     event_time_s: float
     event_time_sample: int
@@ -271,6 +318,7 @@ class StimulationEventTag:
 
     @classmethod
     def read(cls, reader: "BinaryReader", tag_entry: TagEntry) -> "StimulationEventTag":
+        """Read one stimulation event tag."""
         reader.seek_absolute(tag_entry.start + TagEntry.BASE_SIZE)
         sampling_frequency = reader.read_f64()
         event_time_sample = reader.read_i64()
@@ -299,6 +347,8 @@ class StimulationEventTag:
 
 @dataclass(frozen=True)
 class StimulationEventSummary:
+    """Normalized stimulation event row exported to CSV and JSON."""
+
     event_time_s: float
     event_time_sample: int
     sequence_number: int
@@ -316,65 +366,86 @@ class StimulationEventSummary:
 
 @dataclass(frozen=True)
 class OpticalOnInterval:
+    """One optical-on interval reconstructed from the micro-operation XML."""
+
     start_ms: float
     end_ms: float
     intensity: float
 
 
 class BinaryReader:
+    """Small helper around a binary file handle using Axion's little-endian layout."""
+
     def __init__(self, handle: BinaryIO) -> None:
+        """Wrap an already-open binary handle."""
         self._handle = handle
 
     def tell(self) -> int:
+        """Return the current stream offset."""
         return self._handle.tell()
 
     def seek_absolute(self, offset: int) -> None:
+        """Seek to an absolute byte offset."""
         self._handle.seek(offset)
 
     def seek_relative(self, offset: int) -> None:
+        """Seek relative to the current stream position."""
         self._handle.seek(offset, 1)
 
     def read_exact(self, size: int) -> bytes:
+        """Read exactly `size` bytes or raise `EOFError`."""
         data = self._handle.read(size)
         if len(data) != size:
             raise EOFError(f"Expected {size} bytes, got {len(data)}")
         return data
 
     def read_u8(self) -> int:
+        """Read one unsigned byte."""
         return struct.unpack("<B", self.read_exact(1))[0]
 
     def read_u16(self) -> int:
+        """Read one unsigned 16-bit integer."""
         return struct.unpack("<H", self.read_exact(2))[0]
 
     def read_u32(self) -> int:
+        """Read one unsigned 32-bit integer."""
         return struct.unpack("<I", self.read_exact(4))[0]
 
     def read_u64(self) -> int:
+        """Read one unsigned 64-bit integer."""
         return struct.unpack("<Q", self.read_exact(8))[0]
 
     def read_i64(self) -> int:
+        """Read one signed 64-bit integer."""
         return struct.unpack("<q", self.read_exact(8))[0]
 
     def read_f64(self) -> float:
+        """Read one float64 value."""
         return struct.unpack("<d", self.read_exact(8))[0]
 
     def read_ascii(self, size: int) -> str:
+        """Read a fixed-width ASCII field."""
         return self.read_exact(size).decode("ascii")
 
     def read_utf8(self) -> str:
+        """Read Axion's length-prefixed UTF-8 string format."""
         byte_count = struct.unpack("<i", self.read_exact(4))[0]
         return self.read_exact(byte_count).decode("utf-8")
 
     def read_guid(self) -> str:
+        """Read a little-endian GUID and format it as a standard UUID string."""
         return str(uuid.UUID(bytes_le=self.read_exact(16)))
 
 
 class AxionStimFile:
+    """Stim-tag focused view over one Axion raw file."""
+
     MAGIC_WORD = "AxionBio"
     PRIMARY_HEADER_MAX_ENTRIES = 123
     SUBHEADER_MAX_ENTRIES = 126
 
     def __init__(self, path: str | Path) -> None:
+        """Initialize parser state for one raw file path."""
         self.path = Path(path).expanduser().resolve()
         self.primary_data_type: int | None = None
         self.header_version_major: int | None = None
@@ -388,6 +459,7 @@ class AxionStimFile:
         self.stimulation_events: list[StimulationEventTag] = []
 
     def parse(self) -> None:
+        """Read the raw file headers and cache the latest stimulation tags."""
         with self.path.open("rb") as handle:
             reader = BinaryReader(handle)
             entry_records = self._read_primary_header(reader)
@@ -395,6 +467,7 @@ class AxionStimFile:
             self._load_stimulation_tags(reader)
 
     def summarize_stimulation_events(self) -> list[StimulationEventSummary]:
+        """Resolve raw stimulation tags into normalized event summaries."""
         summaries: list[StimulationEventSummary] = []
         for event in sorted(self.stimulation_events, key=lambda item: item.event_time_s):
             waveform = self.waveform_tags.get(event.waveform_tag_guid)
@@ -457,6 +530,7 @@ class AxionStimFile:
         return summaries
 
     def write_event_csv(self, output_path: str | Path) -> None:
+        """Export normalized stimulation events as a flat CSV table."""
         summaries = self.summarize_stimulation_events()
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -500,6 +574,7 @@ class AxionStimFile:
                 )
 
     def write_event_json(self, output_path: str | Path) -> None:
+        """Export normalized stimulation events as structured JSON."""
         summaries = self.summarize_stimulation_events()
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -507,6 +582,7 @@ class AxionStimFile:
             json.dump([asdict(summary) for summary in summaries], handle, indent=2)
 
     def opto_on_intervals_ms(self) -> list[OpticalOnInterval]:
+        """Return the first waveform-program optical intervals found in the file."""
         intervals: list[OpticalOnInterval] = []
         for waveform_tag in self.waveform_tags.values():
             if waveform_tag.micro_ops.strip():
@@ -516,6 +592,7 @@ class AxionStimFile:
         return intervals
 
     def _read_primary_header(self, reader: BinaryReader) -> list[EntryRecord]:
+        """Read the fixed-width primary header and its entry descriptors."""
         magic = reader.read_ascii(len(self.MAGIC_WORD))
         if magic != self.MAGIC_WORD:
             raise ValueError(f"Unsupported file header. Expected {self.MAGIC_WORD!r}, got {magic!r}")
@@ -538,6 +615,7 @@ class AxionStimFile:
     def _collect_latest_tag_entries(
         self, reader: BinaryReader, entry_records: list[EntryRecord]
     ) -> None:
+        """Walk the header chain and keep only the latest revision of each tag GUID."""
         terminated = False
         current_entry_records = entry_records
 
@@ -570,6 +648,7 @@ class AxionStimFile:
                 reader.seek_relative(8)  # crc32 + reserved bytes
 
     def _load_stimulation_tags(self, reader: BinaryReader) -> None:
+        """Decode cached tag entries into typed stimulation tag objects."""
         for tag_entry in self._latest_tag_entries.values():
             if tag_entry.tag_type == TagType.STIMULATION_WAVEFORM:
                 waveform_tag = StimulationWaveformTag.read(reader, tag_entry)
@@ -585,9 +664,11 @@ class AxionStimFile:
 
     @staticmethod
     def _well_name_from_position(well_row: int, well_column: int) -> str:
+        """Convert Axion numeric well coordinates to names like `D6`."""
         return f"{chr(ord('A') + well_row - 1)}{well_column}"
 
     def _parse_micro_ops_intervals(self, micro_ops_xml: str) -> list[OpticalOnInterval]:
+        """Extract optical-on intervals from the waveform-program XML."""
         root = ET.fromstring(micro_ops_xml)
         trial_loop = self._find_trial_loop(root)
         if trial_loop is None:
@@ -604,6 +685,7 @@ class AxionStimFile:
         return context["intervals"]
 
     def _find_trial_loop(self, root: ET.Element) -> ET.Element | None:
+        """Locate the XML loop corresponding to one stimulation trial."""
         for element in root.iter():
             if self._local_name(element.tag) != "loop":
                 continue
@@ -612,6 +694,7 @@ class AxionStimFile:
         return None
 
     def _process_children_once(self, parent: ET.Element, context: dict[str, object]) -> None:
+        """Execute one pass through the XML micro-op children to build intervals."""
         for child in list(parent):
             if context["stop"]:
                 return
@@ -629,6 +712,8 @@ class AxionStimFile:
                 duration_ms = self._parse_duration_ms(child.attrib.get("duration", "0 ms"))
                 start_ms = float(context["time_ms"])
                 end_ms = start_ms + duration_ms
+                # Only delays that occur while intensity is non-zero are treated
+                # as optical-on intervals.
                 if context["anchor_seen"] and float(context["intensity"]) > 0:
                     context["intervals"].append(
                         OpticalOnInterval(
@@ -647,6 +732,7 @@ class AxionStimFile:
 
     @staticmethod
     def _parse_duration_ms(text: str) -> float:
+        """Convert XML duration strings such as `500 us` or `40 ms` into ms."""
         value_str, unit = text.strip().split(maxsplit=1)
         value = float(value_str)
         unit = unit.strip()
@@ -660,4 +746,5 @@ class AxionStimFile:
 
     @staticmethod
     def _local_name(tag: str) -> str:
+        """Strip any XML namespace prefix from a tag name."""
         return tag.split("}", 1)[-1]

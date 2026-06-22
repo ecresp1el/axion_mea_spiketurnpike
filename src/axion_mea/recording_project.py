@@ -1,4 +1,17 @@
 from __future__ import annotations
+"""Project-level orchestration for the full Axion MEA recording workflow.
+
+This module is the repository's source of truth for how one recording is turned
+into one reproducible analysis project. The pipeline is intentionally staged:
+
+1. discover source files,
+2. build recording-level normalized CSV products,
+3. extract stimulation events from the `.raw` file,
+4. align spikes to each stimulation event,
+5. split wells into `opsin` and `no_opsin` groups,
+6. build per-well train-level and pulse-level response summaries, and
+7. snapshot the exact code and command used to generate the project.
+"""
 
 import json
 import shutil
@@ -44,6 +57,8 @@ from .stim_event_extractor import StimEventExtractor
 
 @dataclass(frozen=True)
 class ProjectBuildConfig:
+    """Configuration shared across every stage of a single recording build."""
+
     data_dir: Path
     project_root: Path = Path("projects")
     project_name: str | None = None
@@ -59,6 +74,8 @@ class ProjectBuildConfig:
 
 @dataclass(frozen=True)
 class RecordingSourceBundle:
+    """Resolved set of source files required to process one recording."""
+
     data_dir: Path
     spike_list_csv: Path
     spike_counts_csv: Path
@@ -68,6 +85,7 @@ class RecordingSourceBundle:
 
     @classmethod
     def discover(cls, data_dir: Path) -> "RecordingSourceBundle":
+        """Locate the expected Axion exports inside one recording folder."""
         resolved = data_dir.expanduser().resolve()
         if not resolved.exists():
             raise FileNotFoundError(f"Data directory does not exist: {resolved}")
@@ -95,45 +113,57 @@ class RecordingSourceBundle:
 
 @dataclass(frozen=True)
 class ProjectLayout:
+    """Central definition of the on-disk project folder structure."""
+
     root: Path
 
     @property
     def processed_data_dir(self) -> Path:
+        """Top-level folder for normalized intermediate outputs."""
         return self.root / "processed_data"
 
     @property
     def recording_overview_dir(self) -> Path:
+        """Outputs produced directly from the CSV exports."""
         return self.processed_data_dir / "recording_overview"
 
     @property
     def stim_event_dir(self) -> Path:
+        """Outputs produced by parsing stimulation metadata from the raw file."""
         return self.processed_data_dir / "stim_event_detection"
 
     @property
     def stim_locked_spikes_dir(self) -> Path:
+        """Outputs produced after aligning spikes to stimulation events."""
         return self.processed_data_dir / "stim_locked_spikes"
 
     @property
     def groups_dir(self) -> Path:
+        """Parent folder for per-group and per-well response summaries."""
         return self.root / "groups"
 
     @property
     def manifest_path(self) -> Path:
+        """Project-wide machine-readable manifest path."""
         return self.root / "project_manifest.json"
 
     @property
     def summary_path(self) -> Path:
+        """Project-wide human-readable summary path."""
         return self.root / "PROJECT_SUMMARY.md"
 
     @property
     def repro_dir(self) -> Path:
+        """Folder containing reproducibility metadata and code snapshots."""
         return self.root / "repro"
 
     @property
     def repro_code_dir(self) -> Path:
+        """Snapshot destination for the exact source files used in this run."""
         return self.repro_dir / "code_snapshot"
 
     def create(self) -> None:
+        """Create every top-level folder needed by the project layout."""
         for path in [
             self.root,
             self.recording_overview_dir,
@@ -147,14 +177,18 @@ class ProjectLayout:
             path.mkdir(parents=True, exist_ok=True)
 
     def group_dir(self, group_name: str) -> Path:
+        """Return the folder for one well group."""
         return self.groups_dir / group_name
 
     def well_dir(self, group_name: str, well: str) -> Path:
+        """Return the folder for one well inside one group."""
         return self.group_dir(group_name) / well
 
 
 @dataclass(frozen=True)
 class ExplorerArtifacts:
+    """Key recording-overview outputs reused by downstream stages."""
+
     recording_name: str
     spike_list_clean_csv: Path
     well_metadata_csv: Path
@@ -162,11 +196,15 @@ class ExplorerArtifacts:
 
 @dataclass(frozen=True)
 class StimEventArtifacts:
+    """Key stimulation-event outputs reused by downstream stages."""
+
     stim_events_csv: Path
 
 
 @dataclass(frozen=True)
 class WellProjectGroup:
+    """Well grouping result used to separate opsin and non-opsin wells."""
+
     name: str
     title_label: str
     wells: list[str]
@@ -174,33 +212,42 @@ class WellProjectGroup:
 
 @dataclass(frozen=True)
 class WellResponseLayout:
+    """Folder layout for all response products written for one well."""
+
     root: Path
 
     @property
     def overview_dir(self) -> Path:
+        """Combined figure panel for fast well-level review."""
         return self.root / "report"
 
     @property
     def train_dir(self) -> Path:
+        """Outputs where one 5-pulse train is treated as one trial."""
         return self.root / "train_response"
 
     @property
     def pulse_position_dir(self) -> Path:
+        """Outputs where pulses are separated by within-train position."""
         return self.root / "pulse_response_by_position"
 
     @property
     def pulse_trial_dir(self) -> Path:
+        """Outputs where every pulse instance becomes one pseudo-trial."""
         return self.root / "pulse_response_all_pulses"
 
     @property
     def shared_tables_dir(self) -> Path:
+        """Shared well-level tables used by multiple response views."""
         return self.root / "tables"
 
     @property
     def manifest_path(self) -> Path:
+        """Machine-readable summary of one well's response outputs."""
         return self.root / "well_response_summary.json"
 
     def create(self) -> None:
+        """Create the full per-well folder structure."""
         for path in [
             self.root,
             self.overview_dir,
@@ -214,6 +261,8 @@ class WellResponseLayout:
 
 @dataclass(frozen=True)
 class WellResponseAnalysis:
+    """All computed response products for one well before files are written."""
+
     group: WellProjectGroup
     well: str
     layout: WellResponseLayout
@@ -229,6 +278,8 @@ class WellResponseAnalysis:
 
 
 class WellResponseBuilder:
+    """Analyze one well and write the train-level and pulse-level outputs."""
+
     def __init__(
         self,
         window: AnalysisWindow,
@@ -256,6 +307,7 @@ class WellResponseBuilder:
         well: str,
         layout: WellResponseLayout,
     ) -> WellResponseAnalysis:
+        """Compute all in-memory response tables needed for one well."""
         well_spikes = dataset.spikes_for_well(well)
         trials = dataset.all_trials()
         waveform_model = OptoWaveformModel(
@@ -301,6 +353,7 @@ class WellResponseBuilder:
         )
 
     def write(self, analysis: WellResponseAnalysis) -> None:
+        """Persist all per-well figures, tables, and the well manifest."""
         train_fig = OpsinWellFigure(
             well=analysis.well,
             well_spikes=analysis.well_spikes,
@@ -397,12 +450,15 @@ class WellResponseBuilder:
 
 
 class RecordingOverviewStage:
+    """Stage 1: parse the CSV exports and write recording-level overview products."""
+
     def __init__(self, bundle: RecordingSourceBundle, layout: ProjectLayout, config: ProjectBuildConfig) -> None:
         self.bundle = bundle
         self.layout = layout
         self.config = config
 
     def run(self) -> ExplorerArtifacts:
+        """Write normalized CSV tables and recording-level overview plots."""
         spikes, recording_metadata, well_metadata = read_spike_list(self.bundle.spike_list_csv)
         well_long, electrode_long = read_spike_counts(self.bundle.spike_counts_csv)
         env = (
@@ -453,11 +509,14 @@ class RecordingOverviewStage:
 
 
 class StimEventStage:
+    """Stage 2: extract stimulation event timing from the raw file."""
+
     def __init__(self, bundle: RecordingSourceBundle, layout: ProjectLayout) -> None:
         self.bundle = bundle
         self.layout = layout
 
     def run(self) -> StimEventArtifacts:
+        """Write stimulation-event CSV/JSON products and return the CSV path."""
         extraction = StimEventExtractor(self.bundle.raw_file, self.layout.stim_event_dir).extract()
         StimEventExtractor.print_summary(extraction)
         return StimEventArtifacts(
@@ -466,6 +525,8 @@ class StimEventStage:
 
 
 class StimLockedSpikeStage:
+    """Stage 3: align spikes to each stimulation event and write raster QC outputs."""
+
     def __init__(
         self,
         spike_list_clean_csv: Path,
@@ -482,6 +543,7 @@ class StimLockedSpikeStage:
         self.top_channels_per_well = config.top_channels_per_well
 
     def run(self) -> Path:
+        """Write aligned spike tables and raster figures, then return the main table path."""
         self.dataset.load()
         self.dataset.build_aligned_table()
         self.dataset.save_tables()
@@ -492,11 +554,14 @@ class StimLockedSpikeStage:
 
 
 class WellGroupOrganizer:
+    """Assign wells with aligned spikes into `opsin` or `no_opsin` groups."""
+
     def __init__(self, well_metadata_csv: Path, aligned_spikes_csv: Path) -> None:
         self.well_metadata_csv = well_metadata_csv
         self.aligned_spikes_csv = aligned_spikes_csv
 
     def build(self) -> list[WellProjectGroup]:
+        """Return ordered well groups containing only wells with aligned data."""
         metadata = pd.read_csv(self.well_metadata_csv)
         aligned_spikes = pd.read_csv(self.aligned_spikes_csv)
         wells_with_data = (
@@ -523,12 +588,14 @@ class WellGroupOrganizer:
 
     @staticmethod
     def _normalize_treatment(value: object) -> str:
+        """Normalize treatment labels for stable string comparisons."""
         if pd.isna(value):
             return ""
         return str(value).strip().lower().replace("_", " ")
 
     @classmethod
     def _is_opsin_treatment(cls, value: str) -> bool:
+        """Classify a normalized treatment label as opsin-positive or not."""
         normalized = cls._normalize_treatment(value)
         if not normalized:
             return False
@@ -538,6 +605,8 @@ class WellGroupOrganizer:
 
 
 class WellResponseStage:
+    """Stage 4: build train-level and pulse-level response products for each well."""
+
     def __init__(
         self,
         spike_list_clean_csv: Path,
@@ -565,6 +634,7 @@ class WellResponseStage:
         self.pulse_epochs: list[PulseEpoch] = []
 
     def run(self, groups: list[WellProjectGroup]) -> None:
+        """Analyze every grouped well and write its well-level response bundle."""
         self.dataset.load()
         self._load_opto_intervals()
         builder = WellResponseBuilder(
@@ -586,6 +656,7 @@ class WellResponseStage:
                 builder.write(analysis)
 
     def _load_opto_intervals(self) -> None:
+        """Recover optical on-intervals from the raw waveform program."""
         stim_file = AxionStimFile(self.raw_file)
         stim_file.parse()
         self.opto_on_intervals_ms = [
@@ -596,6 +667,13 @@ class WellResponseStage:
 
     @staticmethod
     def _build_pulse_epochs(intervals: list[tuple[float, float, float]]) -> list[PulseEpoch]:
+        """Merge adjacent opto intervals into pulse epochs used across figures.
+
+        The raw XML can encode a pulse using multiple micro-operations. This
+        helper collapses very small inter-step gaps so downstream pulse-level
+        analyses operate on biologically meaningful pulse windows instead of raw
+        XML fragments.
+        """
         if not intervals:
             return []
         merged: list[list[float]] = []
@@ -616,6 +694,8 @@ class WellResponseStage:
 
 
 class ProjectSummaryWriter:
+    """Write the human-readable and machine-readable project summaries."""
+
     def __init__(
         self,
         layout: ProjectLayout,
@@ -631,6 +711,7 @@ class ProjectSummaryWriter:
         self.config = config
 
     def write_manifest(self) -> None:
+        """Write the project-wide JSON manifest."""
         manifest = {
             "project_root": str(self.layout.root),
             "recording_name": self.explorer.recording_name,
@@ -660,6 +741,7 @@ class ProjectSummaryWriter:
         self.layout.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     def write_summary(self) -> None:
+        """Write the project-wide Markdown summary."""
         lines = [
             "# Axion Project Summary",
             "",
@@ -697,12 +779,15 @@ class ProjectSummaryWriter:
 
 
 class ReproducibilitySnapshotWriter:
+    """Record the exact code and command used to build the project."""
+
     def __init__(self, layout: ProjectLayout, config: ProjectBuildConfig) -> None:
         self.layout = layout
         self.config = config
         self.repo_root = Path(__file__).resolve().parents[2]
 
     def write(self) -> None:
+        """Copy used source files and emit a shell command for exact rebuilding."""
         used_files = [
             self.repo_root / "run_axion_mea_opto_pipeline.py",
             self.repo_root / "environment.yml",
@@ -758,12 +843,16 @@ class ReproducibilitySnapshotWriter:
 
 
 class AxionProjectBuilder:
+    """Top-level object that runs the complete per-recording project build."""
+
     def __init__(self, config: ProjectBuildConfig) -> None:
+        """Resolve source files and initialize the target project layout."""
         self.config = config
         self.bundle = RecordingSourceBundle.discover(config.data_dir)
         self.layout = ProjectLayout(root=self._project_root())
 
     def run(self) -> Path:
+        """Execute all stages and return the root path of the generated project."""
         sns.set_theme(style="whitegrid")
         self.layout.create()
 
@@ -801,6 +890,7 @@ class AxionProjectBuilder:
         return self.layout.root
 
     def _project_root(self) -> Path:
+        """Choose the final project folder name from CLI config or raw filename."""
         if self.config.project_name:
             name = sanitize_name(self.config.project_name)
         else:

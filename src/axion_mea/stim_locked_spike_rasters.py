@@ -1,4 +1,13 @@
 from __future__ import annotations
+"""Stimulation-locked raster tables and overview figures.
+
+This module takes the cleaned spike list plus extracted stimulation events and
+re-expresses spikes in a stimulation-relative coordinate system. The resulting
+tables support two downstream uses:
+
+1. quick QC of stimulus-locked responses across wells and channels, and
+2. a shared aligned-spike table consumed by the well-level response analysis.
+"""
 
 import math
 from dataclasses import dataclass
@@ -11,19 +20,25 @@ import seaborn as sns
 
 @dataclass(frozen=True)
 class RasterWindow:
+    """Symmetric plotting window stored in milliseconds and seconds."""
+
     start_ms: float
     end_ms: float
 
     @property
     def start_s(self) -> float:
+        """Return the window start in seconds for timestamp arithmetic."""
         return self.start_ms / 1000.0
 
     @property
     def end_s(self) -> float:
+        """Return the window end in seconds for timestamp arithmetic."""
         return self.end_ms / 1000.0
 
 
 class StimAlignedSpikeDataset:
+    """Load spikes and stimulation events, then build a stim-relative spike table."""
+
     def __init__(
         self,
         spike_csv: Path,
@@ -41,6 +56,7 @@ class StimAlignedSpikeDataset:
         self.aligned_spikes = pd.DataFrame()
 
     def load(self) -> None:
+        """Load input CSVs and coerce the timing columns to numeric values."""
         self.spikes = pd.read_csv(self.spike_csv)
         self.stim_events = pd.read_csv(self.stim_csv)
         self.spikes["time_s"] = pd.to_numeric(self.spikes["time_s"], errors="coerce")
@@ -52,6 +68,7 @@ class StimAlignedSpikeDataset:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def build_aligned_table(self) -> pd.DataFrame:
+        """Create one row per spike that falls inside the stimulus-aligned window."""
         aligned_rows: list[dict[str, object]] = []
         stimulated_wells = self._stimulated_wells()
 
@@ -61,6 +78,8 @@ class StimAlignedSpikeDataset:
             window_start_s = stim_time_s + self.window.start_s
             window_end_s = stim_time_s + self.window.end_s
 
+            # Restrict spikes to the current stimulus window and to wells that
+            # were reported as stimulated by the raw-tag extraction step.
             in_window = self.spikes.loc[
                 (self.spikes["time_s"] >= window_start_s)
                 & (self.spikes["time_s"] <= window_end_s)
@@ -94,6 +113,7 @@ class StimAlignedSpikeDataset:
         return self.aligned_spikes
 
     def save_tables(self) -> None:
+        """Write the aligned spike table plus simple well/channel count summaries."""
         if self.aligned_spikes.empty:
             return
 
@@ -115,6 +135,7 @@ class StimAlignedSpikeDataset:
         channel_counts.to_csv(self.output_dir / "stim_aligned_channel_counts.csv", index=False)
 
     def top_channels_by_well(self, top_n: int) -> dict[str, list[str]]:
+        """Return the top `top_n` electrodes per well by aligned spike count."""
         if self.aligned_spikes.empty:
             return {}
 
@@ -131,11 +152,13 @@ class StimAlignedSpikeDataset:
         return top_channels
 
     def wells(self) -> list[str]:
+        """Return stimulated wells, preferring aligned-spike content when available."""
         if self.aligned_spikes.empty:
             return self._stimulated_wells()
         return sorted(self.aligned_spikes["well"].unique())
 
     def _stimulated_wells(self) -> list[str]:
+        """Recover the stimulated well list from the extracted stimulation CSV."""
         stimulated: set[str] = set()
         if "stimulated_wells" not in self.stim_events.columns:
             return sorted(self.spikes["well"].unique())
@@ -149,11 +172,14 @@ class StimAlignedSpikeDataset:
 
 
 class RasterPlotWriter:
+    """Create recording-level stimulus-locked raster figures."""
+
     def __init__(self, dataset: StimAlignedSpikeDataset) -> None:
         self.dataset = dataset
         sns.set_theme(style="whitegrid")
 
     def plot_well_trial_rasters(self) -> Path | None:
+        """Render one trial raster panel per well."""
         aligned = self.dataset.aligned_spikes
         wells = self.dataset.wells()
         if aligned.empty or not wells:
@@ -182,6 +208,7 @@ class RasterPlotWriter:
         return output_path
 
     def plot_channel_trial_rasters(self, top_n_channels: int) -> list[Path]:
+        """Render one raster figure per well for its most active electrodes."""
         aligned = self.dataset.aligned_spikes
         if aligned.empty:
             return []
@@ -220,6 +247,7 @@ class RasterPlotWriter:
         return paths
 
     def _draw_trial_raster(self, axis: plt.Axes, df: pd.DataFrame, title: str) -> None:
+        """Draw one raster axis from a single well or single electrode slice."""
         if df.empty:
             axis.set_title(f"{title} (no spikes)")
             axis.set_xlim(self.dataset.window.start_ms, self.dataset.window.end_ms)
