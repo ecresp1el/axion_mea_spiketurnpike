@@ -425,12 +425,14 @@ class PulseAlignedSpikeBuilder:
                     columns=[
                         "pulse_trial_index",
                         "train_trial_index",
+                        "trial_index",
                         "pulse_index",
                         "pulse_label",
                         "pulse_onset_ms",
                         "pulse_end_ms",
                         "well",
                         "electrode",
+                        "channel_in_well",
                         "aligned_time_ms",
                         "pulse_aligned_time_ms",
                         "amplitude_mV",
@@ -886,7 +888,7 @@ class PulseAlignedWellFigure:
         ]
         axis.axvspan(0, pulse.end_ms - pulse.start_ms, color="#f59e0b", alpha=0.12, linewidth=0)
         for trial_index in self.trials:
-            trial_spikes = pulse_df.loc[pulse_df["trial_index"] == trial_index]
+            trial_spikes = pulse_df.loc[pulse_df["train_trial_index"] == trial_index]
             if trial_spikes.empty:
                 continue
             axis.vlines(
@@ -1090,7 +1092,8 @@ class PulseTrialSummaryFigure:
         axis.set_title("First Post-Pulse Delay Across Pooled Pseudo-Trials")
         axis.set_xlabel("pseudo-trial")
         axis.set_ylabel("delay from pulse onset (ms)")
-        if self.pulse_epochs:
+        handles, labels = axis.get_legend_handles_labels()
+        if self.pulse_epochs and handles:
             axis.legend(loc="upper right", ncols=min(len(self.pulse_epochs), 5), fontsize=8)
 
     def _draw_delay_boxplot(self, axis: plt.Axes) -> None:

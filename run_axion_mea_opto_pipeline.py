@@ -8,7 +8,8 @@ The actual implementation lives under `src/axion_mea/`. This wrapper:
 1. makes sure `src/` is importable when the repo is run in-place,
 2. parses user-facing CLI arguments,
 3. converts CLI arguments into a `ProjectBuildConfig`, and
-4. runs `AxionProjectBuilder`, which performs the full recording workflow.
+4. runs `AxionProjectSeriesBuilder`, which builds one project per discovered
+   recording instance.
 """
 
 from __future__ import annotations
@@ -24,19 +25,19 @@ if str(SRC_DIR) not in sys.path:
     # Allow the repo to run without installing it as a site package.
     sys.path.insert(0, str(SRC_DIR))
 
-from axion_mea import AxionProjectBuilder, ProjectBuildConfig
+from axion_mea import AxionProjectSeriesBuilder, ProjectBuildConfig
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line options for a single recording build."""
+    """Parse command-line options for a recording or recording-series build."""
     parser = argparse.ArgumentParser(
-        description="Build a reproducible Axion MEA optogenetic response project."
+        description="Build reproducible Axion MEA optogenetic response projects."
     )
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path("/Volumes/MannySSD/maestro_pro_output_meas/6_22_2026/129-8445"),
-        help="Folder containing the raw/spk/csv files for one recording.",
+        default=Path("/Volumes/MannySSD/maestro_pro_output_meas/6_22_2026"),
+        help="Folder containing one recording or a plate/date folder with many indexed recordings.",
     )
     parser.add_argument(
         "--project-root",
@@ -48,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         "--project-name",
         type=str,
         default=None,
-        help="Optional override for the project folder name.",
+        help="Optional override for the output folder name. For multi-recording inputs this names the series folder.",
     )
     parser.add_argument("--pre-ms", type=float, default=100.0, help="Milliseconds before train onset.")
     parser.add_argument("--post-ms", type=float, default=1000.0, help="Milliseconds after train onset.")
@@ -88,7 +89,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Build one recording project and print the final output location."""
+    """Build one or more recording projects and print the final output location."""
     args = parse_args()
     config = ProjectBuildConfig(
         data_dir=args.data_dir,
@@ -103,8 +104,9 @@ def main() -> None:
         top_channels_per_well=args.top_channels_per_well,
         max_wells=args.max_wells,
     )
-    project_root = AxionProjectBuilder(config).run()
-    print(f"Project built: {project_root}")
+    result = AxionProjectSeriesBuilder(config).run()
+    print(f"Recording series built: {result.series_root}")
+    print(f"Independent recordings processed: {len(result.recording_projects)}")
 
 
 if __name__ == "__main__":

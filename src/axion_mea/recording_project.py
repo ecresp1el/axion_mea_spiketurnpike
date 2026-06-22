@@ -14,15 +14,15 @@ into one reproducible analysis project. The pipeline is intentionally staged:
 """
 
 import json
+import re
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import pandas as pd
 import seaborn as sns
 
 from .recording_overview import (
-    find_first_file,
     pick_active_wells,
     plot_environment,
     plot_top_channels_by_well,
@@ -33,6 +33,7 @@ from .recording_overview import (
     sanitize_name,
     save_summary,
 )
+from .series_response_comparison import CrossRecordingOpsinComparator, SeriesRecordingProject
 from .io import AxionStimFile
 from .well_response_analysis import (
     AnalysisWindow,
@@ -57,7 +58,7 @@ from .stim_event_extractor import StimEventExtractor
 
 @dataclass(frozen=True)
 class ProjectBuildConfig:
-    """Configuration shared across every stage of a single recording build."""
+    """Configuration shared across the recording or recording-series build."""
 
     data_dir: Path
     project_root: Path = Path("projects")
@@ -77,38 +78,159 @@ class RecordingSourceBundle:
     """Resolved set of source files required to process one recording."""
 
     data_dir: Path
+    recording_stem: str
     spike_list_csv: Path
     spike_counts_csv: Path
     environmental_csv: Path | None
     raw_file: Path
     spk_file: Path | None
 
+    STEM_RE = re.compile(r"^(?P<recording_name>.+?)\((?P<recording_index>\d+)\)$")
+
+    @property
+    def recording_name(self) -> str:
+        """Base recording name without the trailing Axion index suffix."""
+        match = self.STEM_RE.fullmatch(self.recording_stem)
+        return match.group("recording_name") if match else self.recording_stem
+
+    @property
+    def recording_index(self) -> str | None:
+        """Optional zero-padded Axion recording index."""
+        match = self.STEM_RE.fullmatch(self.recording_stem)
+        return match.group("recording_index") if match else None
+
+    @property
+    def plate_id(self) -> str:
+        """Parent folder label, which acts as the plate identifier here."""
+        return self.data_dir.name
+
+    @property
+    def project_slug(self) -> str:
+        """Stable filesystem-safe project slug for this recording instance."""
+        if self.recording_index is None:
+            return sanitize_name(self.recording_stem)
+        return sanitize_name(f"{self.recording_name}_{self.recording_index}")
+
+    @property
+    def source_summary(self) -> dict[str, str | None]:
+        """Machine-readable file summary used in manifests and series reports."""
+        return {
+            "data_dir": str(self.data_dir),
+            "recording_stem": self.recording_stem,
+            "recording_name": self.recording_name,
+            "recording_index": self.recording_index,
+            "plate_id": self.plate_id,
+            "spike_list_csv": str(self.spike_list_csv),
+            "spike_counts_csv": str(self.spike_counts_csv),
+            "environmental_csv": str(self.environmental_csv) if self.environmental_csv else None,
+            "raw_file": str(self.raw_file),
+            "spk_file": str(self.spk_file) if self.spk_file else None,
+        }
+
     @classmethod
     def discover(cls, data_dir: Path) -> "RecordingSourceBundle":
-        """Locate the expected Axion exports inside one recording folder."""
+        """Locate the expected Axion exports when exactly one recording exists."""
+        bundles = cls.discover_all(data_dir)
+        if not bundles:
+            raise FileNotFoundError(f"No Axion recording exports found under: {data_dir}")
+        if len(bundles) > 1:
+            raise ValueError(
+                f"Expected one recording under {data_dir}, but found {len(bundles)}. "
+                "Use the batch builder or point to one specific recording folder."
+            )
+        return bundles[0]
+
+    @classmethod
+    def discover_all(cls, data_dir: Path) -> list["RecordingSourceBundle"]:
+        """Locate every recording instance inside a folder tree.
+
+        This supports both of the Axion layouts observed in this project:
+        1. one folder containing one recording's files, and
+        2. one plate folder containing many indexed recordings like `(000)`,
+           `(001)`, and so on.
+        """
         resolved = data_dir.expanduser().resolve()
         if not resolved.exists():
             raise FileNotFoundError(f"Data directory does not exist: {resolved}")
 
-        spike_list_csv = find_first_file(resolved, "_spike_list.csv")
-        spike_counts_csv = find_first_file(resolved, "_spike_counts.csv")
-        environmental_csv = find_first_file(resolved, "_environmental_data.csv")
-        raw_file = find_first_file(resolved, ".raw")
-        spk_file = find_first_file(resolved, ".spk")
+        spike_list_paths = sorted(
+            path
+            for path in resolved.rglob("*_spike_list.csv")
+            if not path.name.startswith("._")
+        )
+        bundles: list[RecordingSourceBundle] = []
+        for spike_list_csv in spike_list_paths:
+            recording_dir = spike_list_csv.parent.resolve()
+            recording_stem = spike_list_csv.name[: -len("_spike_list.csv")]
+            bundle = cls._discover_from_stem(recording_dir, recording_stem)
+            if bundle is not None:
+                bundles.append(bundle)
 
-        if spike_list_csv is None or spike_counts_csv is None or raw_file is None:
+        if not bundles:
             raise FileNotFoundError(
-                "Expected *_spike_list.csv, *_spike_counts.csv, and at least one .raw file in the data directory."
+                "Expected at least one Axion export set containing "
+                "`*_spike_list.csv`, `*_spike_counts.csv`, and `<stem>.raw`."
             )
+        return sorted(bundles, key=lambda bundle: (bundle.plate_id, bundle.recording_name, bundle.recording_index or ""))
+
+    @classmethod
+    def _discover_from_stem(cls, data_dir: Path, recording_stem: str) -> "RecordingSourceBundle" | None:
+        """Build one bundle from the exact Axion recording stem."""
+        spike_list_csv = data_dir / f"{recording_stem}_spike_list.csv"
+        spike_counts_csv = data_dir / f"{recording_stem}_spike_counts.csv"
+        environmental_csv = data_dir / f"{recording_stem}_environmental_data.csv"
+        raw_file = data_dir / f"{recording_stem}.raw"
+        spk_file = data_dir / f"{recording_stem}.spk"
+
+        if not (spike_list_csv.exists() and spike_counts_csv.exists() and raw_file.exists()):
+            return None
 
         return cls(
-            data_dir=resolved,
+            data_dir=data_dir,
+            recording_stem=recording_stem,
             spike_list_csv=spike_list_csv,
             spike_counts_csv=spike_counts_csv,
-            environmental_csv=environmental_csv,
+            environmental_csv=environmental_csv if environmental_csv.exists() else None,
             raw_file=raw_file,
-            spk_file=spk_file,
+            spk_file=spk_file if spk_file.exists() else None,
         )
+
+
+@dataclass(frozen=True)
+class RecordingSeriesLayout:
+    """Top-level folder layout when one command builds many recordings."""
+
+    root: Path
+
+    @property
+    def recordings_dir(self) -> Path:
+        """Parent folder containing one subproject per recording instance."""
+        return self.root / "recordings"
+
+    @property
+    def manifest_path(self) -> Path:
+        """Machine-readable batch manifest path."""
+        return self.root / "recording_series_manifest.json"
+
+    @property
+    def summary_path(self) -> Path:
+        """Human-readable batch summary path."""
+        return self.root / "RECORDING_SERIES_SUMMARY.md"
+
+    @property
+    def repro_dir(self) -> Path:
+        """Batch-level reproducibility metadata directory."""
+        return self.root / "repro"
+
+    @property
+    def repro_code_dir(self) -> Path:
+        """Batch-level code snapshot directory."""
+        return self.repro_dir / "code_snapshot"
+
+    def create(self) -> None:
+        """Create the series root folders."""
+        for path in [self.root, self.recordings_dir, self.repro_dir, self.repro_code_dir]:
+            path.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass(frozen=True)
@@ -715,14 +837,10 @@ class ProjectSummaryWriter:
         manifest = {
             "project_root": str(self.layout.root),
             "recording_name": self.explorer.recording_name,
-            "source_files": {
-                "data_dir": str(self.bundle.data_dir),
-                "spike_list_csv": str(self.bundle.spike_list_csv),
-                "spike_counts_csv": str(self.bundle.spike_counts_csv),
-                "environmental_csv": str(self.bundle.environmental_csv) if self.bundle.environmental_csv else None,
-                "raw_file": str(self.bundle.raw_file),
-                "spk_file": str(self.bundle.spk_file) if self.bundle.spk_file else None,
-            },
+            "recording_stem": self.bundle.recording_stem,
+            "recording_index": self.bundle.recording_index,
+            "plate_id": self.bundle.plate_id,
+            "source_files": self.bundle.source_summary,
             "processed_data_dirs": {
                 "recording_overview": str(self.layout.recording_overview_dir),
                 "stim_event_detection": str(self.layout.stim_event_dir),
@@ -799,6 +917,9 @@ class ReproducibilitySnapshotWriter:
             self.repo_root / "src" / "axion_mea" / "stim_locked_spike_rasters.py",
             self.repo_root / "src" / "axion_mea" / "well_response_analysis.py",
             self.repo_root / "src" / "axion_mea" / "recording_project.py",
+            self.repo_root / "src" / "axion_mea" / "series_response_comparison.py",
+            self.repo_root / "src" / "axion_mea" / "spike_waveform_overview.py",
+            self.repo_root / "src" / "axion_mea" / "raincloud_waveform_linking.py",
             self.repo_root / "src" / "axion_mea" / "io" / "__init__.py",
             self.repo_root / "src" / "axion_mea" / "io" / "raw_stim_parser.py",
         ]
@@ -851,6 +972,15 @@ class AxionProjectBuilder:
         self.bundle = RecordingSourceBundle.discover(config.data_dir)
         self.layout = ProjectLayout(root=self._project_root())
 
+    @classmethod
+    def from_bundle(cls, config: ProjectBuildConfig, bundle: RecordingSourceBundle) -> "AxionProjectBuilder":
+        """Construct a per-recording builder when the bundle is already known."""
+        builder = cls.__new__(cls)
+        builder.config = config
+        builder.bundle = bundle
+        builder.layout = ProjectLayout(root=builder._project_root())
+        return builder
+
     def run(self) -> Path:
         """Execute all stages and return the root path of the generated project."""
         sns.set_theme(style="whitegrid")
@@ -894,5 +1024,222 @@ class AxionProjectBuilder:
         if self.config.project_name:
             name = sanitize_name(self.config.project_name)
         else:
-            name = sanitize_name(self.bundle.raw_file.stem)
+            name = self.bundle.project_slug
+        return self.config.project_root.expanduser().resolve() / name
+
+
+@dataclass(frozen=True)
+class RecordingSeriesBuildResult:
+    """Summary of one batch run across multiple independent recordings."""
+
+    series_root: Path
+    recording_projects: list[Path]
+    recording_bundles: list[RecordingSourceBundle]
+
+
+class RecordingSeriesSummaryWriter:
+    """Write batch-level manifests describing independently processed recordings."""
+
+    def __init__(
+        self,
+        layout: RecordingSeriesLayout,
+        input_dir: Path,
+        project_root: Path,
+        config: ProjectBuildConfig,
+        bundles: list[RecordingSourceBundle],
+        project_paths: list[Path],
+    ) -> None:
+        self.layout = layout
+        self.input_dir = input_dir
+        self.project_root = project_root
+        self.config = config
+        self.bundles = bundles
+        self.project_paths = project_paths
+
+    def write(self) -> None:
+        """Write machine-readable and human-readable batch summaries."""
+        manifest = {
+            "input_dir": str(self.input_dir),
+            "series_root": str(self.layout.root),
+            "recording_count": len(self.bundles),
+            "analysis_kind": "independent_recording_repeats",
+            "recordings": [
+                {
+                    **bundle.source_summary,
+                    "project_root": str(project_path),
+                }
+                for bundle, project_path in zip(self.bundles, self.project_paths, strict=True)
+            ],
+            "analysis_config": {
+                "pre_ms": self.config.pre_ms,
+                "post_ms": self.config.post_ms,
+                "pulse_pre_ms": self.config.pulse_pre_ms,
+                "pulse_post_ms": self.config.pulse_post_ms,
+                "train_bin_ms": self.config.train_bin_ms,
+                "boxcar_kernel": list(self.config.boxcar_kernel),
+                "top_channels_per_well": self.config.top_channels_per_well,
+                "max_wells": self.config.max_wells,
+            },
+        }
+        self.layout.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        lines = [
+            "# Recording Series Summary",
+            "",
+            f"- Input folder: `{self.input_dir}`",
+            f"- Output root: `{self.layout.root}`",
+            f"- Independent recordings processed: `{len(self.bundles)}`",
+            "",
+            "## Interpretation",
+            "",
+            "- Each indexed Axion recording was processed as an independent project.",
+            "- No cross-recording pooling was applied at this stage.",
+            "- Each subproject keeps the same per-recording outputs used for a single run.",
+            "",
+            "## Recording Projects",
+            "",
+        ]
+
+        for bundle, project_path in zip(self.bundles, self.project_paths, strict=True):
+            index_label = bundle.recording_index if bundle.recording_index is not None else "single"
+            lines.extend(
+                [
+                    f"### {bundle.project_slug}",
+                    "",
+                    f"- Plate: `{bundle.plate_id}`",
+                    f"- Recording name: `{bundle.recording_name}`",
+                    f"- Recording index: `{index_label}`",
+                    f"- Source folder: `{bundle.data_dir}`",
+                    f"- Project folder: `{project_path}`",
+                    "",
+                ]
+            )
+
+        self.layout.summary_path.write_text("\n".join(lines), encoding="utf-8")
+        self._write_rebuild_script()
+        self._write_code_snapshot()
+
+    def _write_rebuild_script(self) -> None:
+        """Write one stable command that reproduces the full batch analysis."""
+        command_text = "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                "",
+                "cd /Users/ecrespo/Documents/MATLAB/axion_mea_spiketurnpike",
+                "source /opt/anaconda3/etc/profile.d/conda.sh",
+                "conda activate /Users/ecrespo/Documents/MATLAB/axion_mea_spiketurnpike/.conda",
+                "python run_axion_mea_opto_pipeline.py \\",
+                f"  --data-dir {self.input_dir} \\",
+                f"  --project-root {self.project_root} \\",
+                f"  --pre-ms {self.config.pre_ms} \\",
+                f"  --post-ms {self.config.post_ms} \\",
+                f"  --pulse-pre-ms {self.config.pulse_pre_ms} \\",
+                f"  --pulse-post-ms {self.config.pulse_post_ms} \\",
+                f"  --train-bin-ms {self.config.train_bin_ms} \\",
+                "  --boxcar-kernel " + " ".join(str(value) for value in self.config.boxcar_kernel) + " \\",
+                f"  --top-channels-per-well {self.config.top_channels_per_well} \\",
+                f"  --max-wells {self.config.max_wells}",
+                "",
+            ]
+        )
+        (self.layout.repro_dir / "rebuild_all_recordings.sh").write_text(command_text, encoding="utf-8")
+
+    def _write_code_snapshot(self) -> None:
+        """Copy the active source files used by the batch build."""
+        repo_root = Path(__file__).resolve().parents[2]
+        used_files = [
+            repo_root / "run_axion_mea_opto_pipeline.py",
+            repo_root / "environment.yml",
+            repo_root / "requirements.txt",
+            repo_root / "README.md",
+            repo_root / "src" / "axion_mea" / "__init__.py",
+            repo_root / "src" / "axion_mea" / "recording_overview.py",
+            repo_root / "src" / "axion_mea" / "stim_event_extractor.py",
+            repo_root / "src" / "axion_mea" / "stim_locked_spike_rasters.py",
+            repo_root / "src" / "axion_mea" / "well_response_analysis.py",
+            repo_root / "src" / "axion_mea" / "recording_project.py",
+            repo_root / "src" / "axion_mea" / "series_response_comparison.py",
+            repo_root / "src" / "axion_mea" / "spike_waveform_overview.py",
+            repo_root / "src" / "axion_mea" / "raincloud_waveform_linking.py",
+            repo_root / "src" / "axion_mea" / "io" / "__init__.py",
+            repo_root / "src" / "axion_mea" / "io" / "raw_stim_parser.py",
+        ]
+        copied: list[str] = []
+        for src in used_files:
+            if not src.exists():
+                continue
+            relative = src.relative_to(repo_root)
+            dst = self.layout.repro_code_dir / relative
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied.append(str(relative))
+        (self.layout.repro_dir / "used_files.json").write_text(
+            json.dumps({"used_files": copied}, indent=2),
+            encoding="utf-8",
+        )
+
+
+class AxionProjectSeriesBuilder:
+    """Discover and build one project per recording instance in an input tree."""
+
+    def __init__(self, config: ProjectBuildConfig) -> None:
+        self.config = config
+        self.input_dir = config.data_dir.expanduser().resolve()
+        self.bundles = RecordingSourceBundle.discover_all(self.input_dir)
+        self.layout = RecordingSeriesLayout(root=self._series_root())
+
+    def run(self) -> RecordingSeriesBuildResult:
+        """Build every discovered recording as an independent subproject."""
+        self.layout.create()
+        project_paths: list[Path] = []
+        for bundle in self.bundles:
+            recording_config = replace(
+                self.config,
+                data_dir=bundle.data_dir,
+                project_root=self.layout.recordings_dir,
+                project_name=bundle.project_slug,
+            )
+            project_path = AxionProjectBuilder.from_bundle(recording_config, bundle).run()
+            project_paths.append(project_path)
+
+        CrossRecordingOpsinComparator(
+            series_root=self.layout.root,
+            recording_projects=[
+                SeriesRecordingProject(
+                    recording_label=bundle.project_slug,
+                    recording_index=bundle.recording_index or bundle.project_slug,
+                    project_root=project_path,
+                )
+                for bundle, project_path in zip(self.bundles, project_paths, strict=True)
+            ],
+            top_n_per_group=2,
+        ).run()
+
+        RecordingSeriesSummaryWriter(
+            layout=self.layout,
+            input_dir=self.input_dir,
+            project_root=self.config.project_root.expanduser().resolve(),
+            config=self.config,
+            bundles=self.bundles,
+            project_paths=project_paths,
+        ).write()
+        return RecordingSeriesBuildResult(
+            series_root=self.layout.root,
+            recording_projects=project_paths,
+            recording_bundles=self.bundles,
+        )
+
+    def _series_root(self) -> Path:
+        """Choose a clear folder name for a set of repeated recordings."""
+        if self.config.project_name:
+            name = sanitize_name(self.config.project_name)
+        elif len(self.bundles) == 1:
+            name = self.bundles[0].project_slug
+        else:
+            plate_labels = sorted({bundle.plate_id for bundle in self.bundles})
+            recording_names = sorted({bundle.recording_name for bundle in self.bundles})
+            plate_label = "__".join(plate_labels)
+            recording_label = "__".join(recording_names)
+            name = sanitize_name(f"recording_series_{plate_label}_{recording_label}")
         return self.config.project_root.expanduser().resolve() / name

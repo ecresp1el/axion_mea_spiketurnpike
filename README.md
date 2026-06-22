@@ -1,6 +1,6 @@
 # axion_mea_spiketurnpike
 
-Canonical documentation for how this repository processes one Axion Maestro Pro recording into one reproducible optogenetic spike-response project.
+Canonical documentation for how this repository processes Axion Maestro Pro recordings into reproducible optogenetic spike-response projects.
 
 This document is intended to be the source of truth for:
 
@@ -21,7 +21,12 @@ conda activate /Users/ecrespo/Documents/MATLAB/axion_mea_spiketurnpike/.conda
 python run_axion_mea_opto_pipeline.py
 ```
 
-The repo expects one recording folder containing:
+The repo accepts either:
+
+- one recording folder containing one Axion export set, or
+- one parent folder containing many indexed recordings from the same plate or date.
+
+Each recording instance is defined by one shared stem, for example `ventral_sosrs_opsin_day3(003)`, with:
 
 - `*_spike_list.csv`
 - `*_spike_counts.csv`
@@ -29,16 +34,16 @@ The repo expects one recording folder containing:
 - `.raw`
 - `.spk` when present
 
-By default, the current recording is read from:
+By default, the input is read from:
 
 ```text
-/Volumes/MannySSD/maestro_pro_output_meas/6_22_2026/129-8445
+/Volumes/MannySSD/maestro_pro_output_meas/6_22_2026
 ```
 
-By default, the generated project is written to:
+By default, the generated output is written to:
 
 ```text
-/Volumes/MannySSD/axion_mea_projects/<recording_name>
+/Volumes/MannySSD/axion_mea_projects/<series_or_recording_name>
 ```
 
 ## High-Level Flow
@@ -48,32 +53,75 @@ The pipeline always runs in this order:
 1. `run_axion_mea_opto_pipeline.py`
    - Parses CLI arguments.
    - Creates `ProjectBuildConfig`.
-   - Calls `AxionProjectBuilder.run()`.
-2. `RecordingSourceBundle.discover()`
-   - Resolves the exact source files for one recording.
-3. `RecordingOverviewStage.run()`
+   - Calls `AxionProjectSeriesBuilder.run()`.
+2. `RecordingSourceBundle.discover_all()`
+   - Resolves every recording stem inside the input tree.
+3. `AxionProjectBuilder.run()`
+   - Runs the full single-recording project workflow once per discovered recording.
+4. `RecordingOverviewStage.run()`
    - Parses CSV exports.
    - Writes normalized recording-level tables and overview plots.
-4. `StimEventStage.run()`
+5. `StimEventStage.run()`
    - Parses the `.raw` file for stimulation-event tags.
    - Writes normalized stimulation event CSV and JSON files.
-5. `StimLockedSpikeStage.run()`
+6. `StimLockedSpikeStage.run()`
    - Aligns spikes to each stimulation event.
    - Writes aligned spike tables and quick raster QC figures.
-6. `WellGroupOrganizer.build()`
+7. `WellGroupOrganizer.build()`
    - Classifies wells into `opsin` and `no_opsin`.
-7. `WellResponseStage.run()`
+8. `WellResponseStage.run()`
    - Rebuilds well-level train and pulse analyses.
    - Writes per-well figures, tables, and well manifests.
-8. `ProjectSummaryWriter`
+9. `ProjectSummaryWriter`
    - Writes project-wide Markdown and JSON summaries.
-9. `ReproducibilitySnapshotWriter`
+10. `ReproducibilitySnapshotWriter`
    - Copies the exact code used.
    - Writes an exact rebuild shell script.
+11. `RecordingSeriesSummaryWriter`
+   - Writes a batch-level summary when more than one recording was discovered.
 
-## Output Project Layout
+## Output Layout
 
-For each recording, the generated project contains:
+When the input contains many indexed recordings, the top-level output is:
+
+```text
+<series_root>/
+├── cross_recording_group_psth_comparison/
+│   ├── figures/
+│   ├── tables/
+│   └── cross_recording_group_psth_summary.json
+├── recordings/
+│   ├── <recording_project_1>/
+│   ├── <recording_project_2>/
+│   └── ...
+├── repro/
+│   ├── code_snapshot/
+│   ├── rebuild_all_recordings.sh
+│   └── used_files.json
+├── recording_series_manifest.json
+└── RECORDING_SERIES_SUMMARY.md
+```
+
+### `cross_recording_group_psth_comparison/`
+
+Produced by the series-level group comparison stage after all per-recording
+projects are built.
+
+Writes:
+
+- `figures/figure__train_psth_by_recording_and_group.png`
+- `figures/figure__pulse_trial_psth_by_recording_and_group.png`
+- `figures/figure__pulse_trial_rate_raincloud_by_group.png`
+- `tables/table__group_overall_firing_rates_by_recording.csv`
+- `tables/table__group_well_ranking.csv`
+- `tables/table__selected_group_train_psth_long.csv`
+- `tables/table__selected_group_train_psth_metrics.csv`
+- `tables/table__selected_group_pulse_trial_psth_long.csv`
+- `tables/table__selected_group_pulse_trial_psth_metrics.csv`
+- `tables/table__pulse_trial_group_rate_distribution.csv`
+- `cross_recording_group_psth_summary.json`
+
+Each subproject under `recordings/` contains:
 
 ```text
 <project_root>/
@@ -159,14 +207,14 @@ Purpose:
 - User-facing command-line wrapper.
 - Adds `src/` to `sys.path` so the repo runs in-place without package installation.
 - Converts CLI arguments into `ProjectBuildConfig`.
-- Runs the full build.
+- Runs one independent project per discovered recording.
 
 Functions:
 
 | Function | Role | Inputs | Returns / Side Effects |
 |---|---|---|---|
-| `parse_args()` | Defines CLI flags for one recording build. | CLI arguments | `argparse.Namespace` |
-| `main()` | Builds config and launches the project builder. | Parsed args | Prints final project root |
+| `parse_args()` | Defines CLI flags for a recording or recording-series build. | CLI arguments | `argparse.Namespace` |
+| `main()` | Builds config and launches the series builder. | Parsed args | Prints final series root and recording count |
 
 ## `src/axion_mea/__init__.py`
 
@@ -177,7 +225,8 @@ Exports:
 
 | Name | Role |
 |---|---|
-| `AxionProjectBuilder` | Top-level pipeline object |
+| `AxionProjectBuilder` | Top-level single-recording pipeline object |
+| `AxionProjectSeriesBuilder` | Top-level multi-recording pipeline object |
 | `ProjectBuildConfig` | Pipeline configuration dataclass |
 
 ## `src/axion_mea/recording_overview.py`
@@ -344,8 +393,9 @@ Core data models:
 | Component | Role |
 |---|---|
 | `ProjectBuildConfig` | Global knobs for one run |
-| `RecordingSourceBundle.discover()` | Resolves the actual input files |
-| `ProjectLayout` | Defines the project folder tree |
+| `RecordingSourceBundle.discover_all()` | Resolves every recording instance in the input tree |
+| `RecordingSeriesLayout` | Defines the batch-level folder tree |
+| `ProjectLayout` | Defines the per-recording project folder tree |
 | `ExplorerArtifacts` | Carries recording-overview outputs downstream |
 | `StimEventArtifacts` | Carries stimulation-event outputs downstream |
 | `WellProjectGroup` | Stores `opsin` and `no_opsin` group assignments |
@@ -376,14 +426,47 @@ Project metadata writers:
 | `ProjectSummaryWriter.write_manifest()` | Writes `project_manifest.json` |
 | `ProjectSummaryWriter.write_summary()` | Writes `PROJECT_SUMMARY.md` |
 | `ReproducibilitySnapshotWriter.write()` | Writes `repro/rebuild_command.sh`, `repro/used_files.json`, and `repro/code_snapshot/` |
+| `RecordingSeriesSummaryWriter.write()` | Writes `recording_series_manifest.json`, `RECORDING_SERIES_SUMMARY.md`, `repro/rebuild_all_recordings.sh`, `repro/used_files.json`, and `repro/code_snapshot/` |
 
 Top-level orchestrator:
 
 | Method | Role |
 |---|---|
-| `AxionProjectBuilder.__init__(config)` | Resolves sources and target layout |
+| `AxionProjectBuilder.__init__(config)` | Resolves one recording and its target layout |
+| `AxionProjectBuilder.from_bundle(config, bundle)` | Reuses a previously discovered bundle |
 | `AxionProjectBuilder.run()` | Runs every stage in order |
 | `AxionProjectBuilder._project_root()` | Chooses the final folder name |
+| `AxionProjectSeriesBuilder.__init__(config)` | Discovers all recordings in the input tree |
+| `AxionProjectSeriesBuilder.run()` | Builds one subproject per recording |
+| `AxionProjectSeriesBuilder._series_root()` | Chooses the series folder name |
+
+## `src/axion_mea/series_response_comparison.py`
+
+Purpose:
+- Build one series-level summary focused on the strongest wells within both the `opsin` and `no_opsin` groups across repeated recordings.
+- Rank wells within each group by overall firing rate.
+- Reuse the per-recording PSTH tables to compare both train-level and pooled pulse-level responses across recordings without overlaying recordings in the same panel.
+
+Core objects:
+
+| Component | Role |
+|---|---|
+| `SeriesRecordingProject` | Minimal reference to one built recording project |
+| `CrossRecordingOpsinLayout` | Defines the output folder tree for the series comparison |
+| `CrossRecordingOpsinComparator.run()` | Writes ranking tables, long-format PSTH tables, and the major comparison figure |
+
+Primary outputs:
+
+- `figure__train_psth_by_recording_and_group.png`
+- `figure__pulse_trial_psth_by_recording_and_group.png`
+- `figure__pulse_trial_rate_raincloud_by_group.png`
+- `table__group_overall_firing_rates_by_recording.csv`
+- `table__group_well_ranking.csv`
+- `table__selected_group_train_psth_long.csv`
+- `table__selected_group_train_psth_metrics.csv`
+- `table__selected_group_pulse_trial_psth_long.csv`
+- `table__selected_group_pulse_trial_psth_metrics.csv`
+- `table__pulse_trial_group_rate_distribution.csv`
 
 ## `src/axion_mea/io/raw_stim_parser.py`
 
@@ -441,13 +524,14 @@ Main type groups:
 ### Stage 1: source file discovery
 
 Input:
-- recording folder
+- parent folder containing one or more recordings
 
 Handled by:
-- `RecordingSourceBundle.discover()`
+- `RecordingSourceBundle.discover_all()`
 
 Output:
-- resolved paths to spike-list CSV, spike-count CSV, environmental CSV, raw file, and optional spk file
+- one `RecordingSourceBundle` per discovered recording stem
+- for multi-recording inputs, one batch folder plus one subproject per bundle
 
 ### Stage 2: recording overview
 
