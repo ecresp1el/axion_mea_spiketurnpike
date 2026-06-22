@@ -69,9 +69,9 @@ It assumes the source folder contains the relevant Axion files together:
 
 For each recording, the builder creates one stable project folder under `/Volumes/MannySSD/axion_mea_projects/` by default:
 
-- `derived/csv_explorer/`
-- `derived/stim_times/`
-- `derived/stim_aligned/`
+- `processed_data/recording_overview/`
+- `processed_data/stim_event_detection/`
+- `processed_data/stim_locked_spikes/`
 - `groups/opsin/<WELL>/`
 - `groups/no_opsin/<WELL>/`
 - `project_manifest.json`
@@ -100,11 +100,11 @@ To process another recording later, run the same builder again with a new `--dat
 
 All active code lives under `src/axion_mea/`:
 
-- `project_pipeline.py`: top-level recording builder
-- `csv_export_explorer.py`: CSV parsing, cleaning, and basic exploratory plots
+- `recording_project.py`: top-level recording builder
+- `recording_overview.py`: CSV parsing, cleaning, and recording-level overview plots
 - `stim_event_extractor.py`: `.raw` stimulation event extraction
-- `stim_aligned_raster_plots.py`: stimulation-aligned raster tables and raster figures
-- `opsin_response_plots.py`: train-level and pulse-level response figures and PSTHs
+- `stim_locked_spike_rasters.py`: stimulation-aligned raster tables and raster figures
+- `well_response_analysis.py`: train-level and pulse-level response figures and PSTHs
 - `io/raw_stim_parser.py`: low-level Axion `.raw` tag parser
 
 The only intended top-level command is `python run_axion_mea_opto_pipeline.py`.
@@ -125,7 +125,7 @@ Within that project:
 - `top_channels_by_well.png`
 - `environment_over_time.png` when present
 
-Those files live in the derived subfolders documented above rather than in a flat repo-local `outputs/` directory.
+Those files live in the `processed_data/` subfolders documented above rather than in a flat repo-local `outputs/` directory.
 
 ## What the CSVs contain
 
@@ -158,11 +158,11 @@ Current status in this repo:
 - `stim_event_extractor.py` reads Axion tag records directly from `.raw` in pure Python
 - It writes `*_stim_events.csv` and `*_stim_events.json`
 - The sample file produced LED-linked stimulation timestamps successfully
-- `stim_aligned_raster_plots.py` aligns spikes to each stimulation event and writes per-well and per-channel trial rasters
-- `opsin_response_plots.py` focuses on opsin wells and writes:
+- `stim_locked_spike_rasters.py` aligns spikes to each stimulation event and writes per-well and per-channel trial rasters
+- `well_response_analysis.py` focuses on opsin wells and writes:
   - a train-aligned summary figure
   - a per-pulse diagnostic figure
   - a pooled pulse-trial summary figure
 - `run_axion_mea_opto_pipeline.py` is the reproducible project-level entrypoint
-- `project_pipeline.py` ties the stages together and splits wells into `opsin` and `no_opsin`
+- `recording_project.py` ties the stages together and splits wells into `opsin` and `no_opsin`
   - a combined report panel for each analyzed well

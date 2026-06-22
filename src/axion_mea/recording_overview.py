@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import math
@@ -16,37 +13,6 @@ import seaborn as sns
 
 WELL_RE = re.compile(r"^[A-F][1-8]$")
 ELECTRODE_RE = re.compile(r"^(?P<well>[A-F][1-8])_(?P<channel>\d{2})$")
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Quick Axion Maestro CSV exploration."
-    )
-    parser.add_argument(
-        "--data-dir",
-        type=Path,
-        required=True,
-        help="Directory containing Axion CSV exports.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("outputs"),
-        help="Base directory for outputs.",
-    )
-    parser.add_argument(
-        "--top-channels-per-well",
-        type=int,
-        default=4,
-        help="Number of top channels to plot for each active well.",
-    )
-    parser.add_argument(
-        "--max-wells",
-        type=int,
-        default=8,
-        help="Maximum number of active wells to include in channel plots.",
-    )
-    return parser.parse_args()
 
 
 def find_first_file(data_dir: Path, suffix: str) -> Path | None:
@@ -416,84 +382,3 @@ def plot_environment(env: pd.DataFrame, output_path: Path) -> None:
 
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
-
-
-def main() -> None:
-    args = parse_args()
-    sns.set_theme(style="whitegrid")
-
-    data_dir = args.data_dir.expanduser().resolve()
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Data directory does not exist: {data_dir}")
-
-    spike_list_path = find_first_file(data_dir, "_spike_list.csv")
-    spike_counts_path = find_first_file(data_dir, "_spike_counts.csv")
-    env_path = find_first_file(data_dir, "_environmental_data.csv")
-
-    if spike_list_path is None or spike_counts_path is None:
-        raise FileNotFoundError(
-            "Expected both *_spike_list.csv and *_spike_counts.csv in the data directory."
-        )
-
-    spikes, recording_metadata, well_metadata = read_spike_list(spike_list_path)
-    well_long, electrode_long = read_spike_counts(spike_counts_path)
-    env = read_environment(env_path) if env_path is not None else pd.DataFrame()
-
-    recording_name = recording_metadata.get("Recording Name", spike_list_path.stem)
-    output_dir = args.output_dir / sanitize_name(recording_name)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    spikes.to_csv(output_dir / "spike_list_clean.csv", index=False)
-    well_long.to_csv(output_dir / "well_counts_long.csv", index=False)
-    electrode_long.to_csv(output_dir / "electrode_counts_long.csv", index=False)
-    well_metadata.to_csv(output_dir / "well_metadata.csv", index=False)
-    if not env.empty:
-        env.to_csv(output_dir / "environment_clean.csv", index=False)
-
-    with (output_dir / "recording_metadata.json").open("w", encoding="utf-8") as handle:
-        json.dump(recording_metadata, handle, indent=2)
-
-    active_wells = pick_active_wells(well_long, well_metadata)
-
-    save_summary(
-        output_dir,
-        recording_metadata,
-        well_metadata,
-        spikes,
-        well_long,
-        electrode_long,
-    )
-    plot_well_spikes(well_long, active_wells, output_dir / "well_spikes_over_time.png")
-    plot_top_channels_by_well(
-        electrode_long,
-        active_wells,
-        output_dir / "top_channels_by_well.png",
-        max_wells=args.max_wells,
-        top_channels_per_well=args.top_channels_per_well,
-    )
-    if not env.empty:
-        plot_environment(env, output_dir / "environment_over_time.png")
-
-    treatments = []
-    if "Treatment" in well_metadata.columns:
-        treatments = sorted(
-            {
-                value.strip()
-                for value in well_metadata["Treatment"].dropna().astype(str)
-                if value.strip()
-            }
-        )
-
-    print(f"Data directory: {data_dir}")
-    print(f"Recording name: {recording_name}")
-    print(f"Output directory: {output_dir.resolve()}")
-    print(f"Spike rows parsed: {len(spikes)}")
-    print(f"Duration from spike counts: {well_long['interval_end_s'].max():.0f} s")
-    print(f"Active wells: {', '.join(active_wells[:12])}")
-    if treatments:
-        print(f"Well treatments found: {', '.join(treatments)}")
-    print("Note: explicit optogenetic stimulation timestamps were not found in the CSV exports.")
-
-
-if __name__ == "__main__":
-    main()

@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import seaborn as sns
 
-from .csv_export_explorer import (
+from .recording_overview import (
     find_first_file,
     pick_active_wells,
     plot_environment,
@@ -21,7 +21,7 @@ from .csv_export_explorer import (
     save_summary,
 )
 from .io import AxionStimFile
-from .opsin_response_plots import (
+from .well_response_analysis import (
     AnalysisWindow,
     OpsinStimDataset,
     OpsinWellFigure,
@@ -38,8 +38,8 @@ from .opsin_response_plots import (
     TrialLatencyAnalyzer,
     WaveformRenderConfig,
 )
-from .stim_aligned_raster_plots import RasterPlotWriter, RasterWindow, StimAlignedSpikeDataset
-from .stim_event_extractor import StimExtractionApp
+from .stim_locked_spike_rasters import RasterPlotWriter, RasterWindow, StimAlignedSpikeDataset
+from .stim_event_extractor import StimEventExtractor
 
 
 @dataclass(frozen=True)
@@ -98,20 +98,20 @@ class ProjectLayout:
     root: Path
 
     @property
-    def derived_dir(self) -> Path:
-        return self.root / "derived"
+    def processed_data_dir(self) -> Path:
+        return self.root / "processed_data"
 
     @property
-    def csv_dir(self) -> Path:
-        return self.derived_dir / "csv_explorer"
+    def recording_overview_dir(self) -> Path:
+        return self.processed_data_dir / "recording_overview"
 
     @property
-    def stim_times_dir(self) -> Path:
-        return self.derived_dir / "stim_times"
+    def stim_event_dir(self) -> Path:
+        return self.processed_data_dir / "stim_event_detection"
 
     @property
-    def stim_aligned_dir(self) -> Path:
-        return self.derived_dir / "stim_aligned"
+    def stim_locked_spikes_dir(self) -> Path:
+        return self.processed_data_dir / "stim_locked_spikes"
 
     @property
     def groups_dir(self) -> Path:
@@ -136,9 +136,9 @@ class ProjectLayout:
     def create(self) -> None:
         for path in [
             self.root,
-            self.csv_dir,
-            self.stim_times_dir,
-            self.stim_aligned_dir,
+            self.recording_overview_dir,
+            self.stim_event_dir,
+            self.stim_locked_spikes_dir,
             self.groups_dir / "opsin",
             self.groups_dir / "no_opsin",
             self.repro_dir,
@@ -155,17 +155,14 @@ class ProjectLayout:
 
 @dataclass(frozen=True)
 class ExplorerArtifacts:
-    output_dir: Path
     recording_name: str
     spike_list_clean_csv: Path
     well_metadata_csv: Path
-    summary_json: Path
 
 
 @dataclass(frozen=True)
 class StimEventArtifacts:
     stim_events_csv: Path
-    stim_events_json: Path
 
 
 @dataclass(frozen=True)
@@ -215,7 +212,191 @@ class WellResponseLayout:
             path.mkdir(parents=True, exist_ok=True)
 
 
-class CsvExplorerStage:
+@dataclass(frozen=True)
+class WellResponseAnalysis:
+    group: WellProjectGroup
+    well: str
+    layout: WellResponseLayout
+    well_spikes: pd.DataFrame
+    trials: list[int]
+    trial_summary: pd.DataFrame
+    pulse_aligned_spikes: pd.DataFrame
+    pulse_trials: pd.DataFrame
+    pulse_summary: pd.DataFrame
+    train_psth: pd.DataFrame
+    pulse_trial_psth: pd.DataFrame
+    waveform_model: OptoWaveformModel
+
+
+class WellResponseBuilder:
+    def __init__(
+        self,
+        window: AnalysisWindow,
+        pulse_window: PulseWindow,
+        train_psth_config: PsthConfig,
+        pulse_trial_psth_config: PsthConfig,
+        opto_on_intervals_ms: list[tuple[float, float, float]],
+        pulse_epochs: list[PulseEpoch],
+        waveform_render_config: WaveformRenderConfig,
+        report_panel_composer: ReportPanelComposer,
+    ) -> None:
+        self.window = window
+        self.pulse_window = pulse_window
+        self.train_psth_config = train_psth_config
+        self.pulse_trial_psth_config = pulse_trial_psth_config
+        self.opto_on_intervals_ms = opto_on_intervals_ms
+        self.pulse_epochs = pulse_epochs
+        self.waveform_render_config = waveform_render_config
+        self.report_panel_composer = report_panel_composer
+
+    def analyze(
+        self,
+        dataset: OpsinStimDataset,
+        group: WellProjectGroup,
+        well: str,
+        layout: WellResponseLayout,
+    ) -> WellResponseAnalysis:
+        well_spikes = dataset.spikes_for_well(well)
+        trials = dataset.all_trials()
+        waveform_model = OptoWaveformModel(
+            opto_on_intervals_ms=self.opto_on_intervals_ms,
+            pulse_epochs=self.pulse_epochs,
+            render_config=self.waveform_render_config,
+        )
+        trial_summary = TrialLatencyAnalyzer(well_spikes=well_spikes, all_trials=trials).build_trial_summary()
+        pulse_aligned_spikes, pulse_trials = PulseAlignedSpikeBuilder(
+            well_spikes=well_spikes,
+            all_trials=trials,
+            pulse_epochs=self.pulse_epochs,
+            pulse_window=self.pulse_window,
+        ).build()
+        pulse_summary = PulseLatencyAnalyzer(
+            pulse_aligned_spikes=pulse_aligned_spikes,
+            pulse_trials=pulse_trials,
+        ).build_pulse_summary()
+        train_psth = PsthBuilder(
+            well_spikes=well_spikes,
+            trials=trials,
+            config=self.train_psth_config,
+        ).build(self.window)
+        pulse_trial_psth = PsthBuilder(
+            well_spikes=pulse_aligned_spikes,
+            trials=pulse_trials["pulse_trial_index"].astype(int).tolist(),
+            config=self.pulse_trial_psth_config,
+            time_column="pulse_aligned_time_ms",
+        ).build(self.pulse_window)
+        return WellResponseAnalysis(
+            group=group,
+            well=well,
+            layout=layout,
+            well_spikes=well_spikes,
+            trials=trials,
+            trial_summary=trial_summary,
+            pulse_aligned_spikes=pulse_aligned_spikes,
+            pulse_trials=pulse_trials,
+            pulse_summary=pulse_summary,
+            train_psth=train_psth,
+            pulse_trial_psth=pulse_trial_psth,
+            waveform_model=waveform_model,
+        )
+
+    def write(self, analysis: WellResponseAnalysis) -> None:
+        train_fig = OpsinWellFigure(
+            well=analysis.well,
+            well_spikes=analysis.well_spikes,
+            trials=analysis.trials,
+            psth=analysis.train_psth,
+            trial_summary=analysis.trial_summary,
+            pulse_summary=analysis.pulse_summary,
+            window=self.window,
+            psth_config=self.train_psth_config,
+            opto_on_intervals_ms=self.opto_on_intervals_ms,
+            pulse_epochs=self.pulse_epochs,
+            waveform_model=analysis.waveform_model,
+            well_context_label=analysis.group.title_label,
+        ).save(analysis.layout.train_dir, output_name="figure__train_response.png")
+        pulse_position_fig = PulseAlignedWellFigure(
+            well=analysis.well,
+            pulse_aligned_spikes=analysis.pulse_aligned_spikes,
+            trials=analysis.trials,
+            pulse_epochs=self.pulse_epochs,
+            pulse_window=self.pulse_window,
+            opto_on_intervals_ms=self.opto_on_intervals_ms,
+            waveform_model=analysis.waveform_model,
+            well_context_label=analysis.group.title_label,
+        ).save(analysis.layout.pulse_position_dir, output_name="figure__pulse_response_by_position.png")
+        pulse_trial_fig = PulseTrialSummaryFigure(
+            well=analysis.well,
+            pulse_aligned_spikes=analysis.pulse_aligned_spikes,
+            pulse_trials=analysis.pulse_trials,
+            pulse_summary=analysis.pulse_summary,
+            psth=analysis.pulse_trial_psth,
+            pulse_window=self.pulse_window,
+            psth_config=self.pulse_trial_psth_config,
+            pulse_epochs=self.pulse_epochs,
+            waveform_model=analysis.waveform_model,
+            well_context_label=analysis.group.title_label,
+        ).save(analysis.layout.pulse_trial_dir, output_name="figure__pulse_response_all_pulses.png")
+        self.report_panel_composer.compose_report_panel(
+            train_fig,
+            pulse_trial_fig,
+            pulse_position_fig,
+            analysis.layout.overview_dir / "figure__report_panel.png",
+        )
+
+        analysis.trial_summary.to_csv(analysis.layout.train_dir / "table__train_response_latency.csv", index=False)
+        analysis.pulse_summary[
+            [
+                "pulse_trial_index",
+                "train_trial_index",
+                "pulse_index",
+                "pulse_label",
+                "pulse_start_ms",
+                "pulse_end_ms",
+                "first_post_pulse_delay_ms",
+            ]
+        ].to_csv(analysis.layout.pulse_position_dir / "table__pulse_response_by_position.csv", index=False)
+        analysis.pulse_summary.to_csv(
+            analysis.layout.pulse_trial_dir / "table__pulse_response_all_pulses.csv",
+            index=False,
+        )
+        analysis.train_psth.to_csv(analysis.layout.train_dir / "table__train_response_psth.csv", index=False)
+        analysis.pulse_trial_psth.to_csv(
+            analysis.layout.pulse_trial_dir / "table__pulse_response_all_pulses_psth.csv",
+            index=False,
+        )
+        analysis.pulse_aligned_spikes.to_csv(
+            analysis.layout.shared_tables_dir / "table__pulse_aligned_spikes.csv",
+            index=False,
+        )
+        analysis.pulse_trials.to_csv(analysis.layout.shared_tables_dir / "table__pulse_trials.csv", index=False)
+        analysis.layout.manifest_path.write_text(
+            json.dumps(
+                {
+                    "well": analysis.well,
+                    "group": analysis.group.name,
+                    "group_label": analysis.group.title_label,
+                    "analysis_kind": "opto_stimulus_locked_spike_response_screen",
+                    "analysis_description": "Spike timing is quantified relative to optogenetic stimulation at the train level and at the individual pulse level.",
+                    "analysis_views": {
+                        "report_panel": analysis.layout.overview_dir.name,
+                        "train_locked_response": analysis.layout.train_dir.name,
+                        "pulse_locked_response_by_position": analysis.layout.pulse_position_dir.name,
+                        "pulse_locked_response_all_pulses": analysis.layout.pulse_trial_dir.name,
+                        "shared_tables": analysis.layout.shared_tables_dir.name,
+                    },
+                    "aligned_spike_count": int(len(analysis.well_spikes)),
+                    "pulse_trial_count": int(len(analysis.pulse_trials)),
+                    "pulse_count_per_train": int(len(self.pulse_epochs)),
+                    "train_trial_count": int(len(analysis.trials)),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+
+class RecordingOverviewStage:
     def __init__(self, bundle: RecordingSourceBundle, layout: ProjectLayout, config: ProjectBuildConfig) -> None:
         self.bundle = bundle
         self.layout = layout
@@ -231,7 +412,7 @@ class CsvExplorerStage:
         )
 
         recording_name = recording_metadata.get("Recording Name", self.bundle.spike_list_csv.stem)
-        output_dir = self.layout.csv_dir
+        output_dir = self.layout.recording_overview_dir
         output_dir.mkdir(parents=True, exist_ok=True)
 
         spikes.to_csv(output_dir / "spike_list_clean.csv", index=False)
@@ -265,11 +446,9 @@ class CsvExplorerStage:
             plot_environment(env, output_dir / "environment_over_time.png")
 
         return ExplorerArtifacts(
-            output_dir=output_dir,
             recording_name=recording_name,
             spike_list_clean_csv=output_dir / "spike_list_clean.csv",
             well_metadata_csv=output_dir / "well_metadata.csv",
-            summary_json=output_dir / "summary.json",
         )
 
 
@@ -279,16 +458,14 @@ class StimEventStage:
         self.layout = layout
 
     def run(self) -> StimEventArtifacts:
-        app = StimExtractionApp(self.bundle.raw_file, self.layout.stim_times_dir)
-        app.run()
-        stem = self.bundle.raw_file.stem
+        extraction = StimEventExtractor(self.bundle.raw_file, self.layout.stim_event_dir).extract()
+        StimEventExtractor.print_summary(extraction)
         return StimEventArtifacts(
-            stim_events_csv=self.layout.stim_times_dir / f"{stem}_stim_events.csv",
-            stim_events_json=self.layout.stim_times_dir / f"{stem}_stim_events.json",
+            stim_events_csv=extraction.csv_path,
         )
 
 
-class StimAlignedStage:
+class StimLockedSpikeStage:
     def __init__(
         self,
         spike_list_clean_csv: Path,
@@ -299,7 +476,7 @@ class StimAlignedStage:
         self.dataset = StimAlignedSpikeDataset(
             spike_csv=spike_list_clean_csv,
             stim_csv=stim_events_csv,
-            output_dir=layout.stim_aligned_dir,
+            output_dir=layout.stim_locked_spikes_dir,
             window=RasterWindow(start_ms=-abs(config.pre_ms), end_ms=abs(config.post_ms)),
         )
         self.top_channels_per_well = config.top_channels_per_well
@@ -360,7 +537,7 @@ class WellGroupOrganizer:
         return "opsin" in normalized
 
 
-class PerWellSummaryStage:
+class WellResponseStage:
     def __init__(
         self,
         spike_list_clean_csv: Path,
@@ -378,7 +555,6 @@ class PerWellSummaryStage:
             spike_list_csv=spike_list_clean_csv,
             well_metadata_csv=well_metadata_csv,
             stim_events_csv=stim_events_csv,
-            output_dir=layout.derived_dir,
             window=self.window,
         )
         self.raw_file = raw_file
@@ -391,130 +567,23 @@ class PerWellSummaryStage:
     def run(self, groups: list[WellProjectGroup]) -> None:
         self.dataset.load()
         self._load_opto_intervals()
+        builder = WellResponseBuilder(
+            window=self.window,
+            pulse_window=self.pulse_window,
+            train_psth_config=self.train_psth_config,
+            pulse_trial_psth_config=self.pulse_trial_psth_config,
+            opto_on_intervals_ms=self.opto_on_intervals_ms,
+            pulse_epochs=self.pulse_epochs,
+            waveform_render_config=self.waveform_render_config,
+            report_panel_composer=self.report_panel_composer,
+        )
 
         for group in groups:
             for well in group.wells:
-                self._build_well_outputs(group, well)
-
-    def _build_well_outputs(self, group: WellProjectGroup, well: str) -> None:
-        bundle = WellResponseLayout(root=self.layout.well_dir(group.name, well))
-        bundle.create()
-
-        well_spikes = self.dataset.spikes_for_well(well)
-        trials = self.dataset.well_trials(well)
-        waveform_model = OptoWaveformModel(
-            opto_on_intervals_ms=self.opto_on_intervals_ms,
-            pulse_epochs=self.pulse_epochs,
-            render_config=self.waveform_render_config,
-        )
-
-        trial_summary = TrialLatencyAnalyzer(well_spikes=well_spikes, all_trials=trials).build_trial_summary()
-        pulse_aligned_spikes, pulse_trials = PulseAlignedSpikeBuilder(
-            well_spikes=well_spikes,
-            all_trials=trials,
-            pulse_epochs=self.pulse_epochs,
-            pulse_window=self.pulse_window,
-        ).build()
-        pulse_summary = PulseLatencyAnalyzer(
-            pulse_aligned_spikes=pulse_aligned_spikes,
-            pulse_trials=pulse_trials,
-        ).build_pulse_summary()
-        train_psth = PsthBuilder(
-            well_spikes=well_spikes,
-            trials=trials,
-            config=self.train_psth_config,
-        ).build(self.window)
-        pulse_trial_psth = PsthBuilder(
-            well_spikes=pulse_aligned_spikes,
-            trials=pulse_trials["pulse_trial_index"].astype(int).tolist(),
-            config=self.pulse_trial_psth_config,
-            time_column="pulse_aligned_time_ms",
-        ).build(self.pulse_window)
-
-        train_fig = OpsinWellFigure(
-            well=well,
-            well_spikes=well_spikes,
-            trials=trials,
-            psth=train_psth,
-            trial_summary=trial_summary,
-            pulse_summary=pulse_summary,
-            window=self.window,
-            psth_config=self.train_psth_config,
-            opto_on_intervals_ms=self.opto_on_intervals_ms,
-            pulse_epochs=self.pulse_epochs,
-            waveform_model=waveform_model,
-            well_context_label=group.title_label,
-        ).save(bundle.train_dir, output_name="figure__train_response.png")
-        pulse_position_fig = PulseAlignedWellFigure(
-            well=well,
-            pulse_aligned_spikes=pulse_aligned_spikes,
-            trials=trials,
-            pulse_epochs=self.pulse_epochs,
-            pulse_window=self.pulse_window,
-            opto_on_intervals_ms=self.opto_on_intervals_ms,
-            waveform_model=waveform_model,
-            well_context_label=group.title_label,
-        ).save(bundle.pulse_position_dir, output_name="figure__pulse_response_by_position.png")
-        pulse_trial_fig = PulseTrialSummaryFigure(
-            well=well,
-            pulse_aligned_spikes=pulse_aligned_spikes,
-            pulse_trials=pulse_trials,
-            pulse_summary=pulse_summary,
-            psth=pulse_trial_psth,
-            pulse_window=self.pulse_window,
-            psth_config=self.pulse_trial_psth_config,
-            pulse_epochs=self.pulse_epochs,
-            waveform_model=waveform_model,
-            well_context_label=group.title_label,
-        ).save(bundle.pulse_trial_dir, output_name="figure__pulse_response_all_pulses.png")
-        self.report_panel_composer.compose_report_panel(
-            train_fig,
-            pulse_trial_fig,
-            pulse_position_fig,
-            bundle.overview_dir / "figure__report_panel.png",
-        )
-
-        trial_summary.to_csv(bundle.train_dir / "table__train_response_latency.csv", index=False)
-        pulse_summary[
-            [
-                "pulse_trial_index",
-                "train_trial_index",
-                "pulse_index",
-                "pulse_label",
-                "pulse_start_ms",
-                "pulse_end_ms",
-                "first_post_pulse_delay_ms",
-            ]
-        ].to_csv(bundle.pulse_position_dir / "table__pulse_response_by_position.csv", index=False)
-        pulse_summary.to_csv(bundle.pulse_trial_dir / "table__pulse_response_all_pulses.csv", index=False)
-        train_psth.to_csv(bundle.train_dir / "table__train_response_psth.csv", index=False)
-        pulse_trial_psth.to_csv(bundle.pulse_trial_dir / "table__pulse_response_all_pulses_psth.csv", index=False)
-        pulse_aligned_spikes.to_csv(bundle.shared_tables_dir / "table__pulse_aligned_spikes.csv", index=False)
-        pulse_trials.to_csv(bundle.shared_tables_dir / "table__pulse_trials.csv", index=False)
-        (bundle.manifest_path).write_text(
-            json.dumps(
-                {
-                    "well": well,
-                    "group": group.name,
-                    "group_label": group.title_label,
-                    "analysis_kind": "opto_stimulus_locked_spike_response_screen",
-                    "analysis_description": "Spike timing is quantified relative to optogenetic stimulation at the train level and at the individual pulse level.",
-                    "analysis_views": {
-                        "report_panel": bundle.overview_dir.name,
-                        "train_locked_response": bundle.train_dir.name,
-                        "pulse_locked_response_by_position": bundle.pulse_position_dir.name,
-                        "pulse_locked_response_all_pulses": bundle.pulse_trial_dir.name,
-                        "shared_tables": bundle.shared_tables_dir.name,
-                    },
-                    "aligned_spike_count": int(len(well_spikes)),
-                    "pulse_trial_count": int(len(pulse_trials)),
-                    "pulse_count_per_train": int(len(self.pulse_epochs)),
-                    "train_trial_count": int(len(trials)),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+                bundle = WellResponseLayout(root=self.layout.well_dir(group.name, well))
+                bundle.create()
+                analysis = builder.analyze(self.dataset, group, well, bundle)
+                builder.write(analysis)
 
     def _load_opto_intervals(self) -> None:
         stim_file = AxionStimFile(self.raw_file)
@@ -573,6 +642,11 @@ class ProjectSummaryWriter:
                 "raw_file": str(self.bundle.raw_file),
                 "spk_file": str(self.bundle.spk_file) if self.bundle.spk_file else None,
             },
+            "processed_data_dirs": {
+                "recording_overview": str(self.layout.recording_overview_dir),
+                "stim_event_detection": str(self.layout.stim_event_dir),
+                "stim_locked_spikes": str(self.layout.stim_locked_spikes_dir),
+            },
             "analysis_config": {
                 "pre_ms": self.config.pre_ms,
                 "post_ms": self.config.post_ms,
@@ -594,11 +668,11 @@ class ProjectSummaryWriter:
             f"- Raw file: `{self.bundle.raw_file.name}`",
             f"- Project root: `{self.layout.root}`",
             "",
-            "## Derived Data",
+            "## Processed Data",
             "",
-            f"- CSV explorer outputs: `{self.layout.csv_dir}`",
-            f"- Stim event outputs: `{self.layout.stim_times_dir}`",
-            f"- Stim-aligned outputs: `{self.layout.stim_aligned_dir}`",
+            f"- Recording overview outputs: `{self.layout.recording_overview_dir}`",
+            f"- Stimulation event outputs: `{self.layout.stim_event_dir}`",
+            f"- Stimulus-locked spike outputs: `{self.layout.stim_locked_spikes_dir}`",
             "",
             "## Groups",
             "",
@@ -635,11 +709,11 @@ class ReproducibilitySnapshotWriter:
             self.repo_root / "requirements.txt",
             self.repo_root / "README.md",
             self.repo_root / "src" / "axion_mea" / "__init__.py",
-            self.repo_root / "src" / "axion_mea" / "csv_export_explorer.py",
+            self.repo_root / "src" / "axion_mea" / "recording_overview.py",
             self.repo_root / "src" / "axion_mea" / "stim_event_extractor.py",
-            self.repo_root / "src" / "axion_mea" / "stim_aligned_raster_plots.py",
-            self.repo_root / "src" / "axion_mea" / "opsin_response_plots.py",
-            self.repo_root / "src" / "axion_mea" / "project_pipeline.py",
+            self.repo_root / "src" / "axion_mea" / "stim_locked_spike_rasters.py",
+            self.repo_root / "src" / "axion_mea" / "well_response_analysis.py",
+            self.repo_root / "src" / "axion_mea" / "recording_project.py",
             self.repo_root / "src" / "axion_mea" / "io" / "__init__.py",
             self.repo_root / "src" / "axion_mea" / "io" / "raw_stim_parser.py",
         ]
@@ -693,9 +767,9 @@ class AxionProjectBuilder:
         sns.set_theme(style="whitegrid")
         self.layout.create()
 
-        explorer_artifacts = CsvExplorerStage(self.bundle, self.layout, self.config).run()
+        explorer_artifacts = RecordingOverviewStage(self.bundle, self.layout, self.config).run()
         stim_artifacts = StimEventStage(self.bundle, self.layout).run()
-        aligned_spikes_csv = StimAlignedStage(
+        aligned_spikes_csv = StimLockedSpikeStage(
             spike_list_clean_csv=explorer_artifacts.spike_list_clean_csv,
             stim_events_csv=stim_artifacts.stim_events_csv,
             layout=self.layout,
@@ -705,7 +779,7 @@ class AxionProjectBuilder:
             well_metadata_csv=explorer_artifacts.well_metadata_csv,
             aligned_spikes_csv=aligned_spikes_csv,
         ).build()
-        PerWellSummaryStage(
+        WellResponseStage(
             spike_list_clean_csv=explorer_artifacts.spike_list_clean_csv,
             well_metadata_csv=explorer_artifacts.well_metadata_csv,
             stim_events_csv=stim_artifacts.stim_events_csv,

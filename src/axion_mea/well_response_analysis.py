@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
-import argparse
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,8 +9,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from PIL import Image
-
-from .io import AxionStimFile
 
 
 @dataclass(frozen=True)
@@ -81,13 +76,11 @@ class OpsinStimDataset:
         spike_list_csv: Path,
         well_metadata_csv: Path,
         stim_events_csv: Path,
-        output_dir: Path,
         window: AnalysisWindow,
     ) -> None:
         self.spike_list_csv = spike_list_csv.expanduser().resolve()
         self.well_metadata_csv = well_metadata_csv.expanduser().resolve()
         self.stim_events_csv = stim_events_csv.expanduser().resolve()
-        self.output_dir = output_dir.expanduser().resolve()
         self.window = window
 
         self.spikes = pd.DataFrame()
@@ -111,7 +104,6 @@ class OpsinStimDataset:
         self.spikes = self.spikes.dropna(subset=["time_s", "well"]).copy()
         self.stim_events = self.stim_events.dropna(subset=["sequence_number", "event_time_s"]).copy()
         self.aligned_spikes = self._build_aligned_spikes()
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _build_aligned_spikes(self) -> pd.DataFrame:
         aligned_rows: list[dict[str, object]] = []
@@ -171,45 +163,12 @@ class OpsinStimDataset:
                     stimulated.add(well)
         return sorted(stimulated) if stimulated else sorted(self.spikes["well"].dropna().astype(str).unique())
 
-    def opsin_wells(self, top_n: int | None = None) -> list[str]:
-        metadata = self.well_metadata.copy()
-        metadata["Treatment"] = metadata["Treatment"].fillna("").astype(str).str.strip().str.lower()
-        opsin_wells = metadata.loc[metadata["Treatment"] == "opsin", "well"].tolist()
-        if not opsin_wells:
-            return []
-
-        counts = (
-            self.aligned_spikes.loc[self.aligned_spikes["well"].isin(opsin_wells)]
-            .groupby("well")
-            .size()
-            .sort_values(ascending=False)
-        )
-        ordered = counts.index.tolist()
-        if top_n is None:
-            return ordered
-        return ordered[:top_n]
-
-    def well_trials(self, well: str) -> list[int]:
+    def all_trials(self) -> list[int]:
         all_trials = self.stim_events["sequence_number"].dropna().astype(int).tolist()
         return sorted(all_trials)
 
     def spikes_for_well(self, well: str) -> pd.DataFrame:
         return self.aligned_spikes.loc[self.aligned_spikes["well"] == well].copy()
-
-    def save_trial_summary(self, well: str, summary: pd.DataFrame) -> Path:
-        path = self.output_dir / f"{well}_trial_latency_summary.csv"
-        summary.to_csv(path, index=False)
-        return path
-
-    def save_pulse_summary(self, well: str, summary: pd.DataFrame) -> Path:
-        path = self.output_dir / f"{well}_pulse_latency_summary.csv"
-        summary.to_csv(path, index=False)
-        return path
-
-    def save_pulse_trial_summary(self, well: str, summary: pd.DataFrame) -> Path:
-        path = self.output_dir / f"{well}_pulse_trial_latency_summary.csv"
-        summary.to_csv(path, index=False)
-        return path
 
 
 class TrialLatencyAnalyzer:
@@ -1173,344 +1132,3 @@ class ReportPanelComposer:
         scale = target_width / image.width
         new_height = int(round(image.height * scale))
         return image.resize((target_width, new_height))
-
-
-class OpsinStimSummaryApp:
-    def __init__(
-        self,
-        spike_list_csv: Path,
-        well_metadata_csv: Path,
-        stim_events_csv: Path,
-        output_dir: Path,
-        pre_ms: float,
-        post_ms: float,
-        pulse_pre_ms: float,
-        pulse_post_ms: float,
-        bin_ms: float,
-        boxcar_kernel: tuple[float, ...],
-        raw_file: Path | None,
-        top_n_opsin_wells: int | None,
-    ) -> None:
-        self.window = AnalysisWindow(pre_ms=pre_ms, post_ms=post_ms)
-        self.pulse_window = PulseWindow(pre_ms=pulse_pre_ms, post_ms=pulse_post_ms)
-        self.psth_config = PsthConfig(bin_ms=bin_ms, boxcar_kernel=boxcar_kernel)
-        self.pulse_trial_psth_config = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0,))
-        self.dataset = OpsinStimDataset(
-            spike_list_csv=spike_list_csv,
-            well_metadata_csv=well_metadata_csv,
-            stim_events_csv=stim_events_csv,
-            output_dir=output_dir,
-            window=self.window,
-        )
-        self.raw_file = raw_file.expanduser().resolve() if raw_file is not None else None
-        self.top_n_opsin_wells = top_n_opsin_wells
-        self.opto_on_intervals_ms: list[tuple[float, float, float]] = []
-        self.pulse_epochs: list[PulseEpoch] = []
-        self.waveform_render_config = WaveformRenderConfig(sample_dt_ms=1.0, smooth_window_ms=2.0)
-        self.report_panel_composer = ReportPanelComposer()
-
-    def run(self) -> None:
-        sns.set_theme(style="whitegrid")
-        self.dataset.load()
-        self._load_opto_intervals()
-        opsin_wells = self.dataset.opsin_wells(self.top_n_opsin_wells)
-
-        print(f"Opsin wells selected: {', '.join(opsin_wells)}")
-        print(f"Output directory: {self.dataset.output_dir}")
-
-        for well in opsin_wells:
-            well_spikes = self.dataset.spikes_for_well(well)
-            trials = self.dataset.well_trials(well)
-            waveform_model = OptoWaveformModel(
-                opto_on_intervals_ms=self.opto_on_intervals_ms,
-                pulse_epochs=self.pulse_epochs,
-                render_config=self.waveform_render_config,
-            )
-
-            analyzer = TrialLatencyAnalyzer(well_spikes=well_spikes, all_trials=trials)
-            trial_summary = analyzer.build_trial_summary()
-            pulse_aligned_spikes, pulse_trials = PulseAlignedSpikeBuilder(
-                well_spikes=well_spikes,
-                all_trials=trials,
-                pulse_epochs=self.pulse_epochs,
-                pulse_window=self.pulse_window,
-            ).build()
-            pulse_summary = PulseLatencyAnalyzer(
-                pulse_aligned_spikes=pulse_aligned_spikes,
-                pulse_trials=pulse_trials,
-            ).build_pulse_summary()
-            psth = PsthBuilder(
-                well_spikes=well_spikes,
-                trials=trials,
-                config=self.psth_config,
-            ).build(self.window)
-            pulse_trial_psth = PsthBuilder(
-                well_spikes=pulse_aligned_spikes,
-                trials=pulse_trials["pulse_trial_index"].astype(int).tolist(),
-                config=self.pulse_trial_psth_config,
-                time_column="pulse_aligned_time_ms",
-            ).build(self.pulse_window)
-
-            figure_path = OpsinWellFigure(
-                well=well,
-                well_spikes=well_spikes,
-                trials=trials,
-                psth=psth,
-                trial_summary=trial_summary,
-                pulse_summary=pulse_summary,
-                window=self.window,
-                psth_config=self.psth_config,
-                opto_on_intervals_ms=self.opto_on_intervals_ms,
-                pulse_epochs=self.pulse_epochs,
-                waveform_model=waveform_model,
-            ).save(self.dataset.output_dir)
-            pulse_trial_figure_path = PulseTrialSummaryFigure(
-                well=well,
-                pulse_aligned_spikes=pulse_aligned_spikes,
-                pulse_trials=pulse_trials,
-                pulse_summary=pulse_summary,
-                psth=pulse_trial_psth,
-                pulse_window=self.pulse_window,
-                psth_config=self.pulse_trial_psth_config,
-                pulse_epochs=self.pulse_epochs,
-                waveform_model=waveform_model,
-            ).save(self.dataset.output_dir)
-
-            summary_path = self.dataset.save_trial_summary(well, trial_summary)
-            pulse_delay_summary = pulse_summary[
-                [
-                    "pulse_trial_index",
-                    "train_trial_index",
-                    "pulse_index",
-                    "pulse_label",
-                    "pulse_start_ms",
-                    "pulse_end_ms",
-                    "first_post_pulse_delay_ms",
-                ]
-            ].copy()
-            pulse_summary_path = self.dataset.save_pulse_summary(well, pulse_delay_summary)
-            pulse_trial_summary_path = self.dataset.save_pulse_trial_summary(well, pulse_summary)
-            psth_path = self.dataset.output_dir / f"{well}_psth.csv"
-            psth.to_csv(psth_path, index=False)
-            pulse_trial_psth_path = self.dataset.output_dir / f"{well}_pulse_trial_psth.csv"
-            pulse_trial_psth.to_csv(pulse_trial_psth_path, index=False)
-            pulse_aligned_path = self.dataset.output_dir / f"{well}_pulse_aligned_spikes.csv"
-            pulse_aligned_spikes.to_csv(pulse_aligned_path, index=False)
-            pulse_trials_path = self.dataset.output_dir / f"{well}_pulse_trials.csv"
-            pulse_trials.to_csv(pulse_trials_path, index=False)
-            pulse_figure_path = PulseAlignedWellFigure(
-                well=well,
-                pulse_aligned_spikes=pulse_aligned_spikes,
-                trials=trials,
-                pulse_epochs=self.pulse_epochs,
-                pulse_window=self.pulse_window,
-                opto_on_intervals_ms=self.opto_on_intervals_ms,
-                waveform_model=waveform_model,
-            ).save(self.dataset.output_dir)
-            combined_panel_path = self.report_panel_composer.compose_report_panel(
-                figure_path,
-                pulse_trial_figure_path,
-                pulse_figure_path,
-                self.dataset.output_dir / f"{well}_report_panel.png",
-            )
-
-            print(f"{well}: spikes={len(well_spikes)}, figure={figure_path}")
-            print(f"{well}: pooled pulse-trial figure={pulse_trial_figure_path}")
-            print(f"{well}: pulse figure={pulse_figure_path}")
-            print(f"{well}: combined panel={combined_panel_path}")
-            print(f"{well}: trial summary={summary_path}")
-            print(f"{well}: pulse summary={pulse_summary_path}")
-            print(f"{well}: pulse-trial summary={pulse_trial_summary_path}")
-            print(f"{well}: pulse aligned spikes={pulse_aligned_path}")
-            print(f"{well}: pulse trials={pulse_trials_path}")
-            print(f"{well}: psth={psth_path}")
-            print(f"{well}: pulse-trial psth={pulse_trial_psth_path}")
-
-        self._write_report(opsin_wells)
-
-    def _load_opto_intervals(self) -> None:
-        if self.raw_file is None:
-            return
-        stim_file = AxionStimFile(self.raw_file)
-        stim_file.parse()
-        self.opto_on_intervals_ms = [
-            (interval.start_ms, interval.end_ms, interval.intensity)
-            for interval in stim_file.opto_on_intervals_ms()
-        ]
-        self.pulse_epochs = self._build_pulse_epochs(self.opto_on_intervals_ms)
-
-    def _build_pulse_epochs(self, intervals: list[tuple[float, float, float]]) -> list[PulseEpoch]:
-        if not intervals:
-            return []
-        merged: list[list[float]] = []
-        merge_gap_ms = 5.0
-        for start_ms, end_ms, _ in sorted(intervals, key=lambda row: row[0]):
-            if not merged:
-                merged.append([start_ms, end_ms])
-                continue
-            prev_start, prev_end = merged[-1]
-            if start_ms - prev_end <= merge_gap_ms:
-                merged[-1][1] = max(prev_end, end_ms)
-            else:
-                merged.append([start_ms, end_ms])
-        return [
-            PulseEpoch(pulse_index=index + 1, start_ms=start, end_ms=end)
-            for index, (start, end) in enumerate(merged)
-        ]
-
-    def _write_report(self, opsin_wells: list[str]) -> None:
-        report_path = self.dataset.output_dir / "REPORT.md"
-        lines = [
-            "# Opsin Summary Report",
-            "",
-            "This report distinguishes three analysis modes:",
-            "",
-            "- `train-as-trial`: one trial is one 5-pulse train, aligned to the train onset at `0 ms`.",
-            "- `pulse-by-position`: each column shows one pulse position `P1..P5`, while rows remain the original train trials.",
-            "- `pooled pulse-as-trial`: each individual pulse instance is promoted to its own pseudo-trial, so `n_pulses x n_train_trials` is inferred dynamically.",
-            "",
-            f"Train-aligned window: `{self.window.start_ms:.1f}` to `{self.window.end_ms:.1f}` ms.",
-            f"Pulse-aligned window: `{self.pulse_window.start_ms:.1f}` to `{self.pulse_window.end_ms:.1f}` ms.",
-            "",
-            "Pulse epochs recovered from the raw optical program:",
-        ]
-        for pulse in self.pulse_epochs:
-            lines.append(f"- `P{pulse.pulse_index}`: `{pulse.start_ms:.1f}` to `{pulse.end_ms:.1f}` ms")
-        lines.extend(
-            [
-                "",
-                "**Waveform Note**",
-                "",
-                "- The waveform drawn in the figure is reconstructed from the optical command program stored in the raw-file XML.",
-                "- It is not a measured analog trace from the LED driver.",
-                "- The neural recording sampling frequency in the CSV metadata is `12.5 kHz`, which corresponds to `0.08 ms` per sample.",
-                "- The optical command itself includes `500 us` step segments, so the plotted waveform is best interpreted as the intended stimulation program.",
-                "",
-                "## Wells",
-            ]
-        )
-        for well in opsin_wells:
-            train_fig = f"{well}_opsin_raster_psth_boxplot.png"
-            pooled_pulse_fig = f"{well}_pulse_trial_summary.png"
-            pulse_fig = f"{well}_pulse_aligned_rasters.png"
-            combined_fig = f"{well}_report_panel.png"
-            train_summary = f"{well}_trial_latency_summary.csv"
-            pulse_summary = f"{well}_pulse_latency_summary.csv"
-            pulse_trial_summary = f"{well}_pulse_trial_latency_summary.csv"
-            pulse_spikes = f"{well}_pulse_aligned_spikes.csv"
-            pulse_trials = f"{well}_pulse_trials.csv"
-            psth_file = f"{well}_psth.csv"
-            pulse_trial_psth = f"{well}_pulse_trial_psth.csv"
-            pooled_count = len(self.pulse_epochs) * len(self.dataset.well_trials(well))
-            lines.append(f"### {well}")
-            lines.append("")
-            lines.append(
-                f"- Dynamic pooled pulse-trial count: `{len(self.pulse_epochs)} x {len(self.dataset.well_trials(well))} = {pooled_count}` pseudo-trials."
-            )
-            lines.append("")
-            lines.append("Combined report panel: train-as-trial, pooled pulse-as-trial, and per-pulse diagnostics")
-            lines.append(f"![{combined_fig}](./{combined_fig})")
-            lines.append("")
-            lines.append("Individual figures")
-            lines.append(f"- Train-aligned figure: `{train_fig}`")
-            lines.append(f"- Pooled pulse-trial figure: `{pooled_pulse_fig}`")
-            lines.append(f"- Pulse-aligned figure: `{pulse_fig}`")
-            lines.append("")
-            lines.append("Artifacts")
-            lines.append(f"- Train summary: `{train_summary}`")
-            lines.append(f"- Pulse delay summary: `{pulse_summary}`")
-            lines.append(f"- Pulse-trial summary with spike-time stats: `{pulse_trial_summary}`")
-            lines.append(f"- Pulse aligned spikes: `{pulse_spikes}`")
-            lines.append(f"- Pulse trials: `{pulse_trials}`")
-            lines.append(f"- PSTH: `{psth_file}`")
-            lines.append(f"- Pulse-trial PSTH: `{pulse_trial_psth}`")
-            lines.append("")
-        report_path.write_text("\n".join(lines), encoding="utf-8")
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Create stacked raster/PSTH/trial-summary plots for opsin wells."
-    )
-    parser.add_argument(
-        "--spike-list-csv",
-        type=Path,
-        default=Path("outputs/ventral_sosrs_opsin_day3/spike_list_clean.csv"),
-        help="Cleaned spike list CSV used to rebuild the aligned table for the current window.",
-    )
-    parser.add_argument(
-        "--well-metadata-csv",
-        type=Path,
-        default=Path("outputs/ventral_sosrs_opsin_day3/well_metadata.csv"),
-        help="Well metadata with treatment labels.",
-    )
-    parser.add_argument(
-        "--stim-events-csv",
-        type=Path,
-        default=Path("outputs/stim_times/ventral_sosrs_opsin_day3(000)_stim_events.csv"),
-        help="Stim event CSV.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("outputs/opsin_summary/ventral_sosrs_opsin_day3"),
-        help="Output directory for opsin summary figures and tables.",
-    )
-    parser.add_argument("--pre-ms", type=float, default=500.0, help="Milliseconds before stim.")
-    parser.add_argument("--post-ms", type=float, default=500.0, help="Milliseconds after stim.")
-    parser.add_argument(
-        "--pulse-pre-ms",
-        type=float,
-        default=10.0,
-        help="Milliseconds before each pulse onset for pulse-aligned rasters.",
-    )
-    parser.add_argument(
-        "--pulse-post-ms",
-        type=float,
-        default=40.0,
-        help="Milliseconds after each pulse onset for pulse-aligned rasters.",
-    )
-    parser.add_argument("--bin-ms", type=float, default=20.0, help="PSTH bin width in ms.")
-    parser.add_argument(
-        "--boxcar-kernel",
-        type=float,
-        nargs="+",
-        default=[1.0, 1.0, 1.0],
-        help="Boxcar weights for PSTH smoothing, e.g. --boxcar-kernel 1 1 1",
-    )
-    parser.add_argument(
-        "--raw-file",
-        type=Path,
-        default=Path("/Volumes/MannySSD/maestro_pro_output_meas/6_22_2026/129-8445/ventral_sosrs_opsin_day3(000).raw"),
-        help="Raw Axion file used to recover the opto-on intervals for overlay.",
-    )
-    parser.add_argument(
-        "--top-n-opsin-wells",
-        type=int,
-        default=None,
-        help="Limit to the top N opsin wells by aligned spike count.",
-    )
-    return parser.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-    app = OpsinStimSummaryApp(
-        spike_list_csv=args.spike_list_csv,
-        well_metadata_csv=args.well_metadata_csv,
-        stim_events_csv=args.stim_events_csv,
-        output_dir=args.output_dir,
-        pre_ms=args.pre_ms,
-        post_ms=args.post_ms,
-        pulse_pre_ms=args.pulse_pre_ms,
-        pulse_post_ms=args.pulse_post_ms,
-        bin_ms=args.bin_ms,
-        boxcar_kernel=tuple(args.boxcar_kernel),
-        raw_file=args.raw_file,
-        top_n_opsin_wells=args.top_n_opsin_wells,
-    )
-    app.run()
-
-
-if __name__ == "__main__":
-    main()
