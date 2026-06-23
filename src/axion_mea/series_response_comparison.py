@@ -43,6 +43,20 @@ PERIOD_DISPLAY_LABELS = {
     "peak_post_stim_rate_hz": "Peak post-stim rate",
 }
 
+PULSE_DELAY_PERIOD_DISPLAY_LABELS = {
+    "pre_pulse_delay_ms_summary": "Pre-pulse nearest-spike delay",
+    "post_pulse_delay_ms_summary": "Post-pulse first-spike delay",
+}
+
+INSTANTANEOUS_METHOD_DISPLAY_LABELS = {
+    "separate_trial_median": "Current method: separate-trial median",
+    "separate_trial_mean": "Separate-trial mean",
+    "matched_trial_median": "Matched pulse-trial median",
+    "matched_trial_mean": "Matched pulse-trial mean",
+}
+
+INSTANTANEOUS_MIN_DELAY_MS = 1.0
+
 PAIR_COLORS = {
     ("opsin", "pre_stim_mean_rate_hz"): "#93c5fd",
     ("opsin", "peak_post_stim_rate_hz"): "#0057ff",
@@ -101,6 +115,12 @@ class CrossRecordingOpsinComparator:
     def run(self) -> None:
         """Write ranking tables plus train and pulse PSTH comparison figures."""
         self.layout.create()
+        self._remove_stale_outputs(
+            [
+                self.layout.tables_dir / "table__pulse_trial_group_instantaneous_rate_distribution.csv",
+                self.layout.figures_dir / "figure__pulse_trial_instantaneous_rate_raincloud_by_group.png",
+            ]
+        )
         rate_table = self._build_rate_table()
         if rate_table.empty:
             return
@@ -117,6 +137,10 @@ class CrossRecordingOpsinComparator:
         pulse_trial_group_metrics = self._collect_group_metric_pool(
             selected_wells=selected_wells,
             response_dir_name="pulse_response_all_pulses"
+        )
+        pulse_delay_metrics = self._collect_pulse_delay_metric_pool(
+            selected_wells=selected_wells,
+            retained_rate_points=pulse_trial_group_metrics,
         )
 
         rate_table.to_csv(
@@ -147,10 +171,17 @@ class CrossRecordingOpsinComparator:
             self.layout.tables_dir / "table__pulse_trial_group_rate_distribution.csv",
             index=False,
         )
+        pulse_delay_metrics.to_csv(
+            self.layout.tables_dir / "table__pulse_trial_group_spike_delay_distribution.csv",
+            index=False,
+        )
 
         train_figure_path = self.layout.figures_dir / "figure__train_psth_by_recording_and_group.png"
         pulse_figure_path = self.layout.figures_dir / "figure__pulse_trial_psth_by_recording_and_group.png"
         raincloud_figure_path = self.layout.figures_dir / "figure__pulse_trial_rate_raincloud_by_group.png"
+        pulse_delay_figure_path = (
+            self.layout.figures_dir / "figure__pulse_trial_spike_delay_raincloud_by_group.png"
+        )
         self._draw_group_psth_grid(
             ranking_table=ranking_table,
             train_psth=train_psth,
@@ -170,6 +201,10 @@ class CrossRecordingOpsinComparator:
         self._draw_rate_raincloud(
             metrics_long=pulse_trial_group_metrics,
             output_path=raincloud_figure_path,
+        )
+        self._draw_pulse_delay_raincloud(
+            metrics_long=pulse_delay_metrics,
+            output_path=pulse_delay_figure_path,
         )
         linked_waveform_outputs = RaincloudWaveformLinkBuilder(
             comparison_root=self.layout.root,
@@ -205,7 +240,17 @@ class CrossRecordingOpsinComparator:
                         "pulse_trial_group_rate_distribution": str(
                             self.layout.tables_dir / "table__pulse_trial_group_rate_distribution.csv"
                         ),
+                        "pulse_trial_group_spike_delay_distribution": str(
+                            self.layout.tables_dir / "table__pulse_trial_group_spike_delay_distribution.csv"
+                        ),
+                        "pulse_trial_spike_delay_raincloud_figure": str(pulse_delay_figure_path),
                         "raincloud_linked_unit_waveform_figure": str(linked_waveform_outputs.get("figure", "")),
+                        "raincloud_linked_prepost_waveform_figure": str(
+                            linked_waveform_outputs.get("prepost_figure", "")
+                        ),
+                        "raincloud_linked_unit_waveform_mathcheck_figure": str(
+                            linked_waveform_outputs.get("mathcheck_figure", "")
+                        ),
                         "raincloud_linked_unit_waveform_summary": str(
                             linked_waveform_outputs.get("summary_table", "")
                         ),
@@ -215,6 +260,13 @@ class CrossRecordingOpsinComparator:
             ),
             encoding="utf-8",
         )
+
+    @staticmethod
+    def _remove_stale_outputs(paths: list[Path]) -> None:
+        """Delete legacy outputs that would otherwise coexist with renamed files."""
+        for path in paths:
+            if path.exists():
+                path.unlink()
 
     def _build_rate_table(self) -> pd.DataFrame:
         """Compute per-recording overall firing rates for opsin and no-opsin wells."""
@@ -383,6 +435,182 @@ class CrossRecordingOpsinComparator:
         long["raincloud_label"] = long["group_label"] + " | " + long["period_label"]
         return long.sort_values(
             ["group", "rate_period", "recording_index", "well"]
+        ).reset_index(drop=True)
+
+    def _collect_pulse_delay_metric_pool(
+        self,
+        selected_wells: list[dict[str, str]],
+        retained_rate_points: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Collect retained-pair pulse-aligned spike-delay summaries.
+
+        This branch intentionally stays in milliseconds. The prior version
+        converted delay to `1000 / delay`, which made spontaneous pre-pulse
+        spikes look like a strong baseline "rate" and visually inverted the
+        post-stimulus effect relative to the PSTH-based rate summaries.
+        """
+        if retained_rate_points.empty:
+            return pd.DataFrame()
+
+        retained_pairs = retained_rate_points.loc[
+            retained_rate_points["rate_period"] == "peak_post_stim_rate_hz",
+            ["group", "well", "recording_label", "recording_index"],
+        ].drop_duplicates()
+        selected_lookup = {
+            (entry["group"], entry["well"]): int(entry["rank_within_group"])
+            for entry in selected_wells
+        }
+        summary_rows: list[dict[str, object]] = []
+
+        for project in self.recording_projects:
+            for (group_name, well_name), rank_within_group in selected_lookup.items():
+                key_mask = (
+                    (retained_pairs["group"] == group_name)
+                    & (retained_pairs["well"] == well_name)
+                    & (retained_pairs["recording_label"] == project.recording_label)
+                    & (retained_pairs["recording_index"].astype(str) == str(project.recording_index))
+                )
+                if not key_mask.any():
+                    continue
+
+                group_dir_name = "opsin" if group_name == "opsin" else "no_opsin"
+                aligned_spikes_path = (
+                    project.project_root
+                    / "groups"
+                    / group_dir_name
+                    / well_name
+                    / "tables"
+                    / "table__pulse_aligned_spikes.csv"
+                )
+                if not aligned_spikes_path.exists():
+                    continue
+
+                aligned = pd.read_csv(aligned_spikes_path)
+                aligned["pulse_aligned_time_ms"] = pd.to_numeric(aligned["pulse_aligned_time_ms"], errors="coerce")
+                pre_delay_ms = (
+                    aligned.loc[aligned["pulse_aligned_time_ms"] < 0]
+                    .groupby("pulse_trial_index")["pulse_aligned_time_ms"]
+                    .max()
+                    .abs()
+                )
+                post_delay_ms = (
+                    aligned.loc[aligned["pulse_aligned_time_ms"] > 0]
+                    .groupby("pulse_trial_index")["pulse_aligned_time_ms"]
+                    .min()
+                )
+                pre_delay_ms = pre_delay_ms.loc[
+                    (pre_delay_ms >= INSTANTANEOUS_MIN_DELAY_MS) & np.isfinite(pre_delay_ms)
+                ]
+                post_delay_ms = post_delay_ms.loc[
+                    (post_delay_ms >= INSTANTANEOUS_MIN_DELAY_MS) & np.isfinite(post_delay_ms)
+                ]
+                if pre_delay_ms.empty or post_delay_ms.empty:
+                    continue
+
+                matched = pd.DataFrame(
+                    {
+                        "pre_delay_ms": pre_delay_ms,
+                        "post_delay_ms": post_delay_ms,
+                    }
+                ).dropna()
+                summary_rows.extend(
+                    [
+                        {
+                            "group": group_name,
+                            "group_label": GROUP_DISPLAY_LABELS[group_name],
+                            "well": well_name,
+                            "rank_within_group": rank_within_group,
+                            "recording_label": project.recording_label,
+                            "recording_index": project.recording_index,
+                            "response_view": "pulse_response_all_pulses",
+                            "method": "separate_trial_median",
+                            "pre_pulse_delay_ms_summary": float(np.median(pre_delay_ms)),
+                            "post_pulse_delay_ms_summary": float(np.median(post_delay_ms)),
+                            "pre_pulse_trial_count": int(len(pre_delay_ms)),
+                            "post_pulse_trial_count": int(len(post_delay_ms)),
+                            "matched_pulse_trial_count": int(len(matched)),
+                        },
+                        {
+                            "group": group_name,
+                            "group_label": GROUP_DISPLAY_LABELS[group_name],
+                            "well": well_name,
+                            "rank_within_group": rank_within_group,
+                            "recording_label": project.recording_label,
+                            "recording_index": project.recording_index,
+                            "response_view": "pulse_response_all_pulses",
+                            "method": "separate_trial_mean",
+                            "pre_pulse_delay_ms_summary": float(np.mean(pre_delay_ms)),
+                            "post_pulse_delay_ms_summary": float(np.mean(post_delay_ms)),
+                            "pre_pulse_trial_count": int(len(pre_delay_ms)),
+                            "post_pulse_trial_count": int(len(post_delay_ms)),
+                            "matched_pulse_trial_count": int(len(matched)),
+                        },
+                    ]
+                )
+                if not matched.empty:
+                    summary_rows.extend(
+                        [
+                            {
+                                "group": group_name,
+                                "group_label": GROUP_DISPLAY_LABELS[group_name],
+                                "well": well_name,
+                                "rank_within_group": rank_within_group,
+                                "recording_label": project.recording_label,
+                                "recording_index": project.recording_index,
+                                "response_view": "pulse_response_all_pulses",
+                                "method": "matched_trial_median",
+                                "pre_pulse_delay_ms_summary": float(np.median(matched["pre_delay_ms"])),
+                                "post_pulse_delay_ms_summary": float(np.median(matched["post_delay_ms"])),
+                                "pre_pulse_trial_count": int(len(pre_delay_ms)),
+                                "post_pulse_trial_count": int(len(post_delay_ms)),
+                                "matched_pulse_trial_count": int(len(matched)),
+                            },
+                            {
+                                "group": group_name,
+                                "group_label": GROUP_DISPLAY_LABELS[group_name],
+                                "well": well_name,
+                                "rank_within_group": rank_within_group,
+                                "recording_label": project.recording_label,
+                                "recording_index": project.recording_index,
+                                "response_view": "pulse_response_all_pulses",
+                                "method": "matched_trial_mean",
+                                "pre_pulse_delay_ms_summary": float(np.mean(matched["pre_delay_ms"])),
+                                "post_pulse_delay_ms_summary": float(np.mean(matched["post_delay_ms"])),
+                                "pre_pulse_trial_count": int(len(pre_delay_ms)),
+                                "post_pulse_trial_count": int(len(post_delay_ms)),
+                                "matched_pulse_trial_count": int(len(matched)),
+                            },
+                        ]
+                    )
+
+        if not summary_rows:
+            return pd.DataFrame()
+
+        summary = pd.DataFrame(summary_rows).sort_values(
+            ["group", "well", "recording_index"], kind="mergesort"
+        ).reset_index(drop=True)
+        long = summary.melt(
+            id_vars=[
+                "group",
+                "group_label",
+                "well",
+                "rank_within_group",
+                "recording_label",
+                "recording_index",
+                "response_view",
+                "method",
+                "pre_pulse_trial_count",
+                "post_pulse_trial_count",
+                "matched_pulse_trial_count",
+            ],
+            value_vars=["pre_pulse_delay_ms_summary", "post_pulse_delay_ms_summary"],
+            var_name="delay_period",
+            value_name="spike_delay_ms",
+        )
+        long["period_label"] = long["delay_period"].map(PULSE_DELAY_PERIOD_DISPLAY_LABELS)
+        long["method_label"] = long["method"].map(INSTANTANEOUS_METHOD_DISPLAY_LABELS)
+        return long.sort_values(
+            ["method", "group", "delay_period", "recording_index", "well"], kind="mergesort"
         ).reset_index(drop=True)
 
     def _summarize_psth_metrics(self, psth_long: pd.DataFrame) -> pd.DataFrame:
@@ -647,7 +875,7 @@ class CrossRecordingOpsinComparator:
             self._draw_vertical_box(ax, values, center=position, color=color)
 
         ax.set_xticks(positions)
-        ax.set_xticklabels(["Pre", "Peak", "Pre", "Peak"])
+        ax.set_xticklabels(["Pre-stim", "Post-stim peak", "Pre-stim", "Post-stim peak"])
         ax.set_ylabel("firing rate (Hz)")
         ax.set_xlabel("")
         ax.set_title(
@@ -683,20 +911,159 @@ class CrossRecordingOpsinComparator:
         fig.savefig(output_path, dpi=220, bbox_inches="tight")
         plt.close(fig)
 
-    def _paired_point_x_positions(self, plot_data: pd.DataFrame, positions: list[float]) -> dict[tuple[str, str, str], float]:
+    def _draw_pulse_delay_raincloud(self, metrics_long: pd.DataFrame, output_path: Path) -> None:
+        """Draw paired pre/post pulse-aligned spike-delay summaries by method and group."""
+        if metrics_long.empty:
+            return
+
+        order = [
+            ("opsin", "pre_pulse_delay_ms_summary"),
+            ("opsin", "post_pulse_delay_ms_summary"),
+            ("no_opsin", "pre_pulse_delay_ms_summary"),
+            ("no_opsin", "post_pulse_delay_ms_summary"),
+        ]
+        positions = [0.0, 1.0, 3.0, 4.0]
+        method_order = [
+            "separate_trial_median",
+            "separate_trial_mean",
+            "matched_trial_median",
+            "matched_trial_mean",
+        ]
+        present_methods = [method for method in method_order if method in metrics_long["method"].unique()]
+        nrows = len(present_methods)
+        fig, axes = plt.subplots(
+            nrows,
+            1,
+            figsize=(8.8, 4.2 * nrows),
+            constrained_layout=True,
+            squeeze=False,
+            sharex=False,
+        )
+
+        for axis, method_name in zip(axes.ravel(), present_methods, strict=True):
+            panel = metrics_long.loc[metrics_long["method"] == method_name].copy()
+            point_x_map = self._paired_point_x_positions_generic(
+                plot_data=panel,
+                positions=positions,
+                period_column="delay_period",
+                period_order=["pre_pulse_delay_ms_summary", "post_pulse_delay_ms_summary"],
+            )
+            self._draw_pair_connectors_generic(
+                axis=axis,
+                plot_data=panel,
+                point_x_map=point_x_map,
+                period_column="delay_period",
+                value_column="spike_delay_ms",
+                pre_period="pre_pulse_delay_ms_summary",
+                post_period="post_pulse_delay_ms_summary",
+            )
+
+            for (group_name, period_name), position in zip(order, positions, strict=True):
+                one = panel.loc[
+                    (panel["group"] == group_name)
+                    & (panel["delay_period"] == period_name)
+                ].copy()
+                if one.empty:
+                    continue
+                values = one["spike_delay_ms"].astype(float).to_numpy()
+                color = PAIR_COLORS[(
+                    group_name,
+                    "pre_stim_mean_rate_hz" if period_name == "pre_pulse_delay_ms_summary" else "peak_post_stim_rate_hz",
+                )]
+                self._draw_vertical_half_violin(axis, values, center=position, color=color)
+                self._draw_vertical_rain(
+                    axis,
+                    values=values,
+                    center=position,
+                    color=color,
+                    x_positions=one["pair_x_position"].to_numpy(dtype=float) if "pair_x_position" in one.columns else None,
+                )
+                self._draw_vertical_box(axis, values, center=position, color=color)
+
+            axis.set_xticks(positions)
+            axis.set_xticklabels(["Pre-pulse", "Post-pulse", "Pre-pulse", "Post-pulse"])
+            axis.set_ylabel("spike delay from pulse onset (ms)")
+            axis.set_xlabel("")
+            axis.set_title(INSTANTANEOUS_METHOD_DISPLAY_LABELS[method_name], fontsize=13, pad=10)
+            axis.text(
+                0.20,
+                1.005,
+                GROUP_DISPLAY_LABELS["opsin"],
+                transform=axis.transAxes,
+                ha="center",
+                va="bottom",
+                fontsize=10.5,
+                color="#1e3a8a",
+                fontweight="bold",
+            )
+            axis.text(
+                0.80,
+                1.005,
+                GROUP_DISPLAY_LABELS["no_opsin"],
+                transform=axis.transAxes,
+                ha="center",
+                va="bottom",
+                fontsize=10.5,
+                color="#475569",
+                fontweight="bold",
+            )
+            axis.axvline(2.0, color="#e5e7eb", linewidth=1.0)
+            axis.grid(axis="y", alpha=0.22)
+            axis.set_axisbelow(True)
+            self._style_spines(axis)
+
+            matched_counts = panel["matched_pulse_trial_count"].dropna().astype(int)
+            pre_counts = panel["pre_pulse_trial_count"].dropna().astype(int)
+            post_counts = panel["post_pulse_trial_count"].dropna().astype(int)
+            note = f"delays < {INSTANTANEOUS_MIN_DELAY_MS:.1f} ms removed"
+            if method_name.startswith("matched_trial"):
+                note += f"; matched pulse trials per point median={int(np.median(matched_counts)) if not matched_counts.empty else 0}"
+            else:
+                note += (
+                    f"; pre count median={int(np.median(pre_counts)) if not pre_counts.empty else 0},"
+                    f" post count median={int(np.median(post_counts)) if not post_counts.empty else 0}"
+                )
+            axis.text(
+                0.01,
+                0.98,
+                note,
+                transform=axis.transAxes,
+                ha="left",
+                va="top",
+                fontsize=8,
+                bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "none", "pad": 2.0},
+            )
+
+        fig.suptitle(
+            "Top-2 Wells Per Group Across 6 Recordings\n"
+            "Pulse-aligned spike delay summary: lower post-pulse values mean faster stimulus-locked spiking; "
+            "pre = nearest pre-pulse spike, post = first post-stim spike",
+            fontsize=15,
+        )
+        fig.savefig(output_path, dpi=220, bbox_inches="tight")
+        plt.close(fig)
+
+    def _paired_point_x_positions_generic(
+        self,
+        plot_data: pd.DataFrame,
+        positions: list[float],
+        period_column: str,
+        period_order: list[str],
+    ) -> dict[tuple[str, str, str], float]:
         """Assign one stable horizontal offset per well/recording pair and period."""
-        position_map = {
-            ("opsin", "pre_stim_mean_rate_hz"): positions[0],
-            ("opsin", "peak_post_stim_rate_hz"): positions[1],
-            ("no_opsin", "pre_stim_mean_rate_hz"): positions[2],
-            ("no_opsin", "peak_post_stim_rate_hz"): positions[3],
-        }
+        group_order = ["opsin", "no_opsin"]
+        position_map: dict[tuple[str, str], float] = {}
+        idx = 0
+        for group_name in group_order:
+            for period_name in period_order:
+                position_map[(group_name, period_name)] = positions[idx]
+                idx += 1
         pair_frame = (
             plot_data[
-                ["group", "well", "recording_index", "recording_label", "rate_period"]
+                ["group", "well", "recording_index", "recording_label", period_column]
             ]
             .drop_duplicates()
-            .sort_values(["group", "well", "recording_index", "rate_period"])
+            .sort_values(["group", "well", "recording_index", period_column])
         )
         rng = np.random.default_rng(20260622)
         point_x_map: dict[tuple[str, str, str], float] = {}
@@ -707,16 +1074,25 @@ class CrossRecordingOpsinComparator:
                 .sort_values(["well", "recording_index"])
                 .itertuples(index=False, name=None)
             )
-            for well_name, recording_index, recording_label in pairs:
+            for well_name, recording_index, _recording_label in pairs:
                 x_offset = rng.uniform(-0.055, 0.055)
-                for rate_period in ["pre_stim_mean_rate_hz", "peak_post_stim_rate_hz"]:
-                    center = position_map[(group_name, rate_period)]
-                    point_x_map[(well_name, recording_index, rate_period)] = center - 0.10 + x_offset
+                for period_name in period_order:
+                    center = position_map[(group_name, period_name)]
+                    point_x_map[(well_name, str(recording_index), period_name)] = center - 0.10 + x_offset
         plot_data["pair_x_position"] = plot_data.apply(
-            lambda row: point_x_map[(str(row["well"]), str(row["recording_index"]), str(row["rate_period"]))],
+            lambda row: point_x_map[(str(row["well"]), str(row["recording_index"]), str(row[period_column]))],
             axis=1,
         )
         return point_x_map
+
+    def _paired_point_x_positions(self, plot_data: pd.DataFrame, positions: list[float]) -> dict[tuple[str, str, str], float]:
+        """Assign one stable horizontal offset per well/recording pair and period."""
+        return self._paired_point_x_positions_generic(
+            plot_data=plot_data,
+            positions=positions,
+            period_column="rate_period",
+            period_order=["pre_stim_mean_rate_hz", "peak_post_stim_rate_hz"],
+        )
 
     def _draw_pair_connectors(
         self,
@@ -725,11 +1101,32 @@ class CrossRecordingOpsinComparator:
         point_x_map: dict[tuple[str, str, str], float],
     ) -> None:
         """Connect each pre/post pair with a faint line."""
+        self._draw_pair_connectors_generic(
+            axis=axis,
+            plot_data=plot_data,
+            point_x_map=point_x_map,
+            period_column="rate_period",
+            value_column="firing_rate_hz",
+            pre_period="pre_stim_mean_rate_hz",
+            post_period="peak_post_stim_rate_hz",
+        )
+
+    def _draw_pair_connectors_generic(
+        self,
+        axis: plt.Axes,
+        plot_data: pd.DataFrame,
+        point_x_map: dict[tuple[str, str, str], float],
+        period_column: str,
+        value_column: str,
+        pre_period: str,
+        post_period: str,
+    ) -> None:
+        """Connect each pre/post pair with a faint line for any paired metric."""
         wide = (
             plot_data.pivot_table(
                 index=["group", "well", "recording_index"],
-                columns="rate_period",
-                values="firing_rate_hz",
+                columns=period_column,
+                values=value_column,
                 aggfunc="first",
             )
             .reset_index()
@@ -738,12 +1135,12 @@ class CrossRecordingOpsinComparator:
             group_name = str(row["group"])
             well_name = str(row["well"])
             recording_index = str(row["recording_index"])
-            pre_value = row.get("pre_stim_mean_rate_hz")
-            peak_value = row.get("peak_post_stim_rate_hz")
+            pre_value = row.get(pre_period)
+            peak_value = row.get(post_period)
             if pd.isna(pre_value) or pd.isna(peak_value):
                 continue
-            x_pre = point_x_map[(well_name, recording_index, "pre_stim_mean_rate_hz")]
-            x_peak = point_x_map[(well_name, recording_index, "peak_post_stim_rate_hz")]
+            x_pre = point_x_map[(well_name, recording_index, pre_period)]
+            x_peak = point_x_map[(well_name, recording_index, post_period)]
             axis.plot(
                 [x_pre, x_peak],
                 [float(pre_value), float(peak_value)],
