@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Recording-level CSV parsing and overview plotting utilities.
 
 This module is the first structured stage in the pipeline. It converts Axion's
@@ -13,6 +12,8 @@ CSV exports into normalized tables that later stages can trust:
 4. The plotting helpers generate recording-level context plots before any
    stimulation-locked analysis is performed.
 """
+
+from __future__ import annotations
 
 import csv
 import json
@@ -137,7 +138,14 @@ def parse_well_information(rows: list[list[str]]) -> pd.DataFrame:
 
 
 def read_spike_counts(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Convert the wide spike-count export into long-format well and channel tables."""
+    """Convert the wide spike-count export into long-format well and channel tables.
+
+    The source CSV stores interval counts in a wide plate-shaped layout. This
+    helper preserves the interval boundaries and emits:
+
+    - one long table keyed by `well`, and
+    - one long table keyed by `electrode` plus derived `channel_in_well`.
+    """
     counts = pd.read_csv(path, encoding="utf-8-sig")
     start = pd.to_numeric(counts["Interval Start (S)"], errors="coerce")
     end = pd.to_numeric(counts["Interval End (S)"], errors="coerce")
@@ -186,7 +194,11 @@ def read_spike_counts(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def read_environment(path: Path) -> pd.DataFrame:
-    """Read environmental telemetry recorded alongside the spike export."""
+    """Read environmental telemetry recorded alongside the spike export.
+
+    Only the pre-`Well Information` block is parsed here because that is the
+    portion the current repository uses for temperature and CO2 overview plots.
+    """
     rows: list[list[str]] = []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.reader(handle)

@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Well-level train and pulse response analysis.
 
 This module owns the second half of the biological analysis after spikes have
@@ -13,6 +12,8 @@ The classes below are arranged in the same order they are used by the pipeline:
 window/config models, aligned dataset helpers, summary-table builders, waveform
 reconstruction helpers, and figure writers.
 """
+
+from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -110,6 +111,7 @@ class OpsinStimDataset:
         stim_events_csv: Path,
         window: AnalysisWindow,
     ) -> None:
+        """Bind the normalized spike, well-metadata, and stim-event inputs for one recording."""
         self.spike_list_csv = spike_list_csv.expanduser().resolve()
         self.well_metadata_csv = well_metadata_csv.expanduser().resolve()
         self.stim_events_csv = stim_events_csv.expanduser().resolve()
@@ -121,7 +123,16 @@ class OpsinStimDataset:
         self.stim_events = pd.DataFrame()
 
     def load(self) -> None:
-        """Load source CSVs and construct the train-aligned spike table."""
+        """Load source CSVs and construct the train-aligned spike table.
+
+        Current code truth:
+
+        - spike times are read from `spike_list_clean.csv`,
+        - stim onsets and `stimulated_wells` are read from the extracted stim
+          event CSV, and
+        - `well_metadata.csv` is loaded and retained on the object, but the
+          train-alignment math below does not consult it directly.
+        """
         self.spikes = pd.read_csv(self.spike_list_csv)
         self.well_metadata = pd.read_csv(self.well_metadata_csv)
         self.stim_events = pd.read_csv(self.stim_events_csv)
@@ -212,6 +223,7 @@ class TrialLatencyAnalyzer:
     """Summarize train-level spike timing for one well."""
 
     def __init__(self, well_spikes: pd.DataFrame, all_trials: list[int]) -> None:
+        """Store one well's train-aligned spikes plus the complete train index list."""
         self.well_spikes = well_spikes.copy()
         self.all_trials = all_trials
 
@@ -245,6 +257,7 @@ class PulseLatencyAnalyzer:
     """Summarize pulse-level spike timing for pooled pulse trials."""
 
     def __init__(self, pulse_aligned_spikes: pd.DataFrame, pulse_trials: pd.DataFrame) -> None:
+        """Store pulse-aligned spikes and the pulse-trial manifest for one well."""
         self.pulse_aligned_spikes = pulse_aligned_spikes.copy()
         self.pulse_trials = pulse_trials.copy()
 
@@ -297,6 +310,7 @@ class OptoWaveformModel:
         pulse_epochs: list[PulseEpoch],
         render_config: WaveformRenderConfig,
     ) -> None:
+        """Store raw-derived optical intervals and display settings for figure overlays."""
         self.opto_on_intervals_ms = sorted(opto_on_intervals_ms, key=lambda row: row[0])
         self.pulse_epochs = pulse_epochs
         self.render_config = render_config
@@ -366,6 +380,7 @@ class PulseAlignedSpikeBuilder:
         pulse_epochs: list[PulseEpoch],
         pulse_window: PulseWindow,
     ) -> None:
+        """Store one well's train-aligned spikes and the pulse windows used for reindexing."""
         self.well_spikes = well_spikes.copy()
         self.all_trials = all_trials
         self.pulse_epochs = pulse_epochs
@@ -457,6 +472,7 @@ class PsthBuilder:
         config: PsthConfig,
         time_column: str = "aligned_time_ms",
     ) -> None:
+        """Store aligned spike times, the denominator trial list, and PSTH settings."""
         self.well_spikes = well_spikes
         self.trials = trials
         self.config = config
@@ -500,6 +516,7 @@ class OpsinWellFigure:
         waveform_model: OptoWaveformModel,
         well_context_label: str = "opsin well",
     ) -> None:
+        """Store all train-level tables and raw-derived waveform overlays for one well figure."""
         self.well = well
         self.well_spikes = well_spikes
         self.trials = trials
@@ -809,6 +826,7 @@ class PulseAlignedWellFigure:
         waveform_model: OptoWaveformModel,
         well_context_label: str = "opsin well",
     ) -> None:
+        """Store pulse-position-specific tables and waveform overlays for one well figure."""
         self.well = well
         self.pulse_aligned_spikes = pulse_aligned_spikes
         self.trials = trials
@@ -935,6 +953,7 @@ class PulseTrialSummaryFigure:
         waveform_model: OptoWaveformModel,
         well_context_label: str = "opsin well",
     ) -> None:
+        """Store the pooled pulse-trial tables and waveform overlays for one well figure."""
         self.well = well
         self.pulse_aligned_spikes = pulse_aligned_spikes
         self.pulse_trials = pulse_trials

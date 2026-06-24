@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Project-level orchestration for the full Axion MEA recording workflow.
 
 This module is the repository's source of truth for how one recording is turned
@@ -12,6 +11,8 @@ into one reproducible analysis project. The pipeline is intentionally staged:
 6. build per-well train-level and pulse-level response summaries, and
 7. snapshot the exact code and command used to generate the project.
 """
+
+from __future__ import annotations
 
 import json
 import re
@@ -413,6 +414,7 @@ class WellResponseBuilder:
         waveform_render_config: WaveformRenderConfig,
         report_panel_composer: ReportPanelComposer,
     ) -> None:
+        """Store the exact analysis settings reused for every well in one recording."""
         self.window = window
         self.pulse_window = pulse_window
         self.train_psth_config = train_psth_config
@@ -575,6 +577,7 @@ class RecordingOverviewStage:
     """Stage 1: parse the CSV exports and write recording-level overview products."""
 
     def __init__(self, bundle: RecordingSourceBundle, layout: ProjectLayout, config: ProjectBuildConfig) -> None:
+        """Bind one recording's source files to the recording-overview output folder."""
         self.bundle = bundle
         self.layout = layout
         self.config = config
@@ -634,6 +637,7 @@ class StimEventStage:
     """Stage 2: extract stimulation event timing from the raw file."""
 
     def __init__(self, bundle: RecordingSourceBundle, layout: ProjectLayout) -> None:
+        """Bind one recording's `.raw` file to the stim-event output folder."""
         self.bundle = bundle
         self.layout = layout
 
@@ -656,6 +660,7 @@ class StimLockedSpikeStage:
         layout: ProjectLayout,
         config: ProjectBuildConfig,
     ) -> None:
+        """Create the stim-locked alignment dataset from cleaned spikes plus stim events."""
         self.dataset = StimAlignedSpikeDataset(
             spike_csv=spike_list_clean_csv,
             stim_csv=stim_events_csv,
@@ -679,6 +684,7 @@ class WellGroupOrganizer:
     """Assign wells with aligned spikes into `opsin` or `no_opsin` groups."""
 
     def __init__(self, well_metadata_csv: Path, aligned_spikes_csv: Path) -> None:
+        """Bind the normalized well metadata and aligned-spike table used for grouping."""
         self.well_metadata_csv = well_metadata_csv
         self.aligned_spikes_csv = aligned_spikes_csv
 
@@ -738,6 +744,7 @@ class WellResponseStage:
         layout: ProjectLayout,
         config: ProjectBuildConfig,
     ) -> None:
+        """Prepare per-well response analysis from normalized CSVs plus the `.raw` waveform program."""
         self.window = AnalysisWindow(pre_ms=config.pre_ms, post_ms=config.post_ms)
         self.pulse_window = PulseWindow(pre_ms=config.pulse_pre_ms, post_ms=config.pulse_post_ms)
         self.train_psth_config = PsthConfig(bin_ms=config.train_bin_ms, boxcar_kernel=config.boxcar_kernel)
@@ -826,6 +833,7 @@ class ProjectSummaryWriter:
         groups: list[WellProjectGroup],
         config: ProjectBuildConfig,
     ) -> None:
+        """Bind the finished project state that will be summarized for the user."""
         self.layout = layout
         self.bundle = bundle
         self.explorer = explorer
@@ -900,6 +908,7 @@ class ReproducibilitySnapshotWriter:
     """Record the exact code and command used to build the project."""
 
     def __init__(self, layout: ProjectLayout, config: ProjectBuildConfig) -> None:
+        """Store the project layout and CLI-equivalent configuration for snapshotting."""
         self.layout = layout
         self.config = config
         self.repo_root = Path(__file__).resolve().parents[2]
@@ -1049,6 +1058,7 @@ class RecordingSeriesSummaryWriter:
         bundles: list[RecordingSourceBundle],
         project_paths: list[Path],
     ) -> None:
+        """Bind the finished batch context before writing series-level summaries."""
         self.layout = layout
         self.input_dir = input_dir
         self.project_root = project_root
@@ -1184,6 +1194,7 @@ class AxionProjectSeriesBuilder:
     """Discover and build one project per recording instance in an input tree."""
 
     def __init__(self, config: ProjectBuildConfig) -> None:
+        """Resolve all recording bundles and the final series output folder."""
         self.config = config
         self.input_dir = config.data_dir.expanduser().resolve()
         self.bundles = RecordingSourceBundle.discover_all(self.input_dir)

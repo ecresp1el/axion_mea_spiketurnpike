@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Low-level parser for Axion `.raw` stimulation tags.
 
 This module is intentionally narrow: it does not attempt to decode the full raw
@@ -14,6 +13,8 @@ Those tags are enough to recover stimulation timestamps, stimulated wells, and
 the XML micro-operation program used later to reconstruct the intended opto
 waveform shown in the report figures.
 """
+
+from __future__ import annotations
 
 import csv
 import json

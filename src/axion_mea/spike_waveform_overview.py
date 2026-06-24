@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Quick-look extraction of spike waveforms from Axion `.spk` files.
 
 This module is intentionally pragmatic rather than a full production parser.
@@ -27,6 +26,8 @@ That layout is consistent with the metadata embedded in the file:
 Since `(0.84 + 2.16) ms * 12.5 kHz = 37.5 samples`, the exported snippet is
 interpreted here as a 38-sample waveform.
 """
+
+from __future__ import annotations
 
 import json
 import re
@@ -93,6 +94,7 @@ class SpikeWaveformClassifier:
     """Measure trough-to-peak latency from extracted spike snippets."""
 
     def __init__(self, config: TroughToPeakConfig | None = None) -> None:
+        """Use the default FS/RS threshold unless the caller overrides it."""
         self.config = config or TroughToPeakConfig()
 
     def measure_extraction(self, extraction: SpikeWaveformExtraction) -> pd.DataFrame:
@@ -147,6 +149,7 @@ class AxionSpikeWaveformFile:
     SPIKE_TIMESTAMP_BYTES = 8
 
     def __init__(self, spk_file: Path) -> None:
+        """Bind one `.spk` file that will be decoded on demand."""
         self.spk_file = spk_file.expanduser().resolve()
 
     def extract(self) -> SpikeWaveformExtraction:
@@ -288,6 +291,7 @@ class SpikeWaveformOverviewWriter:
     """Write quick-look waveform figures across one or more `.spk` files."""
 
     def __init__(self, output_root: Path) -> None:
+        """Create the output folder structure for waveform figures and tables."""
         self.output_root = output_root.expanduser().resolve()
         self.figures_dir = self.output_root / "figures"
         self.tables_dir = self.output_root / "tables"

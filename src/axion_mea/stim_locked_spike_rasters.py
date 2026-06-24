@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Stimulation-locked raster tables and overview figures.
 
 This module takes the cleaned spike list plus extracted stimulation events and
@@ -8,6 +7,8 @@ tables support two downstream uses:
 1. quick QC of stimulus-locked responses across wells and channels, and
 2. a shared aligned-spike table consumed by the well-level response analysis.
 """
+
+from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class StimAlignedSpikeDataset:
         output_dir: Path,
         window: RasterWindow,
     ) -> None:
+        """Store one cleaned spike CSV, one stim-event CSV, and one raster window."""
         self.spike_csv = spike_csv.expanduser().resolve()
         self.stim_csv = stim_csv.expanduser().resolve()
         self.output_dir = output_dir.expanduser().resolve()
@@ -68,7 +70,12 @@ class StimAlignedSpikeDataset:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def build_aligned_table(self) -> pd.DataFrame:
-        """Create one row per spike that falls inside the stimulus-aligned window."""
+        """Create one row per spike that falls inside the stimulus-aligned window.
+
+        Spike timestamps come from `spike_list_clean.csv`. Stimulation times and
+        the `stimulated_wells` list come from the extracted stim-event CSV. No
+        raw waveform data are consulted at this stage.
+        """
         aligned_rows: list[dict[str, object]] = []
         stimulated_wells = self._stimulated_wells()
 
@@ -175,6 +182,7 @@ class RasterPlotWriter:
     """Create recording-level stimulus-locked raster figures."""
 
     def __init__(self, dataset: StimAlignedSpikeDataset) -> None:
+        """Bind a loaded `StimAlignedSpikeDataset` to the plotting helpers."""
         self.dataset = dataset
         sns.set_theme(style="whitegrid")
 

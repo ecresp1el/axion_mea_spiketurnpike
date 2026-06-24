@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Cross-recording comparison of group-level well responses.
 
 This module operates only after a recording series has already been built. It
@@ -15,6 +14,8 @@ For now the comparison stage answers one narrow biological question:
 3. how does the pooled pulse-as-trial PSTH (the 250 pseudo-trial view here)
    change across recordings.
 """
+
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -105,6 +106,7 @@ class CrossRecordingOpsinComparator:
     """Build cross-recording PSTH summaries for top wells in each group."""
 
     def __init__(self, series_root: Path, recording_projects: list[SeriesRecordingProject], top_n_per_group: int = 2) -> None:
+        """Bind one series root plus the already-built per-recording projects."""
         self.series_root = series_root.expanduser().resolve()
         self.recording_projects = sorted(recording_projects, key=lambda item: item.recording_index)
         self.top_n_per_group = top_n_per_group
@@ -113,7 +115,18 @@ class CrossRecordingOpsinComparator:
         )
 
     def run(self) -> None:
-        """Write ranking tables plus train and pulse PSTH comparison figures."""
+        """Write ranking tables plus train and pulse comparison figures.
+
+        This stage reads only products already emitted under each recording
+        project, primarily:
+
+        - `processed_data/recording_overview/well_counts_long.csv`
+        - `processed_data/recording_overview/well_metadata.csv`
+        - per-well PSTH tables under `groups/`
+        - per-well pulse-aligned spike tables under `groups/.../tables/`
+
+        It does not reopen the original Axion source files directly.
+        """
         self.layout.create()
         self._remove_stale_outputs(
             [
@@ -342,7 +355,11 @@ class CrossRecordingOpsinComparator:
         return selected
 
     def _collect_psth_tables(self, selected_wells: list[dict[str, str]], response_dir_name: str) -> pd.DataFrame:
-        """Collect one long-format PSTH table across recordings for selected wells."""
+        """Collect one long-format PSTH table across recordings for selected wells.
+
+        The loaded tables are downstream products of the per-well response
+        stage, not newly computed PSTHs from raw spikes.
+        """
         rows: list[pd.DataFrame] = []
         table_name = (
             "table__train_response_psth.csv"

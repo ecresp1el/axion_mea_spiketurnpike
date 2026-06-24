@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Link stim-locked waveform snippets back to retained raincloud points.
 
 This module bridges two analyses that previously lived in parallel:
@@ -23,6 +22,8 @@ Those panels are meant to answer a narrow question clearly: what does the
 dominant opto-tagged electrode waveform look like for the same point shown in
 the raincloud plot?
 """
+
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -104,6 +105,7 @@ class RecordingSpikeWaveformMatcher:
     KEY_COLUMNS = ["time_s", "well", "electrode", "channel_in_well", "amplitude_mV"]
 
     def __init__(self, project_root: Path) -> None:
+        """Load one recording project and prepare the CSV-to-`.spk` merge lookup."""
         self.project_root = project_root.expanduser().resolve()
         manifest = json.loads((self.project_root / "project_manifest.json").read_text(encoding="utf-8"))
         self.spk_file = Path(manifest["source_files"]["spk_file"]).expanduser().resolve()
@@ -202,6 +204,7 @@ class RaincloudWaveformLinkBuilder:
         recording_projects: list[object],
         config: RaincloudWaveformLinkConfig | None = None,
     ) -> None:
+        """Bind the cross-recording comparison folder and per-recording projects."""
         self.comparison_root = comparison_root.expanduser().resolve()
         self.recording_projects = sorted(recording_projects, key=lambda item: item.recording_index)
         self.config = config or RaincloudWaveformLinkConfig()
@@ -213,7 +216,13 @@ class RaincloudWaveformLinkBuilder:
         metrics_table: pd.DataFrame,
         retained_rate_points: pd.DataFrame,
     ) -> dict[str, Path]:
-        """Write one figure and one table for the raincloud-linked waveform panels."""
+        """Write waveform figures and tables for the retained raincloud points.
+
+        The source of waveform shape is always the per-recording `.spk` file.
+        The source of retained point identity is always the cross-recording
+        pulse-trial rate table. This method exists specifically to bridge those
+        two data products.
+        """
         point_table = self._build_retained_point_table(metrics_table, retained_rate_points)
         if point_table.empty:
             return {}

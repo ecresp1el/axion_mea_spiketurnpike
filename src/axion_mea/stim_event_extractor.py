@@ -1,3 +1,13 @@
+"""Normalized extraction of stimulation-event metadata from Axion `.raw` files.
+
+This stage is the repository's boundary between low-level binary parsing and
+analysis-ready event tables. It does not interpret spikes. Its only job is to
+turn the stimulation tags embedded in `<stem>.raw` into two normalized exports:
+
+- `<stem>_stim_events.csv` for table-based downstream analysis, and
+- `<stem>_stim_events.json` for machine-readable provenance and debugging.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,7 +18,11 @@ from .io import AxionStimFile
 
 @dataclass(frozen=True)
 class StimEventExtractionResult:
-    """Summary of files and counts produced by raw stimulation parsing."""
+    """Summary of files and counts produced by raw stimulation parsing.
+
+    The counts in this dataclass are derived strictly from the event summaries
+    returned by `AxionStimFile.summarize_stimulation_events()`.
+    """
 
     raw_file: Path
     csv_path: Path
@@ -29,14 +43,19 @@ class StimEventExtractor:
     """
 
     def __init__(self, raw_path: Path, output_dir: Path) -> None:
-        """Store paths and prepare the destination directory."""
+        """Bind one source `.raw` file to one output directory."""
         self.raw_path = raw_path.expanduser().resolve()
         self.output_dir = output_dir.expanduser().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.stim_file = AxionStimFile(self.raw_path)
 
     def extract(self) -> StimEventExtractionResult:
-        """Parse the raw file and return the normalized extraction summary."""
+        """Parse the raw file and return the normalized extraction summary.
+
+        The returned paths point to the exact CSV and JSON files written to
+        disk. Event counts and stimulated wells are computed from the parsed tag
+        summaries rather than guessed from filenames or metadata headers.
+        """
         self.stim_file.parse()
         summaries = self.stim_file.summarize_stimulation_events()
         csv_path = self.output_dir / f"{self.raw_path.stem}_stim_events.csv"
