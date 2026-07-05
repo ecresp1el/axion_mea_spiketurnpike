@@ -13,6 +13,58 @@ conda activate /Users/ecrespo/Documents/MATLAB/axion_mea_spiketurnpike/.conda
 python run_axion_mea_opto_pipeline.py
 ```
 
+## Great Lakes Kilosort Transition
+
+This repo now includes the first reproducible Great Lakes scaffold for running
+Python Kilosort4 on Axion MEA data, using the same separation as
+`mge_organoid_pipeline`: code stays in the repo; large inputs, logs, generated
+jobs, and results go under a Turbo project folder.
+
+Turbo project root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder
+```
+
+Key files:
+
+- `docs/GREATLAKES_KILOSORT_HANDOFF.md`
+- `envs/kilosort-greatlakes.yml`
+- `config/greatlakes_project.env`
+- `config/example_kilosort_well.env`
+- `slurm/check_kilosort_env.sbatch`
+- `slurm/run_kilosort_well.sbatch`
+- `run_axion_kilosort.py`
+- `metadata/plate_maps/axion_48_well_opto_plate_map.csv`
+- `metadata/plate_maps/axion_24_well_plate_map.csv`
+- `metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv`
+- `matlab/axion_well_source_files.m`
+
+Create the project folder and environment:
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+bash scripts/create_greatlakes_project_folder.sh
+bash scripts/setup_kilosort_env.sh
+```
+
+Check GPU/env readiness:
+
+```bash
+sbatch slurm/check_kilosort_env.sbatch
+```
+
+Prepare one well for Kilosort without launching sorting:
+
+```bash
+SAMPLE_CONFIG=config/example_kilosort_well.env \
+sbatch slurm/run_kilosort_well.sbatch
+```
+
+Kilosort4 requires a continuous row-major per-well binary trace plus a probe
+geometry. The Axion spike-list CSVs and `.spk` files remain useful downstream
+products, but they are not raw continuous traces for spike sorting.
+
 Default input:
 
 ```text

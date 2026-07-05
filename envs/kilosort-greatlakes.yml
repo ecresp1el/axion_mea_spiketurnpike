@@ -1,0 +1,19 @@
+name: axion-kilosort
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.26
+  - scipy>=1.11
+  - pandas>=2.2
+  - matplotlib>=3.8
+  - seaborn>=0.13
+  - pillow>=10
+  - ipykernel
+  - pytorch>=2.2
+  - pytorch-cuda=12.1
+  - pip:
+      - kilosort==4.1.3
