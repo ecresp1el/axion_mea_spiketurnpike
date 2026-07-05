@@ -51,7 +51,7 @@ Create/update:
 ```bash
 cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
 bash scripts/setup_kilosort_env.sh
-conda activate axion-kilosort
+conda activate /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort
 python scripts/check_kilosort_env.py
 ```
 

@@ -10,8 +10,6 @@ dependencies:
   - scipy>=1.11
   - pandas>=2.2
   - matplotlib>=3.8
-  - seaborn>=0.13
-  - pillow>=10
   - ipykernel
   - pytorch>=2.2
   - pytorch-cuda=12.1
