@@ -114,10 +114,118 @@ The collector tallies, per recording and per well:
 - current AIND state from Slurm and Nextflow trace files,
 - historical attempt count for provenance,
 - current derived stage for each well.
+- recording-level status:
+  `running`, `complete_success`, `complete_with_failures`, `incomplete`, or
+  `no_selected_wells`.
 
-Latest collector snapshot after the no-timespan export fix:
+Workflow success gates:
 
 ```text
+Per-well AIND success:
+  derived_stage == aind_completed
+  and Nextflow trace contains nwb_units COMPLETED.
+
+Per-well accounted terminal state:
+  aind_completed, or a documented failed/excluded state with reason.
+
+Per-recording complete_success:
+  every selected/included well for that recording is aind_completed.
+
+Per-recording complete_with_failures:
+  every selected/included well is terminal, but at least one well is failed or
+  excluded with a documented reason.
+
+Per-recording running:
+  at least one selected/included well is still running or pending.
+```
+
+When the first rerun well from the 12-well fixed-cache batch reaches
+`aind_completed`, update this handoff with:
+
+- well ID,
+- parent AIND job ID,
+- completed Nextflow task count,
+- output root,
+- confirmation that `nwb_units` completed,
+- any unit/spike summary available from AIND output.
+
+When the recording reaches a terminal state, update the whole workflow section
+with the recording-level result:
+
+- total candidate wells,
+- selected/included wells,
+- completed wells,
+- failed/excluded wells with reasons,
+- final status file path,
+- final exact submit command/table paths.
+
+Deployable multi-recording scale-up logic:
+
+```text
+For each recording:
+  1. Inventory raw/sidecar/metadata assets.
+  2. Generate one selection manifest.
+  3. Classify wells before sorting:
+       standard_sorting
+       fallback_candidate_low_activity
+       excluded_missing_assets
+       excluded_low_activity
+  4. Submit standard_sorting wells in parallel.
+  5. Track every well independently.
+  6. If a standard well completes, mark standard_completed.
+  7. If a standard well fails with a known sparse/low-sortability KS4 failure,
+     automatically submit exactly one labeled fallback attempt.
+  8. If fallback completes, mark fallback_completed.
+  9. If fallback fails, mark fallback_failed_low_sortability.
+ 10. Mark the recording terminal only when every included well is terminal.
+```
+
+Important scaling rule: a sparse/fallback well must not block standard wells.
+The workflow should continue running all wells that can proceed, while the
+problematic wells are routed to fallback or terminal failure states with a clear
+reason.
+
+Automatic fallback trigger:
+
+```text
+Trigger condition:
+  Standard AIND/Kilosort4 reaches spikesort_kilosort4 and fails with
+  template-initialization clip count below requested n_templates, for example:
+    n_samples=4 should be >= n_clusters=6
+    n_samples=2 should be >= n_clusters=6
+
+Action:
+  Generate fallback params/env under jobs/aind_fallbacks/<recording>/<label>/.
+  Submit fallback AIND job with separate results/work/NXF_HOME roots.
+  Record fallback job ID in the status/provenance table.
+
+Guardrails:
+  Submit at most one fallback attempt per well per fallback label.
+  Do not lower standard KS4 params globally.
+  Do not overwrite standard AIND results.
+  If fallback fails, mark the well terminal rather than looping forever.
+```
+
+Current implementation status:
+
+```text
+Already implemented:
+  - standard per-well parallel AIND submission,
+  - status collector with recording_status and per-well stages,
+  - separate low_activity_ks4_nt2 fallback generator/submission script,
+  - manual proof submission for B6 and C7 fallback.
+
+Still needed before broad multi-recording deployment:
+  - automate fallback detection/submission from the status collector or a
+    recording supervisor script,
+  - include fallback states in the main recording status summary,
+  - run the same state machine across multiple recordings.
+```
+
+Current terminal collector snapshot for the first recording:
+
+```text
+recording_status: complete_with_failures
 candidate_wells: 48
 selected_wells: 14
 prepared_wells: 14
@@ -125,20 +233,29 @@ submitted_wells_with_real_ids: 13
 binary_exports_done: 13
 nwb_exports_done: 14
 spikeinterface_prep_done: 14
-selected_wells_done_or_running: 2
-aind_running: 1
-aind_completed: 1
-current_failed_or_cancelled: 12
-historical_attempts_seen: 65
-stage_counts: {"aind_completed": 1, "aind_failed": 12, "aind_running": 1, "not_selected": 34}
+selected_wells_done_or_running: 11
+selected_wells_completed: 11
+selected_wells_failed: 3
+selected_wells_running: 0
+selected_wells_terminal: 14
+aind_running: 0
+aind_completed: 11
+current_failed_or_cancelled: 3
+historical_attempts_seen: 89
+stage_counts: {"aind_completed": 11, "aind_failed": 3, "not_selected": 34}
 ```
 
 Interpretation of that snapshot:
 
-- A1 is complete end-to-end.
-- E7 is still running inside AIND/Kilosort4.
+- The first recording is terminal from the standard AIND route perspective:
+  all 14 selected wells are accounted for.
+- 11 selected wells completed end-to-end through `nwb_units`.
+- 3 selected wells failed in standard Kilosort4 with sparse/low-sortability
+  template-initialization errors.
+- No standard AIND jobs from this recording are still running.
 - The 12 quick AIND parent failures did not fail during export, NWB, or
-  SpikeInterface prep. Those upstream per-well artifacts were produced.
+  SpikeInterface prep. Those upstream per-well artifacts were produced, and the
+  fixed-cache rerun supersedes those failed parent attempts.
 - Those 12 AIND parent failures occurred in 4-6 seconds because concurrent
   Nextflow launches were all using the repo-root launch cache:
 
@@ -156,8 +273,258 @@ Interpretation of that snapshot:
   ValueError: n_samples=4 should be >= n_clusters=6
   ```
 
-  This should be handled as a low-activity/Kilosort parameter or pre-sort
-  exclusion issue before bulk relaunch.
+  B6 was selected from the Axion activity manifest because it had
+  `total_spikes=2028`, but only `active_electrodes=1`. That Axion spike count is
+  not the same as Kilosort4's internal template-learning clip count. AIND passed
+  job dispatch, NWB ecephys, and preprocessing for B6; the failure is inside
+  `spikesort_kilosort4`, where Kilosort4/SpikeInterface saw only 4 usable clips
+  for KMeans template initialization while the current params request
+  `n_templates=6`.
+
+  Current interpretation: B6 is a low-sortability well under the current KS4
+  parameters, not a raw export, mapping, NWB, cache, or AIND-launch failure.
+  Before broad scale-up, decide whether low-sortability wells should be:
+  excluded after the well-selection step, or rerun with a separate conservative
+  low-activity KS4 parameter set. Simply lowering `n_templates` may make B6 run,
+  but the result may be scientifically weak if only a few clips are available.
+
+Policy for sparse activity:
+
+```text
+One active well in a recording:
+  Valid. The recording can still be processed. The recording-level summary is
+  computed over the one selected well.
+
+One active electrode inside a well:
+  Do not treat this as a normal 16-channel per-well Kilosort4 case by default.
+  Route it to a low-sortability bucket or an explicit fallback run.
+```
+
+The selector already supports this split through `--min-active-electrodes`.
+For standard 16-channel AIND/Kilosort4 scale-up, use a stricter standard gate,
+for example:
+
+```text
+--min-total-spikes 11
+--min-active-electrodes 2
+--min-spikes-per-active-electrode 1
+```
+
+This would prevent B6-like wells from entering the standard route while still
+preserving them in the manifest with a reason such as `active_electrodes<2`.
+If single-electrode wells are scientifically important, handle them as a
+separate named route:
+
+```text
+selected_standard:
+  enough total spikes and at least the standard active-electrode threshold.
+
+single_electrode_active:
+  enough total spikes but only one active electrode; do not silently run with
+  standard KS4 params.
+
+excluded_low_activity:
+  too few total spikes or missing required assets.
+```
+
+The fallback route for `single_electrode_active` should be opt-in and should
+write a separate provenance label and parameter file, because lowering
+`n_templates` globally to rescue one-electrode wells could weaken results for
+normal multi-electrode wells.
+
+Implemented fallback route for sparse/single-electrode wells:
+
+```text
+Script:
+scripts/prepare_aind_low_activity_fallback.py
+
+Purpose:
+Create separate AIND params/env files and a submit script for wells that reached
+Kilosort4 but failed because template initialization had fewer clips than
+standard n_templates.
+
+Fallback label:
+low_activity_ks4_nt2
+
+Fallback params:
+n_templates=2
+nearest_templates=2
+```
+
+This fallback is intentionally separate from standard AIND outputs:
+
+```text
+Fallback job/provenance root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_fallbacks/test_2_25_2026_129-8447_test(000)_full_lumos_settings/low_activity_ks4_nt2
+
+Fallback results root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_low_activity_ks4_nt2
+
+Fallback work root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_low_activity_ks4_nt2
+
+Fallback NXF_HOME root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_home_low_activity_ks4_nt2
+```
+
+B6 and C7 have been submitted to this fallback because they failed standard KS4
+with the same template-count failure mode:
+
+```text
+B6 standard failure: n_samples=4 should be >= n_clusters=6
+C7 standard failure: n_samples=2 should be >= n_clusters=6
+
+B6 fallback AIND parent: 53014414
+C7 fallback AIND parent: 53014415
+```
+
+Exact fallback command:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_fallbacks/test_2_25_2026_129-8447_test(000)_full_lumos_settings/low_activity_ks4_nt2/submit_low_activity_ks4_nt2_command.txt
+```
+
+Submitted fallback table:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_fallbacks/test_2_25_2026_129-8447_test(000)_full_lumos_settings/low_activity_ks4_nt2/submitted_jobs.tsv
+```
+
+If `low_activity_ks4_nt2` completes, report it as a fallback success, not a
+standard success. If it fails with too few clips even for `n_templates=2`, mark
+the well as terminal `fallback_failed_low_sortability` and do not keep lowering
+global standard params.
+
+For the final deployable workflow, this fallback submission should happen
+automatically after the standard failure is classified. The B6/C7 fallback jobs
+listed here were launched manually only to prove the fallback route before
+turning it into the automatic supervisor behavior.
+
+Fallback v1 result as of 2026-07-06 17:52 EDT:
+
+```text
+B6 fallback parent 53014414 FAILED at spikesort_kilosort4.
+C7 fallback parent 53014415 FAILED at spikesort_kilosort4.
+```
+
+This proved the fallback submission/provenance separation, but the `nt2`
+parameter set is not yet the final sparse-well fallback. It moved past the
+original KMeans clip-count error and failed with a KS4 shape mismatch:
+
+```text
+B6: could not broadcast input array from shape (16671,5,4) into shape (16671,5,6)
+C7: could not broadcast input array from shape (16355,5,2) into shape (16355,5,6)
+```
+
+Interpretation: lowering `n_templates` alone is coupled to other KS4 dimensions
+that still expect 6 components/templates. The next fallback parameter attempt
+should be a new label, not an overwrite of `low_activity_ks4_nt2`, and should
+adjust the coupled dimensions such as `n_pcs` along with `n_templates`.
+
+Required isolated fallback v2 change:
+
+```text
+New fallback label:
+  low_activity_ks4_nt2_npcs2
+
+Only fallback params change; standard params remain unchanged.
+
+Change together:
+  n_templates=2
+  nearest_templates=2
+  n_pcs=2
+
+Do not change globally:
+  config/aind_axion_lumos_params.json standard route keeps n_templates=6,
+  nearest_templates=16, n_pcs=6.
+```
+
+Why these must change together:
+
+```text
+Original standard failure:
+  Kilosort4 could not initialize 6 templates from only 2-4 usable sparse-well
+  clips. This is the n_samples < n_clusters failure.
+
+Fallback v1 mistake:
+  low_activity_ks4_nt2 reduced n_templates and nearest_templates to 2 but left
+  n_pcs at the standard value of 6.
+
+Fallback v1 failure:
+  KS4 then created arrays with the reduced sparse/template dimension but later
+  tried to write them into arrays still sized for the old 6-component dimension:
+    B6: shape (16671,5,4) into (16671,5,6)
+    C7: shape (16355,5,2) into (16355,5,6)
+
+Fallback v2 intent:
+  Keep the reduced sparse/template/PCA dimensions internally consistent by
+  coupling n_pcs to n_templates for sparse fallback runs only.
+```
+
+Code note: `scripts/prepare_aind_low_activity_fallback.py` now defaults
+`--n-pcs` to `--n-templates` and documents why. This preserves the standard
+parameter file and makes the sparse fallback an explicit, isolated route.
+
+F6 has now also failed standard KS4 with the same original sparse-template
+initialization class:
+
+```text
+F6 standard failure: n_samples=4 should be >= n_clusters=6
+```
+
+F6 should be included in the next sparse-well fallback attempt after the coupled
+KS4 fallback parameter set is corrected.
+
+Final standard-route per-well result for first recording:
+
+```text
+Completed standard AIND through nwb_units:
+  A1, B8, C1, D1, D7, E6, E7, E8, F1, F7, F8
+
+Failed standard Kilosort4 sparse/low-sortability:
+  B6: n_samples=4 should be >= n_clusters=6
+  C7: n_samples=2 should be >= n_clusters=6
+  F6: n_samples=4 should be >= n_clusters=6
+```
+
+Fallback v1 result:
+
+```text
+B6 fallback low_activity_ks4_nt2 parent 53014414 FAILED.
+C7 fallback low_activity_ks4_nt2 parent 53014415 FAILED.
+F6 was identified as a fallback candidate after v1 had already proven incomplete.
+```
+
+Next fallback action before multi-recording deployment:
+
+```text
+low_activity_ks4_nt2_npcs2 has now been prepared and submitted for B6, C7, and
+F6.
+```
+
+Fallback v2 submission:
+
+```text
+Submitted 2026-07-06 18:27 EDT
+
+B6 fallback v2 AIND parent: 53016428
+C7 fallback v2 AIND parent: 53016429
+F6 fallback v2 AIND parent: 53016430
+
+Exact command:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_fallbacks/test_2_25_2026_129-8447_test(000)_full_lumos_settings/low_activity_ks4_nt2_npcs2/submit_low_activity_ks4_nt2_npcs2_command.txt
+
+Submitted table:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_fallbacks/test_2_25_2026_129-8447_test(000)_full_lumos_settings/low_activity_ks4_nt2_npcs2/submitted_jobs.tsv
+
+Fallback v2 results root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_low_activity_ks4_nt2_npcs2
+
+Fallback v2 params:
+n_templates=2
+nearest_templates=2
+n_pcs=2
+```
 
 Reproducible cache/layout rule for future AIND scale-up:
 
@@ -182,10 +549,74 @@ Final AIND results and trace:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/nextflow
 ```
 
-The repo-root `.nextflow/` directory is an accidental historical artifact from
-launching AIND while the Slurm working directory was the repo root. It is
-gitignored, should not be used for future runs, and should only be archived or
-removed after the currently running pre-fix E7 AIND job has exited.
+The repo-root `.nextflow/` directory was an accidental historical artifact from
+launching AIND while the Slurm working directory was the repo root. After the
+pre-fix E7 jobs were cancelled, it was moved out of the repo and preserved here
+for provenance:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/legacy_repo_root_nextflow_cache/.nextflow_20260706_1718
+```
+
+Future runs should not create `.nextflow/` in the repo root.
+
+Superseding rerun after the Nextflow cache fix:
+
+```text
+Submitted 2026-07-06 17:16 EDT
+Scope: 12 wells whose AIND parent jobs failed from repo-root Nextflow cache lock collision.
+Excluded: A1 because it is complete; B6 because it reached Kilosort and failed
+for low-activity/template-count reasons, not the cache collision.
+
+Exact command file:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/rerun_aind_after_nxf_cache_fix_20260706_1716_command.txt
+
+Submit script:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/rerun_aind_after_nxf_cache_fix_20260706_1716.sh
+
+Latest submitted table:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submitted_aind_rerun_after_nxf_cache_fix_20260706_1716_latest.tsv
+```
+
+Rerun AIND parent jobs:
+
+```text
+B8  aind=53010957
+C1  aind=53010958
+C7  aind=53010959
+D1  aind=53010960
+D7  aind=53010961
+E6  aind=53010962
+E7  aind=53010963
+E8  aind=53010964
+F1  aind=53010965
+F6  aind=53010966
+F7  aind=53010967
+F8  aind=53010968
+```
+
+The old pre-fix E7 parent `53009954` and Kilosort child `53010442` were
+cancelled before the rerun. The rerun is using fresh per-rerun scratch roots:
+
+```text
+Rerun work root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_reruns/after_nxf_cache_fix_20260706_1716
+
+Rerun NXF_HOME root:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_home_reruns/after_nxf_cache_fix_20260706_1716
+```
+
+Confirmed for B8 rerun parent `53010957`:
+
+```text
+WORK_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_reruns/after_nxf_cache_fix_20260706_1716/test_2_25_2026_129-8447_test(000)_full_lumos_settings/B8
+NEXTFLOW_LAUNCH_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_reruns/after_nxf_cache_fix_20260706_1716/test_2_25_2026_129-8447_test(000)_full_lumos_settings/B8/launch
+NXF_HOME=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_home_reruns/after_nxf_cache_fix_20260706_1716/test_2_25_2026_129-8447_test(000)_full_lumos_settings/B8
+```
+
+The rerun passed the previous immediate lock-collision failure mode: all 12
+AIND parent jobs entered `RUNNING`, and Nextflow submitted child
+`job_dispatch` jobs instead of failing in 4-6 seconds.
 
 Initial selected-well scale-up submission, now historical/failed:
 

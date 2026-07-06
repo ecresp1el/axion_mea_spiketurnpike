@@ -357,7 +357,22 @@ def build_summary(rows: list[dict[str, Any]], attempts: list[dict[str, Any]]) ->
         stages = Counter(row["derived_stage"] for row in rec_rows)
         current_failed = sum(1 for row in rec_rows if row["derived_stage"].endswith("_failed"))
         selected_rows = [row for row in rec_rows if row["selected"]]
+        selected_completed = sum(1 for row in selected_rows if row["derived_stage"] == "aind_completed")
+        selected_running = sum(1 for row in selected_rows if row["derived_stage"] == "aind_running")
+        selected_failed = sum(1 for row in selected_rows if row["derived_stage"].endswith("_failed"))
+        selected_terminal = selected_completed + selected_failed
+        if not selected_rows:
+            recording_status = "no_selected_wells"
+        elif selected_completed == len(selected_rows):
+            recording_status = "complete_success"
+        elif selected_terminal == len(selected_rows):
+            recording_status = "complete_with_failures"
+        elif selected_running:
+            recording_status = "running"
+        else:
+            recording_status = "incomplete"
         by_recording[recording] = {
+            "recording_status": recording_status,
             "candidate_wells": len(rec_rows),
             "selected_wells": len(selected_rows),
             "prepared_wells": sum(1 for row in rec_rows if row["prepared"]),
@@ -366,6 +381,10 @@ def build_summary(rows: list[dict[str, Any]], attempts: list[dict[str, Any]]) ->
             "nwb_exports_done": sum(1 for row in rec_rows if row["nwb_exists"]),
             "spikeinterface_prep_done": sum(1 for row in rec_rows if row["si_params_exists"]),
             "selected_wells_done_or_running": sum(1 for row in selected_rows if row["derived_stage"] in {"aind_completed", "aind_running"}),
+            "selected_wells_completed": selected_completed,
+            "selected_wells_failed": selected_failed,
+            "selected_wells_running": selected_running,
+            "selected_wells_terminal": selected_terminal,
             "aind_completed": stages.get("aind_completed", 0),
             "aind_running": stages.get("aind_running", 0),
             "current_failed_or_cancelled": current_failed,
@@ -385,6 +404,7 @@ def write_text_summary(path: Path, summary: dict[str, Any]) -> None:
     for recording, rec in summary["recordings"].items():
         lines.append(f"Recording: {recording}")
         for key in [
+            "recording_status",
             "candidate_wells",
             "selected_wells",
             "prepared_wells",
@@ -393,6 +413,10 @@ def write_text_summary(path: Path, summary: dict[str, Any]) -> None:
             "nwb_exports_done",
             "spikeinterface_prep_done",
             "selected_wells_done_or_running",
+            "selected_wells_completed",
+            "selected_wells_failed",
+            "selected_wells_running",
+            "selected_wells_terminal",
             "aind_running",
             "aind_completed",
             "current_failed_or_cancelled",
