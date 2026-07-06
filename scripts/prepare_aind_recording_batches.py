@@ -1,0 +1,337 @@
+#!/usr/bin/env python3
+"""Prepare AIND well batches across multiple Axion recordings."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import shlex
+import subprocess
+from pathlib import Path
+from typing import Any
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG = REPO_ROOT / "config" / "greatlakes_project.env"
+DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
+DEFAULT_PLATE_MAP = REPO_ROOT / "metadata" / "plate_maps" / "axion_48_well_opto_plate_map.csv"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate saved prepare/submit scripts for scaling the Axion-to-AIND "
+            "workflow across many recordings and selected wells."
+        )
+    )
+    parser.add_argument(
+        "--recordings-manifest",
+        type=Path,
+        required=True,
+        help="CSV with required columns recording_stem,raw_file.",
+    )
+    parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
+    parser.add_argument("--project-config", type=Path, default=PROJECT_CONFIG)
+    parser.add_argument("--plate-map", type=Path, default=DEFAULT_PLATE_MAP)
+    parser.add_argument("--raw-metadata-inventory", type=Path, default=None)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Defaults to <project-root>/jobs/aind_recording_batches/<manifest_stem>.",
+    )
+    parser.add_argument("--aind-input", choices=["spikeinterface", "nwb"], default="spikeinterface")
+    parser.add_argument("--min-total-spikes", type=int, default=11)
+    parser.add_argument("--min-active-electrodes", type=int, default=1)
+    parser.add_argument("--min-spikes-per-active-electrode", type=int, default=1)
+    parser.add_argument("--require-active-flag", action="store_true")
+    parser.add_argument("--exclude-control", action="store_true")
+    parser.add_argument("--allow-aind-overwrite", action="store_true")
+    parser.add_argument(
+        "--run-prepare",
+        action="store_true",
+        help="Immediately run the generated prepare_all_recordings.sh script.",
+    )
+    return parser.parse_args()
+
+
+def q(value: Any) -> str:
+    return shlex.quote(str(value))
+
+
+def truthy(value: str | None, default: bool) -> bool:
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "submit", "selected"}
+
+
+def field(row: dict[str, str], name: str, default: str = "") -> str:
+    return str(row.get(name, default) or "").strip()
+
+
+def resolve_path(value: str, base: Path | None = None) -> Path | None:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute() and base is not None:
+        path = base / path
+    return path.resolve()
+
+
+def read_manifest(path: Path) -> list[dict[str, str]]:
+    resolved = path.expanduser()
+    with resolved.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    required = {"recording_stem", "raw_file"}
+    missing = required - set(rows[0].keys() if rows else [])
+    if missing:
+        raise SystemExit(
+            f"{resolved} is missing required column(s): {', '.join(sorted(missing))}"
+        )
+    return rows
+
+
+def logged_command(command: list[str]) -> str:
+    return " ".join(q(part) for part in command) + ' 2>&1 | tee -a "${PREP_LOG}"'
+
+
+def script_header() -> list[str]:
+    return [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        f"cd {q(REPO_ROOT)}",
+        "",
+    ]
+
+
+def add_optional_path(cmd: list[str], flag: str, path: Path | None) -> None:
+    if path is not None:
+        cmd.extend([flag, str(path)])
+
+
+def main() -> None:
+    args = parse_args()
+    project_root = args.project_root.expanduser().resolve()
+    manifest_path = args.recordings_manifest.expanduser()
+    output_dir = (
+        args.output_dir.expanduser().resolve()
+        if args.output_dir
+        else project_root / "jobs" / "aind_recording_batches" / manifest_path.stem
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_rows = read_manifest(manifest_path)
+    prepare_lines = script_header()
+    prepare_lines.extend(
+        [
+            f"PREP_LOG={q(output_dir / 'prepare_all_recordings.log')}",
+            ": > \"${PREP_LOG}\"",
+            "",
+        ]
+    )
+    submit_lines = script_header()
+    submit_lines.extend(
+        [
+            f"MASTER_LOG={q(output_dir / 'submit_all_recordings.log')}",
+            f"MASTER_JOBS={q(output_dir / 'submitted_recording_batches.tsv')}",
+            ": > \"${MASTER_LOG}\"",
+            ": > \"${MASTER_JOBS}\"",
+            "",
+            "run_recording_submit() {",
+            "  local recording=\"$1\"",
+            "  local submit_script=\"$2\"",
+            "  local submitted_jobs=\"$3\"",
+            "  local before_lines=0",
+            "  if [[ -f \"${submitted_jobs}\" ]]; then",
+            "    before_lines=$(wc -l < \"${submitted_jobs}\")",
+            "  fi",
+            "  echo \"Submitting recording ${recording}: ${submit_script}\" | tee -a \"${MASTER_LOG}\"",
+            "  bash \"${submit_script}\" 2>&1 | tee -a \"${MASTER_LOG}\"",
+            "  if [[ -f \"${submitted_jobs}\" ]]; then",
+            "    awk -v rec=\"${recording}\" -v first_new=\"$((before_lines + 1))\" 'NR >= first_new {print \"recording=\" rec \" \" $0}' \"${submitted_jobs}\" >> \"${MASTER_JOBS}\"",
+            "  fi",
+            "}",
+            "",
+        ]
+    )
+
+    planned_rows: list[dict[str, str]] = []
+    for index, row in enumerate(manifest_rows, start=1):
+        enabled = truthy(field(row, "submit", field(row, "selected", "")), default=True)
+        recording_stem = field(row, "recording_stem")
+        raw_file = resolve_path(field(row, "raw_file"), manifest_path.parent)
+        if not recording_stem:
+            raise SystemExit(f"Row {index} is missing recording_stem")
+        if raw_file is None:
+            raise SystemExit(f"Row {index} ({recording_stem}) is missing raw_file")
+
+        plate_map = resolve_path(field(row, "plate_map"), manifest_path.parent) or args.plate_map.resolve()
+        raw_inventory = (
+            resolve_path(field(row, "raw_metadata_inventory"), manifest_path.parent)
+            or args.raw_metadata_inventory
+        )
+        if raw_inventory is not None:
+            raw_inventory = raw_inventory.expanduser().resolve()
+        selection_manifest = resolve_path(field(row, "selection_manifest"), manifest_path.parent)
+        selection_dir = (
+            project_root / "jobs" / "aind_batches" / recording_stem / "selection"
+        )
+        generated_selection_manifest = selection_dir / "well_selection_manifest.csv"
+        batch_root = project_root / "jobs" / "aind_batches" / recording_stem
+        submit_script = batch_root / "submit_all_wells.sh"
+        submitted_jobs = batch_root / "submitted_jobs.tsv"
+        aind_input = field(row, "aind_input", args.aind_input) or args.aind_input
+        allow_overwrite = truthy(
+            field(row, "allow_aind_overwrite", ""),
+            default=args.allow_aind_overwrite,
+        )
+
+        if aind_input not in {"spikeinterface", "nwb"}:
+            raise SystemExit(
+                f"Row {index} ({recording_stem}) has invalid aind_input={aind_input!r}"
+            )
+
+        select_cmd: list[str] | None = None
+        if selection_manifest is None:
+            select_cmd = [
+                "bash",
+                str(REPO_ROOT / "scripts" / "select_aind_wells.sh"),
+                "--recording-stem",
+                recording_stem,
+                "--raw-file",
+                str(raw_file),
+                "--plate-map",
+                str(plate_map),
+                "--output-dir",
+                str(selection_dir),
+                "--min-total-spikes",
+                field(row, "min_total_spikes", str(args.min_total_spikes)),
+                "--min-active-electrodes",
+                field(row, "min_active_electrodes", str(args.min_active_electrodes)),
+                "--min-spikes-per-active-electrode",
+                field(
+                    row,
+                    "min_spikes_per_active_electrode",
+                    str(args.min_spikes_per_active_electrode),
+                ),
+            ]
+            add_optional_path(select_cmd, "--raw-metadata-inventory", raw_inventory)
+            add_optional_path(
+                select_cmd,
+                "--spike-counts-csv",
+                resolve_path(field(row, "spike_counts_csv"), manifest_path.parent),
+            )
+            add_optional_path(
+                select_cmd,
+                "--spike-list-csv",
+                resolve_path(field(row, "spike_list_csv"), manifest_path.parent),
+            )
+            if truthy(field(row, "require_active_flag", ""), default=args.require_active_flag):
+                select_cmd.append("--require-active-flag")
+            if truthy(field(row, "exclude_control", ""), default=args.exclude_control):
+                select_cmd.append("--exclude-control")
+            selection_manifest_for_prepare = generated_selection_manifest
+        else:
+            selection_manifest_for_prepare = selection_manifest
+
+        prepare_cmd = [
+            "bash",
+            str(REPO_ROOT / "scripts" / "prepare_aind_well_batch.sh"),
+            "--recording-stem",
+            recording_stem,
+            "--raw-file",
+            str(raw_file),
+            "--plate-map",
+            str(plate_map),
+            "--selection-manifest",
+            str(selection_manifest_for_prepare),
+            "--project-root",
+            str(project_root),
+            "--project-config",
+            str(args.project_config.expanduser().resolve()),
+            "--aind-input",
+            aind_input,
+        ]
+        if allow_overwrite:
+            prepare_cmd.append("--allow-aind-overwrite")
+        wells = field(row, "wells")
+        if wells and selection_manifest is None:
+            prepare_cmd.extend(["--wells", wells])
+
+        if enabled:
+            prepare_lines.extend(
+                [
+                    f"echo 'Preparing recording {recording_stem}'",
+                    f"mkdir -p {q(selection_dir)}",
+                ]
+            )
+            if select_cmd is not None:
+                prepare_lines.append(logged_command(select_cmd))
+            prepare_lines.append(logged_command(prepare_cmd))
+            prepare_lines.append("")
+            submit_lines.append(
+                "run_recording_submit "
+                f"{q(recording_stem)} {q(submit_script)} {q(submitted_jobs)}"
+            )
+        else:
+            prepare_lines.append(f"echo 'Skipping disabled recording {recording_stem}'")
+
+        planned_rows.append(
+            {
+                "enabled": str(enabled).lower(),
+                "recording_stem": recording_stem,
+                "raw_file": str(raw_file),
+                "selection_manifest": str(selection_manifest_for_prepare),
+                "selection_manifest_source": "provided" if selection_manifest else "generated",
+                "plate_map": str(plate_map),
+                "raw_metadata_inventory": str(raw_inventory) if raw_inventory else "",
+                "aind_input": aind_input,
+                "allow_aind_overwrite": str(allow_overwrite).lower(),
+                "batch_root": str(batch_root),
+                "prepare_submit_script": str(submit_script),
+                "submitted_jobs": str(submitted_jobs),
+            }
+        )
+
+    prepare_script = output_dir / "prepare_all_recordings.sh"
+    submit_script = output_dir / "submit_all_recordings.sh"
+    prepare_script.write_text("\n".join(prepare_lines) + "\n", encoding="utf-8")
+    submit_script.write_text("\n".join(submit_lines) + "\n", encoding="utf-8")
+    prepare_script.chmod(0o755)
+    submit_script.chmod(0o755)
+
+    fieldnames = [
+        "enabled",
+        "recording_stem",
+        "raw_file",
+        "selection_manifest",
+        "selection_manifest_source",
+        "plate_map",
+        "raw_metadata_inventory",
+        "aind_input",
+        "allow_aind_overwrite",
+        "batch_root",
+        "prepare_submit_script",
+        "submitted_jobs",
+    ]
+    with (output_dir / "recording_batch_manifest.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(planned_rows)
+    (output_dir / "recording_batch_manifest.json").write_text(
+        json.dumps(planned_rows, indent=2), encoding="utf-8"
+    )
+
+    print(f"Prepared recording batch plan for {len(planned_rows)} recordings under {output_dir}")
+    print(f"Prepare script: {prepare_script}")
+    print(f"Submit script: {submit_script}")
+    print(f"Manifest: {output_dir / 'recording_batch_manifest.csv'}")
+    if args.run_prepare:
+        subprocess.run(["bash", str(prepare_script)], check=True)
+
+
+if __name__ == "__main__":
+    main()

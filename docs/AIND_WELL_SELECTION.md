@@ -97,5 +97,45 @@ bash scripts/prepare_aind_well_batch.sh \
   --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings' \
   --raw-file '/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw' \
   --selection-manifest '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/selection/well_selection_manifest.csv' \
-  --allow-aind-overwrite
+  --allow-aind-overwrite \
+  --aind-input spikeinterface
 ```
+
+## Scaling Across Recordings
+
+Use `scripts/prepare_aind_recording_batches.sh` when the input is more than one
+recording. It accepts a `recordings_manifest.csv` with one row per Axion raw
+recording and writes saved scripts for both stages:
+
+- `prepare_all_recordings.sh`: runs well selection when needed, then generates
+  each recording's per-well env files, manifests, and `submit_all_wells.sh`.
+- `submit_all_recordings.sh`: calls each generated `submit_all_wells.sh` so the
+  selected wells become independent Slurm chains.
+
+Minimum manifest:
+
+```csv
+recording_stem,raw_file
+test_2_25_2026_129-8447_test(000)_full_lumos_settings,/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw
+```
+
+Generate the multi-recording plan:
+
+```bash
+bash scripts/prepare_aind_recording_batches.sh \
+  --recordings-manifest /path/to/recordings_manifest.csv \
+  --raw-metadata-inventory /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv \
+  --allow-aind-overwrite \
+  --aind-input spikeinterface
+```
+
+This writes the plan under:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_recording_batches/<manifest_stem>/
+```
+
+The important provenance boundary is unchanged: the selector decides which
+wells are worth exporting, and the later per-well export creates the canonical
+`channel_mapping.csv` used by NWB, ProbeInterface, Kilosort/AIND params, and
+source-data remapping.
