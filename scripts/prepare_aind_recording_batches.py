@@ -253,6 +253,7 @@ def main() -> None:
             "--aind-input",
             aind_input,
         ]
+        add_optional_path(prepare_cmd, "--raw-metadata-inventory", raw_inventory)
         if allow_overwrite:
             prepare_cmd.append("--allow-aind-overwrite")
         wells = field(row, "wells")

@@ -139,3 +139,28 @@ The important provenance boundary is unchanged: the selector decides which
 wells are worth exporting, and the later per-well export creates the canonical
 `channel_mapping.csv` used by NWB, ProbeInterface, Kilosort/AIND params, and
 source-data remapping.
+
+## Plate-Type Boundary
+
+The current AIND scale-up route is validated for `FortyEightWellLumos` only:
+48 wells, 16 electrodes per well, and the 4x4 per-well geometry in
+`metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv`.
+
+The raw inventory can contain other plate families, including SixWell/CytoView
+data with 64 electrodes per well. Those recordings must not be passed through
+the Lumos-48 route. `scripts/prepare_aind_well_batch.py` now checks raw metadata
+and stops unless the recording matches the validated Lumos-48 shape, or
+`--allow-unsupported-plate` is explicitly used for development.
+
+## Full-Duration Export
+
+The batch route exports the full recording, not a subset. AxionFileLoader's
+documented optional-argument parser supports full recording by omitting the
+timespan argument. Therefore generated export env files keep
+`EXPORT_DURATION_S=NaN`, and the MATLAB exporter calls:
+
+```matlab
+dataSet.LoadData(char(well), LoadArgs.ByElectrodeDimensions)
+```
+
+Finite `[start stop]` ranges are only for explicit debugging runs.

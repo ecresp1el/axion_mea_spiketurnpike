@@ -12,6 +12,9 @@ from typing import List, Tuple
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG = REPO_ROOT / "config" / "greatlakes_project.env"
 DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
+DEFAULT_RAW_METADATA_INVENTORY = (
+    DEFAULT_PROJECT_ROOT / "metadata" / "matlab_axisfile_raw_metadata_inventory.csv"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,12 +36,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dataset", default="BroadbandHighFrequency")
     parser.add_argument("--export-start-time-s", type=float, default=0)
-    parser.add_argument("--export-duration-s", default="NaN")
+    parser.add_argument(
+        "--export-duration-s",
+        default="NaN",
+        help=(
+            "Finite export duration in seconds for debugging. Default NaN means "
+            "full recording: the MATLAB exporter omits the AxionFileLoader "
+            "timespan argument."
+        ),
+    )
+    parser.add_argument("--raw-metadata-inventory", type=Path, default=DEFAULT_RAW_METADATA_INVENTORY)
     parser.add_argument("--aind-input", choices=["spikeinterface", "nwb"], default="spikeinterface")
     parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
     parser.add_argument("--project-config", type=Path, default=PROJECT_CONFIG)
     parser.add_argument("--session-description", default="Axion MEA per-well continuous voltage export for AIND ingestion")
     parser.add_argument("--allow-aind-overwrite", action="store_true")
+    parser.add_argument(
+        "--allow-unsupported-plate",
+        action="store_true",
+        help=(
+            "Bypass the current guard that only the validated FortyEightWellLumos "
+            "4x4-per-well geometry is supported for AIND scale-up."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -82,6 +102,80 @@ def q(value) -> str:
     return shlex.quote(str(value))
 
 
+def _metadata_from_selection_manifest(selection_manifest: Path | None) -> dict[str, str]:
+    if selection_manifest is None:
+        return {}
+    resolved = selection_manifest.expanduser().resolve()
+    if not resolved.exists():
+        return {}
+    if resolved.suffix.lower() == ".json":
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+        rows = payload.get("wells", [])
+    else:
+        with resolved.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    for row in rows:
+        return {str(key): str(value) for key, value in row.items() if value not in (None, "")}
+    return {}
+
+
+def _metadata_from_raw_inventory(inventory_csv: Path | None, raw_file: Path) -> dict[str, str]:
+    if inventory_csv is None:
+        return {}
+    resolved = inventory_csv.expanduser().resolve()
+    if not resolved.exists():
+        return {}
+    raw_resolved = str(raw_file.expanduser().resolve())
+    raw_name = raw_file.name
+    with resolved.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for strategy in ("raw_file", "raw_name"):
+        matches = [row for row in rows if str(row.get(strategy, "")) == (raw_resolved if strategy == "raw_file" else raw_name)]
+        if len(matches) == 1:
+            return {str(key): str(value) for key, value in matches[0].items() if value not in (None, "")}
+    return {}
+
+
+def source_metadata(args: argparse.Namespace) -> dict[str, str]:
+    metadata = _metadata_from_raw_inventory(args.raw_metadata_inventory, args.raw_file)
+    selection_metadata = _metadata_from_selection_manifest(args.selection_manifest)
+    if selection_metadata:
+        metadata.setdefault("plate_type_name", selection_metadata.get("raw_plate_type_name", ""))
+        metadata.setdefault("duration_s", selection_metadata.get("raw_duration_s", ""))
+    return metadata
+
+
+def validate_supported_plate(args: argparse.Namespace) -> dict[str, str]:
+    metadata = source_metadata(args)
+    if args.allow_unsupported_plate:
+        return metadata
+    plate_type_name = metadata.get("plate_type_name") or metadata.get("raw_plate_type_name") or ""
+    well_dimensions = metadata.get("well_dimensions", "")
+    electrode_dimensions = metadata.get("electrode_dimensions", "")
+    num_channels = metadata.get("num_channels", "")
+    looks_lumos48 = (
+        plate_type_name == "FortyEightWellLumos"
+        or (
+            well_dimensions == "[6 8]"
+            and electrode_dimensions == "[6 8 4 4]"
+            and num_channels == "768"
+        )
+    )
+    if not looks_lumos48:
+        raise SystemExit(
+            "Unsupported or unknown plate type for this AIND scale-up path. "
+            "Current validated route is FortyEightWellLumos / 48 wells / 16 "
+            "electrodes per well / 4x4 geometry. "
+            f"Observed plate_type_name={plate_type_name!r}, "
+            f"well_dimensions={well_dimensions!r}, "
+            f"electrode_dimensions={electrode_dimensions!r}, "
+            f"num_channels={num_channels!r}. "
+            "SixWell/CytoView needs its own plate map, per-well geometry, channel "
+            "count, and Kilosort/AIND params before scale-up."
+        )
+    return metadata
+
+
 def write_env(path: Path, lines: List[Tuple[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = ["#!/usr/bin/env bash", f"source \"${{PROJECT_CONFIG:-{PROJECT_CONFIG}}}\""]
@@ -95,6 +189,8 @@ def main() -> None:
     args = parse_args()
     project_root = args.project_root.expanduser().resolve()
     recording_stem = args.recording_stem
+    source_metadata_row = validate_supported_plate(args)
+    export_duration_s = str(args.export_duration_s).strip() or "NaN"
     if args.selection_manifest is not None:
         selected = set(load_selected_wells(args.selection_manifest))
         wells = [well for well in load_wells(args.plate_map, "all") if well in selected]
@@ -114,9 +210,9 @@ def main() -> None:
         "  local label=\"$1\"",
         "  shift",
         "  local out",
-        "  out=\"$(eval \"$*\")\"",
-        "  echo \"${label}: ${out}\"",
-        "  sed -n 's/Submitted batch job //p' <<<\"${out}\"",
+        "  out=\"$(\"$@\")\"",
+        "  echo \"${label}: ${out}\" >&2",
+        "  printf '%s\\n' \"${out}\"",
         "}",
         "",
     ]
@@ -146,7 +242,7 @@ def main() -> None:
                 ("RAW_FILE", str(args.raw_file.expanduser().resolve())),
                 ("DATASET", args.dataset),
                 ("EXPORT_START_TIME_S", str(args.export_start_time_s)),
-                ("EXPORT_DURATION_S", str(args.export_duration_s)),
+                ("EXPORT_DURATION_S", export_duration_s),
                 ("PLATE_MAP", str(args.plate_map.expanduser().resolve())),
                 ("EXPORT_OUTPUT_DIR", str(binary_dir)),
                 ("BINARY_FILE", str(binary_file)),
@@ -196,13 +292,13 @@ def main() -> None:
             ],
         )
 
-        export_cmd = f"PROJECT_CONFIG={q(args.project_config)} EXPORT_CONFIG={q(export_env)} sbatch {q(REPO_ROOT / 'slurm/export_axion_well_binary.sbatch')}"
-        nwb_cmd = f"PROJECT_CONFIG={q(args.project_config)} NWB_CONFIG={q(nwb_env)} sbatch --dependency=afterok:${{export_job}} {q(REPO_ROOT / 'slurm/export_axion_well_nwb.sbatch')}"
-        spikeinterface_cmd = f"PROJECT_CONFIG={q(args.project_config)} SPIKEINTERFACE_CONFIG={q(spikeinterface_env)} sbatch --dependency=afterok:${{export_job}} {q(REPO_ROOT / 'slurm/prepare_aind_spikeinterface_well.sbatch')}"
+        export_cmd = f"env PROJECT_CONFIG={q(args.project_config)} EXPORT_CONFIG={q(export_env)} sbatch --parsable {q(REPO_ROOT / 'slurm/export_axion_well_binary.sbatch')}"
+        nwb_cmd = f"env PROJECT_CONFIG={q(args.project_config)} NWB_CONFIG={q(nwb_env)} sbatch --parsable --dependency=afterok:${{export_job}} {q(REPO_ROOT / 'slurm/export_axion_well_nwb.sbatch')}"
+        spikeinterface_cmd = f"env PROJECT_CONFIG={q(args.project_config)} SPIKEINTERFACE_CONFIG={q(spikeinterface_env)} sbatch --parsable --dependency=afterok:${{export_job}} {q(REPO_ROOT / 'slurm/prepare_aind_spikeinterface_well.sbatch')}"
         if args.aind_input == "spikeinterface":
-            aind_cmd = f"PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(spikeinterface_aind_env)} sbatch --dependency=afterok:${{spikeinterface_job}}:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
+            aind_cmd = f"env PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(spikeinterface_aind_env)} sbatch --parsable --dependency=afterok:${{spikeinterface_job}}:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
         else:
-            aind_cmd = f"PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(aind_env)} sbatch --dependency=afterok:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
+            aind_cmd = f"env PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(aind_env)} sbatch --parsable --dependency=afterok:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
 
         well_submit_lines = [
             "#!/usr/bin/env bash",
@@ -212,9 +308,9 @@ def main() -> None:
             "  local label=\"$1\"",
             "  shift",
             "  local out",
-            "  out=\"$(eval \"$*\")\"",
-            "  echo \"${label}: ${out}\"",
-            "  sed -n 's/Submitted batch job //p' <<<\"${out}\"",
+            "  out=\"$(\"$@\")\"",
+            "  echo \"${label}: ${out}\" >&2",
+            "  printf '%s\\n' \"${out}\"",
             "}",
             f"export_job=$(submit_one export_{well} {export_cmd})",
             f"nwb_job=$(submit_one nwb_{well} {nwb_cmd})",
@@ -257,6 +353,11 @@ def main() -> None:
                 "spikeinterface_dir": str(spikeinterface_dir),
                 "aind_env": str(spikeinterface_aind_env if args.aind_input == "spikeinterface" else aind_env),
                 "aind_input": args.aind_input,
+                "plate_type_name": source_metadata_row.get("plate_type_name", ""),
+                "well_dimensions": source_metadata_row.get("well_dimensions", ""),
+                "electrode_dimensions": source_metadata_row.get("electrode_dimensions", ""),
+                "num_channels": source_metadata_row.get("num_channels", ""),
+                "export_duration_s": export_duration_s,
             }
         )
 

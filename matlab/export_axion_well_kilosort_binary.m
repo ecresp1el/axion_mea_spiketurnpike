@@ -63,13 +63,15 @@ if numel(dataSet) > 1
 end
 
 if isnan(duration) || duration <= 0
-    timeRange = "all";
+    timeRangeDescription = "all time (timespan argument omitted)";
+    waveforms = dataSet.LoadData(char(well), LoadArgs.ByElectrodeDimensions);
 else
     timeRange = [startTime, startTime + duration];
+    timeRangeDescription = mat2str(timeRange);
+    waveforms = dataSet.LoadData(char(well), timeRange, LoadArgs.ByElectrodeDimensions);
 end
 
-fprintf("Loading %s, well %s, dataset %s, time range %s\n", rawFile, well, datasetName, mat2str(timeRange));
-waveforms = dataSet.LoadData(char(well), "all", timeRange, LoadArgs.ByElectrodeDimensions);
+fprintf("Loaded %s, well %s, dataset %s, time range %s\n", rawFile, well, datasetName, timeRangeDescription);
 
 wellRow = char(well);
 wellRow = double(upper(wellRow(1)) - 'A' + 1);

@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 15:58 EDT
+Date updated: 2026-07-06 16:49 EDT
 
 ## Goal
 
@@ -84,8 +84,122 @@ repro/
 ```
 
 The A1 gate for scaling is now satisfied from the AIND workflow perspective.
-The next operational step is to launch the generated selected-well batch
-deliberately and monitor per-well completion, not to keep debugging A1.
+The selected-well scale-up batch has now been launched for the remaining 13
+wells; monitor per-well completion rather than continuing to debug A1.
+
+Selected-well scale-up submission:
+
+```text
+Submitted 2026-07-06 16:33 EDT
+Scope: 13 selected wells remaining after completed A1
+Command file:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_remaining_after_A1_command.txt
+Submit script:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_remaining_after_A1.sh
+Submitted job table:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submitted_remaining_after_A1_20260706_163355.tsv
+Latest pointer:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submitted_remaining_after_A1_latest.tsv
+```
+
+Current submitted dependency chains:
+
+```text
+B6  export=53006868  nwb=53006869  spikeinterface=53006870  aind=53006871
+B8  export=53006872  nwb=53006873  spikeinterface=53006874  aind=53006875
+C1  export=53006876  nwb=53006877  spikeinterface=53006878  aind=53006879
+C7  export=53006881  nwb=53006882  spikeinterface=53006883  aind=53006884
+D1  export=53006885  nwb=53006886  spikeinterface=53006887  aind=53006888
+D7  export=53006889  nwb=53006890  spikeinterface=53006891  aind=53006892
+E6  export=53006894  nwb=53006895  spikeinterface=53006896  aind=53006897
+E7  export=53006898  nwb=53006899  spikeinterface=53006900  aind=53006901
+E8  export=53006902  nwb=53006903  spikeinterface=53006904  aind=53006905
+F1  export=53006906  nwb=53006907  spikeinterface=53006908  aind=53006909
+F6  export=53006910  nwb=53006911  spikeinterface=53006912  aind=53006913
+F7  export=53006914  nwb=53006915  spikeinterface=53006916  aind=53006917
+F8  export=53006918  nwb=53006919  spikeinterface=53006920  aind=53006921
+```
+
+Queue state at submission check: export jobs were `PENDING (Priority)`;
+dependent NWB, SpikeInterface prep, and AIND jobs were `PENDING (Dependency)`.
+
+Scale-up failure and fix:
+
+```text
+Observed 2026-07-06 16:37-16:40 EDT
+All 13 remaining selected wells failed at the first MATLAB export step.
+No failed well reached NWB export, SpikeInterface prep, AIND, or Kilosort.
+```
+
+The failed export logs all had the same AxionFileLoader error:
+
+```text
+Invalid argument #4 to load_AxIS_file
+...
+waveforms = dataSet.LoadData(char(well), "all", timeRange, LoadArgs.ByElectrodeDimensions);
+```
+
+Root cause: the batch generator wrote `EXPORT_DURATION_S=NaN`, and
+`export_axion_well_kilosort_binary.m` converted that to the string `"all"`.
+AxionFileLoader's documented optional-argument parser supports full recording
+by omitting the timespan argument; it does not support passing `"all"` in that
+position when `LoadArgs.ByElectrodeDimensions` is also supplied. The fix is
+therefore not a subset export and not a forced finite time window. The fix is
+to keep `EXPORT_DURATION_S=NaN` as the full-recording request and call:
+
+```text
+dataSet.LoadData(char(well), LoadArgs.ByElectrodeDimensions)
+```
+
+When a finite debug duration is explicitly requested, the exporter uses
+`LoadData(well, [start stop], LoadArgs.ByElectrodeDimensions)`.
+
+Code changes made:
+
+- `scripts/prepare_aind_well_batch.py` now defaults `--export-duration-s` to
+  `NaN`, meaning whole recording. It still accepts a finite duration only for
+  debugging.
+- `matlab/export_axion_well_kilosort_binary.m` now omits the AxionFileLoader
+  timespan argument for full-recording export instead of passing `"all"`.
+- `scripts/prepare_aind_well_batch.py` now guards plate type. The current AIND
+  scale-up path is validated only for `FortyEightWellLumos` /
+  `well_dimensions=[6 8]` / `electrode_dimensions=[6 8 4 4]` /
+  `num_channels=768`. SixWell/CytoView data must not use this route until it
+  has its own plate map, per-well geometry, channel count, and Kilosort/AIND
+  parameter set.
+- `scripts/prepare_aind_recording_batches.py` now forwards
+  `--raw-metadata-inventory` into per-recording batch preparation so duration
+  and plate-type validation also work during multi-recording scale-up.
+
+Regenerated current project batch files after the fix. Per-well export env files
+now again show whole-recording export:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/well_batch_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/<well>/export_binary.env
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/<well>/submit_commands.sh
+EXPORT_DURATION_S=NaN
+```
+
+Historical focused retry for B6 with finite `[0 900]` completed export, NWB,
+and SpikeInterface prep, but its AIND parent was cancelled when the route was
+corrected to the no-timespan full-series API:
+
+```text
+B6 retry submitted 2026-07-06 16:48 EDT
+export=53008559  nwb=53008560  spikeinterface=53008561  aind=53008562
+```
+
+Current focused retry for B6 with the no-timespan full-series API:
+
+```text
+B6 retry submitted 2026-07-06 after no-timespan patch
+export=53009271  nwb=53009273  spikeinterface=53009275  aind=53009277
+```
+
+Do not relaunch the other 12 wells until B6 export `53009271` proves the
+no-timespan full-series fix by writing `B6.bin`, `channel_mapping.csv`, and
+`binary_export_manifest.json`.
 
 ## Historical Issues Log
 
@@ -118,6 +232,19 @@ the first places to check if scale-up fails:
   `${DATA_PATH}` and `${RESULTS_PATH}` unquoted. Local AIND
   `pipeline/main_multi_backend.nf` now quotes those paths in `results_collector`
   and `quality_control`.
+- First scale-up submission attempt used older generated per-well
+  `submit_commands.sh` files with an `eval` wrapper. Those scripts failed to
+  submit real Slurm jobs because `test(000)` paths were unquoted after argument
+  expansion. Ignore
+  `submitted_remaining_after_A1_20260706_163311.tsv`; it contains placeholder
+  labels, not real Slurm IDs. `scripts/prepare_aind_well_batch.py` now emits
+  direct `sbatch --parsable` commands, and the project submit scripts were
+  regenerated before the real 16:33 submission.
+- The real 16:33 submission then exposed a separate export-duration bug: the
+  generated env files used `EXPORT_DURATION_S=NaN`, which drove the MATLAB
+  exporter into AxionFileLoader's rejected `"all"` argument path. This is fixed
+  by preserving `NaN` as the whole-recording request but omitting the timespan
+  argument in the MATLAB `LoadData` call.
 
 ## Clearly Labeled Upstream Links
 
@@ -1036,8 +1163,7 @@ Current A1 result:
    `results_collector`, QC collection, and `nwb_units`.
 3. Final `RESULTS_PATH` contains organized top-level output folders, not only
    Nextflow work-dir capsule outputs.
-4. The next operational step is to launch the already generated selected-well
-   batch submit script and monitor each well.
+4. The remaining selected-well batch has been launched; monitor each well.
 5. Regenerate A1 NWB with the patched NWB writer before retrying direct NWB input;
    the current deployable route remains SpikeInterface/binary input.
 
@@ -1241,16 +1367,25 @@ mechanism is, or how Slurm resources map. Those questions are answered below.
 Start here instead:
 
 1. Treat A1 job `53002656` as the completed end-to-end proof.
-2. Inspect the final A1 output tree if needed:
+2. Treat the 13-well scale-up submission at 16:33 EDT as failed at MATLAB
+   export because it used `EXPORT_DURATION_S=NaN`.
+3. Inspect the final A1 output tree if needed:
    `results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/`.
-3. For the rest of the current recording, use the generated
-   `jobs/aind_batches/<recording_stem>/submit_all_wells.sh`.
-4. For multiple recordings, create a `recordings_manifest.csv`, run
+4. Monitor the focused B6 no-timespan retry chain:
+   `export=53009271`, `nwb=53009273`, `spikeinterface=53009275`,
+   `aind=53009277`.
+5. If B6 export succeeds, relaunch the other 12 failed wells with the regenerated
+   fixed per-well submit scripts. If it fails, inspect
+   `logs/axion-export-well-53009271.out` before submitting more.
+6. For future rest-of-recording submissions, use the generated
+   `jobs/aind_batches/<recording_stem>/submit_all_wells.sh`; it has been
+   regenerated with the fixed `sbatch --parsable` submit mechanism.
+7. For multiple recordings, create a `recordings_manifest.csv`, run
    `scripts/prepare_aind_recording_batches.sh`, then inspect and submit the
    generated `jobs/aind_recording_batches/<manifest_stem>/submit_all_recordings.sh`.
-5. Monitor each well with its `run_aind_nwb_well_<jobid>.log`,
+8. Monitor each well with its `run_aind_nwb_well_<jobid>.log`,
    `nextflow/monitor_<jobid>.log`, and `nextflow/trace.txt`.
-6. Regenerate A1 NWB before retrying direct NWB input, because the existing A1
+9. Regenerate A1 NWB before retrying direct NWB input, because the existing A1
    NWB predates the `rel_x/rel_y/rel_z` mapping fix.
 
 Useful files to inspect first:
