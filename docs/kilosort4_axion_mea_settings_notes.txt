@@ -1,0 +1,507 @@
+KILOSORT4 SETTINGS NOTES FOR AXION CYTOVIEW 6 AND LUMOS 48 MEA DATA
+Date: 2026-07-06
+
+Purpose
+-------
+This note summarizes what I would change in the current Kilosort4 `ops`
+dictionary for Axion MEA data, specifically:
+
+1. CytoView MEA 6-well plate
+2. Lumos MEA 48-well plate
+
+The main point: do not treat these plates as 150 µm-spaced probes. In the
+Axion datasheets, the ~150 µm number is base/bottom thickness, not electrode
+spacing. For the plates discussed here, the within-well electrode spacing is:
+
+- CytoView MEA 6: 300 µm
+- Lumos MEA 48: 350 µm
+
+Because the arrays are sparse and low-channel-count compared with dense
+Neuropixels-style probes, Kilosort4 should be treated as an exploratory sorter
+for putative units. I would still keep electrode-level Axion metrics as the
+robust backbone unless the Kilosort4 units pass strong manual QC.
+
+
+Direct Axion layout quotes
+--------------------------
+
+CytoView MEA 6 datasheet:
+"Each well contains 64 electrodes arranged in an 8 x 8 grid."
+"ELECTRODE SPACING: 300 µm"
+"RECORDING AREA: 2.1 mm x 2.1 mm"
+
+Lumos MEA 48 datasheet:
+"Each well contains 16 electrodes arranged in a 4 x 4 grid."
+"ELECTRODE SPACING: 350 µm"
+"RECORDING AREA: 1.1 mm x 1.1 mm"
+
+
+Order of importance: what to change first
+-----------------------------------------
+
+1. Fix channel count and probe geometry first
+
+   This is the highest-priority issue. If `n_chan_bin`, channel order, or
+   probe geometry is wrong, the sort is not interpretable.
+
+   For one-well binary files:
+
+   - Lumos MEA 48, one well:
+       n_chan_bin = 16
+
+   - CytoView MEA 6, one well:
+       n_chan_bin = 64
+
+   If the binary contains the whole plate:
+
+   - Lumos MEA 48 full plate:
+       48 wells x 16 electrodes/well = 768 recording electrodes
+
+   - CytoView MEA 6 full plate:
+       6 wells x 64 electrodes/well = 384 recording electrodes
+
+   Important:
+   `n_chan_bin` should describe the total number of channels stored in the
+   binary file, not just the channels you intend to sort. The cleaner approach
+   is to extract/convert one well into its own binary and sort one well at a
+   time. Do not treat multiple wells as one continuous probe because wells are
+   independent biological and physical recording chambers.
+
+   Also make a custom probe dictionary for the exact within-well layout:
+   `chanMap`, `xc`, `yc`, `kcoords`, and `n_chan`. Kilosort4 uses x/y contact
+   coordinates in micrometers.
+
+   Conceptual geometry:
+   - Lumos MEA 48: 4 x 4 grid, 350 µm spacing
+   - CytoView MEA 6: 8 x 8 grid, 300 µm spacing
+
+   Do not assume row-major channel order unless the Axion-to-binary conversion
+   actually writes channels in that order. The `chanMap` must match the exported
+   binary channel order.
+
+
+2. Disable drift correction
+
+   Change:
+       nblocks = 1
+
+   To:
+       nblocks = 0
+
+   Rationale:
+   These are sparse in vitro MEA grids, not dense probes inserted into tissue.
+   Kilosort4 documentation recommends skipping drift correction for probes with
+   around 64 channels or fewer or with sparse contact spacing around 50 µm or
+   more. Both of these Axion layouts fall into that category.
+
+
+3. Fix the waveform window for 12.5 kHz sampling
+
+   Current:
+       fs = 12500.0
+       nt = 61
+       nt0min = 20
+
+   Recommended:
+       nt = 31
+       nt0min = None
+
+   Rationale:
+   Kilosort4's default `nt = 61` is meant to represent roughly a ~2 ms waveform
+   window at 30 kHz. At 12.5 kHz, 61 samples is:
+
+       61 / 12500 = 0.00488 s = 4.88 ms
+
+   That is long for spike waveforms. Using `nt = 31` gives:
+
+       31 / 12500 = 0.00248 s = 2.48 ms
+
+   Setting `nt0min = None` lets Kilosort4 scale the waveform alignment index
+   with the shorter waveform window.
+
+
+4. Replace Neuropixels-like spacing parameters with Axion plate-specific values
+
+   Current values that are too dense-probe-like:
+       dmin = None
+       dminx = 32
+       max_channel_distance = 32
+       x_centers = None
+
+   For Lumos MEA 48:
+       dmin = 350
+       dminx = 350
+       max_channel_distance = 400
+       x_centers = 4
+
+   For CytoView MEA 6:
+       dmin = 300
+       dminx = 300
+       max_channel_distance = 350
+       x_centers = 8
+
+   Rationale:
+   Kilosort4's default `dminx = 32` is Neuropixels-like. For non-Neuropixels
+   geometries, start near the median lateral distance between contacts. Here,
+   that means 350 µm for Lumos and 300 µm for CytoView.
+
+   For `max_channel_distance`, I would start by allowing immediate cardinal
+   neighbors but excluding diagonals:
+   - CytoView: 300 µm cardinal neighbor; diagonal is ~424 µm. Start at 350 µm.
+   - Lumos: 350 µm cardinal neighbor; diagonal is ~495 µm. Start at 400 µm.
+
+   If you see obvious duplicate units on diagonal electrodes, test:
+   - CytoView: max_channel_distance = 450
+   - Lumos: max_channel_distance = 525
+
+   But do not start there, because sparse MEAs can merge synchronous but
+   distinct cells if the spatial neighborhood is too permissive.
+
+
+5. Reduce `nearest_templates`
+
+   Current:
+       nearest_templates = 100
+
+   Recommended:
+       Lumos MEA 48: nearest_templates = 16
+       CytoView MEA 6: nearest_templates = 64
+
+   If CytoView is unstable or produces odd template behavior, also test:
+       nearest_templates = 32
+
+   Rationale:
+   For sparse probes with around 64 channels or fewer, Kilosort4 documentation
+   recommends decreasing `nearest_templates` to less than or equal to the number
+   of channels to avoid numerical instability.
+
+
+6. Reduce `nearest_chans`
+
+   Current:
+       nearest_chans = 10
+
+   Recommended first pass:
+       nearest_chans = 5
+
+   Rationale:
+   On a sparse grid, 5 roughly corresponds to the main electrode plus nearby
+   cardinal neighbors. For CytoView, if you later want to include diagonals and
+   the data support multi-electrode waveforms, test:
+
+       nearest_chans = 9
+
+   For Lumos, I would start at 5 and be cautious with larger values because
+   only 16 electrodes are present per well.
+
+
+7. Increase `min_template_size`
+
+   Current:
+       min_template_size = 10
+
+   Recommended first pass:
+       min_template_size = 50
+
+   Rationale:
+   Kilosort4 says the smallest spatial template envelope may need to be
+   increased for wider contact spacing. Since these Axion contacts are spaced
+   300-350 µm apart, 10 µm is too small as a starting assumption. I would not
+   go huge at first, because many units may be visible mostly on one electrode.
+
+
+8. Adjust `whitening_range`
+
+   Current:
+       whitening_range = 32
+
+   Recommended:
+       Lumos MEA 48: whitening_range = 8
+       CytoView MEA 6: whitening_range = 16
+
+   Rationale:
+   This parameter controls how many nearby channels are used to estimate the
+   whitening matrix. For 16-channel Lumos wells, 32 is not appropriate. For
+   64-channel CytoView wells, 16 is a reasonable sparse-grid starting point.
+
+
+9. Keep thresholds conservative in the first run
+
+   Current:
+       Th_universal = 9
+       Th_learned = 8
+       Th_single_ch = 6
+
+   I would keep these unchanged at first.
+
+   Only if the conservative run clearly misses real spikes, test:
+
+       Th_universal = 8
+       Th_learned = 7
+       Th_single_ch = 5
+
+   Do not lower thresholds first. In organoid/Axion data, especially with
+   bursting or stimulation artifacts, lowering thresholds too early can turn
+   noise/artifact into fake units.
+
+
+10. Lumos stimulation artifact handling
+
+   Current:
+       artifact_threshold = inf
+
+   Leave this alone for a first clean baseline sort. However, if the recording
+   includes strong light/stimulation artifacts, handle those before trusting
+   the units. Options:
+
+   - Sort baseline/no-stimulation periods separately.
+   - Exclude or mask short windows around stimulation pulses before sorting.
+   - Only after inspecting raw traces, consider a finite `artifact_threshold`.
+
+   Kilosort4's artifact threshold zeroes out entire batches if the absolute
+   signal exceeds the threshold, so it is not a subtle per-pulse correction.
+   Use carefully.
+
+
+11. Lower-priority parameters I would not change first
+
+   I would leave these alone for the first pass unless there is a specific
+   failure mode:
+
+       highpass_cutoff = 300
+       max_peels = 100
+       templates_from_data = True
+       n_templates = 6
+       n_pcs = 6
+       acg_threshold = 0.2
+       ccg_threshold = 0.25
+       cluster_neighbors = 10
+       cluster_downsampling = 20
+       max_cluster_subset = 25000
+       duplicate_spike_ms = 0.25
+
+   `position_limit` does not affect spike sorting itself; it only affects
+   post hoc spike position estimation. For sparse MEAs, set it to at least one
+   electrode spacing if you care about estimated positions:
+
+       Lumos MEA 48: position_limit = 400
+       CytoView MEA 6: position_limit = 350
+
+   But this is not a top-priority sorting parameter.
+
+
+Plate-specific Kilosort4 ops snippets
+-------------------------------------
+
+Important Python note:
+If using this in actual Python, use `np.inf` after `import numpy as np`, or
+use `math.inf`. A bare `inf` only works if you have already defined it.
+
+
+A. Lumos MEA 48, one well only
+------------------------------
+
+Use this if the binary file contains one Lumos well with 16 electrodes.
+
+    ops_lumos48_one_well = ops.copy()
+    ops_lumos48_one_well.update({
+        # File / sampling
+        'n_chan_bin': 16,
+        'fs': 12500.0,
+
+        # Sparse in vitro MEA: no drift correction
+        'nblocks': 0,
+
+        # 12.5 kHz waveform window
+        'nt': 31,
+        'nt0min': None,
+
+        # Lumos MEA 48 geometry: 4 x 4 grid, 350 µm spacing
+        'dmin': 350,
+        'dminx': 350,
+        'x_centers': 4,
+        'max_channel_distance': 400,
+
+        # Sparse local neighborhoods
+        'nearest_chans': 5,
+        'nearest_templates': 16,
+
+        # Sparse Axion geometry
+        'min_template_size': 50,
+        'template_sizes': 5,
+        'whitening_range': 8,
+
+        # Post hoc position estimation only
+        'position_limit': 400,
+
+        # Keep thresholds conservative first
+        'Th_universal': 9,
+        'Th_learned': 8,
+        'Th_single_ch': 6,
+    })
+
+
+B. CytoView MEA 6, one well only
+--------------------------------
+
+Use this if the binary file contains one CytoView 6 well with 64 electrodes.
+
+    ops_cytoview6_one_well = ops.copy()
+    ops_cytoview6_one_well.update({
+        # File / sampling
+        'n_chan_bin': 64,
+        'fs': 12500.0,
+
+        # Sparse in vitro MEA: no drift correction
+        'nblocks': 0,
+
+        # 12.5 kHz waveform window
+        'nt': 31,
+        'nt0min': None,
+
+        # CytoView MEA 6 geometry: 8 x 8 grid, 300 µm spacing
+        'dmin': 300,
+        'dminx': 300,
+        'x_centers': 8,
+        'max_channel_distance': 350,
+
+        # Sparse local neighborhoods
+        'nearest_chans': 5,
+        'nearest_templates': 64,
+
+        # Sparse Axion geometry
+        'min_template_size': 50,
+        'template_sizes': 5,
+        'whitening_range': 16,
+
+        # Post hoc position estimation only
+        'position_limit': 350,
+
+        # Keep thresholds conservative first
+        'Th_universal': 9,
+        'Th_learned': 8,
+        'Th_single_ch': 6,
+    })
+
+
+Probe dictionary templates
+--------------------------
+
+These are conceptual templates. The major caveat is channel order. Replace
+`chanMap = np.arange(...)` if the Axion binary channel order is not row-major.
+
+
+A. Lumos MEA 48 one-well probe dictionary
+-----------------------------------------
+
+    import numpy as np
+
+    spacing = 350
+    xs, ys = np.meshgrid(
+        np.arange(4) * spacing,
+        np.arange(4) * spacing,
+    )
+
+    probe_lumos48 = {
+        'chanMap': np.arange(16),
+        'xc': xs.ravel().astype(float),
+        'yc': ys.ravel().astype(float),
+        'kcoords': np.zeros(16, dtype=int),
+        'n_chan': 16,
+    }
+
+
+B. CytoView MEA 6 one-well probe dictionary
+-------------------------------------------
+
+    import numpy as np
+
+    spacing = 300
+    xs, ys = np.meshgrid(
+        np.arange(8) * spacing,
+        np.arange(8) * spacing,
+    )
+
+    probe_cytoview6 = {
+        'chanMap': np.arange(64),
+        'xc': xs.ravel().astype(float),
+        'yc': ys.ravel().astype(float),
+        'kcoords': np.zeros(64, dtype=int),
+        'n_chan': 64,
+    }
+
+
+Recommended first-pass workflow
+-------------------------------
+
+1. Convert/extract one well into one continuous binary file.
+2. Confirm:
+   - dtype
+   - sampling rate
+   - channel order
+   - number of channels in the binary
+   - voltage scaling
+3. Make the matching one-well probe dictionary.
+4. Run Kilosort4 with the plate-specific settings above.
+5. Open in Phy/manual QC.
+6. Compare sorted units against:
+   - raw voltage snippets
+   - electrode-level Axion spike metrics
+   - burst/stimulation timing
+   - waveform stability over time
+   - autocorrelograms/refractory behavior
+   - spatial footprint across electrodes
+
+For publication language, I would avoid calling these definite single neurons
+unless QC is strong. I would call them "putative sorted units" or "putative
+units" for sparse Axion MEA Kilosort4 output.
+
+
+Fast copy-paste summary for Codex
+---------------------------------
+
+For Lumos MEA 48 one-well sorting:
+
+    Use one well at a time. The Lumos MEA 48 well has 16 electrodes in a 4 x 4
+    grid with 350 µm electrode spacing. Set n_chan_bin=16 only if the binary
+    contains exactly one well. Use a custom probe with 4 x 4 coordinates spaced
+    at 350 µm. Set nblocks=0, nt=31, nt0min=None, dmin=350, dminx=350,
+    x_centers=4, max_channel_distance=400, nearest_chans=5,
+    nearest_templates=16, min_template_size=50, whitening_range=8, and keep
+    thresholds conservative for the first run.
+
+For CytoView MEA 6 one-well sorting:
+
+    Use one well at a time. The CytoView MEA 6 well has 64 electrodes in an
+    8 x 8 grid with 300 µm electrode spacing. Set n_chan_bin=64 only if the
+    binary contains exactly one well. Use a custom probe with 8 x 8 coordinates
+    spaced at 300 µm. Set nblocks=0, nt=31, nt0min=None, dmin=300, dminx=300,
+    x_centers=8, max_channel_distance=350, nearest_chans=5,
+    nearest_templates=64, min_template_size=50, whitening_range=16, and keep
+    thresholds conservative for the first run.
+
+Validation statement for Codex:
+
+    Do not blindly trust automatic Kilosort good/MUA labels for sparse Axion
+    MEA data. Require manual QC in Phy and compare against raw traces and
+    electrode-level Axion metrics before using sorted units for biological
+    conclusions.
+
+
+References / source links
+-------------------------
+
+Axion CytoView MEA 6 datasheet:
+https://www.axionbiosystems.com/sites/default/files/cytoview_mea_6_-_datasheet_v3.pdf
+
+Axion Lumos MEA 48 datasheet:
+https://www.axionbiosystems.com/sites/default/files/resources/M768-tMEA-48OPT%20DATASHEET%20v2_0.pdf
+
+Kilosort4 parameter adjustment guidance:
+https://kilosort.readthedocs.io/en/latest/parameters.html
+
+Kilosort4 probe dictionary tutorial:
+https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html
+
+Kilosort source parameter descriptions:
+https://github.com/MouseLand/Kilosort/blob/main/kilosort/parameters.py
