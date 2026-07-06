@@ -20,7 +20,12 @@ mkdir -p \
   "${PROJECT_ROOT}/jobs/aind" \
   "${PROJECT_ROOT}/scratch" \
   "${PROJECT_ROOT}/scratch/aind_nextflow" \
+  "${PROJECT_ROOT}/scratch/aind_nextflow_home" \
   "${PROJECT_ROOT}/scratch/aind_nextflow_install" \
+  "${PROJECT_ROOT}/scratch/aind_singularity_cache" \
+  "${PROJECT_ROOT}/scratch/aind_singularity_tmp" \
+  "${PROJECT_ROOT}/scratch/aind_container_home" \
+  "${PROJECT_ROOT}/scratch/aind_xdg_cache" \
   "${PROJECT_ROOT}/aind_capsule_repos" \
   "${PROJECT_ROOT}/containers/aind_ephys" \
   "${PROJECT_ROOT}/tools" \

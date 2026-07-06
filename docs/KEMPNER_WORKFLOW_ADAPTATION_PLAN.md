@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 16:49 EDT
+Date updated: 2026-07-06 17:15 EDT
 
 ## Goal
 
@@ -83,11 +83,111 @@ nextflow/
 repro/
 ```
 
-The A1 gate for scaling is now satisfied from the AIND workflow perspective.
-The selected-well scale-up batch has now been launched for the remaining 13
-wells; monitor per-well completion rather than continuing to debug A1.
+The A1 gate for scaling is satisfied from the AIND workflow perspective.
+The first 13-well scale-up submission exposed a MATLAB export bug, the
+no-timespan full-series export fix has been proven on B6, B6 is now in AIND,
+and the other 12 wells have been relaunched with the fixed route.
 
-Selected-well scale-up submission:
+Current scale-up monitoring is no longer based on manually tailing one trace at
+a time. Use the batch status collector:
+
+```text
+bash scripts/summarize_aind_batch_status.sh \
+  --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings'
+```
+
+It writes timestamped and latest summaries here:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batch_status/workflow_status_latest.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batch_status/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batch_status/workflow_status_latest.json
+```
+
+The collector tallies, per recording and per well:
+
+- candidate wells from the selection manifest,
+- selected wells,
+- prepared wells,
+- submitted wells with real Slurm IDs,
+- binary export/NWB export/SpikeInterface prep artifacts,
+- current AIND state from Slurm and Nextflow trace files,
+- historical attempt count for provenance,
+- current derived stage for each well.
+
+Latest collector snapshot after the no-timespan export fix:
+
+```text
+candidate_wells: 48
+selected_wells: 14
+prepared_wells: 14
+submitted_wells_with_real_ids: 13
+binary_exports_done: 13
+nwb_exports_done: 14
+spikeinterface_prep_done: 14
+selected_wells_done_or_running: 2
+aind_running: 1
+aind_completed: 1
+current_failed_or_cancelled: 12
+historical_attempts_seen: 65
+stage_counts: {"aind_completed": 1, "aind_failed": 12, "aind_running": 1, "not_selected": 34}
+```
+
+Interpretation of that snapshot:
+
+- A1 is complete end-to-end.
+- E7 is still running inside AIND/Kilosort4.
+- The 12 quick AIND parent failures did not fail during export, NWB, or
+  SpikeInterface prep. Those upstream per-well artifacts were produced.
+- Those 12 AIND parent failures occurred in 4-6 seconds because concurrent
+  Nextflow launches were all using the repo-root launch cache:
+
+  ```text
+  /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/.nextflow/cache
+  ```
+
+  and collided on the same Nextflow session lock. This is a launcher/cache
+  layout bug, not an Axion ingestion bug and not a Kilosort failure.
+- B6 reached Kilosort4, so it did not have the lock-collision failure. It then
+  failed because low activity produced too few spike clips for the current
+  Kilosort4 template setting:
+
+  ```text
+  ValueError: n_samples=4 should be >= n_clusters=6
+  ```
+
+  This should be handled as a low-activity/Kilosort parameter or pre-sort
+  exclusion issue before bulk relaunch.
+
+Reproducible cache/layout rule for future AIND scale-up:
+
+```text
+Container image cache:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys
+
+Singularity/Apptainer build/cache/temp:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_singularity_cache
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_singularity_tmp
+
+Nextflow work directory:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow/<recording>/<well>
+
+Nextflow launch/session cache:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow/<recording>/<well>/launch/.nextflow
+
+Nextflow home/framework/plugin cache:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/scratch/aind_nextflow_home/<recording>/<well>
+
+Final AIND results and trace:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/nextflow
+```
+
+The repo-root `.nextflow/` directory is an accidental historical artifact from
+launching AIND while the Slurm working directory was the repo root. It is
+gitignored, should not be used for future runs, and should only be archived or
+removed after the currently running pre-fix E7 AIND job has exited.
+
+Initial selected-well scale-up submission, now historical/failed:
 
 ```text
 Submitted 2026-07-06 16:33 EDT
@@ -102,7 +202,7 @@ Latest pointer:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submitted_remaining_after_A1_latest.tsv
 ```
 
-Current submitted dependency chains:
+Initial failed dependency chains:
 
 ```text
 B6  export=53006868  nwb=53006869  spikeinterface=53006870  aind=53006871
@@ -120,8 +220,9 @@ F7  export=53006914  nwb=53006915  spikeinterface=53006916  aind=53006917
 F8  export=53006918  nwb=53006919  spikeinterface=53006920  aind=53006921
 ```
 
-Queue state at submission check: export jobs were `PENDING (Priority)`;
-dependent NWB, SpikeInterface prep, and AIND jobs were `PENDING (Dependency)`.
+All 13 export jobs in this initial 16:33 submission failed at MATLAB export.
+These job IDs are retained only for provenance; the active fixed submission is
+the B6 no-timespan retry plus the 12-well relaunch listed below.
 
 Scale-up failure and fix:
 
@@ -197,9 +298,54 @@ B6 retry submitted 2026-07-06 after no-timespan patch
 export=53009271  nwb=53009273  spikeinterface=53009275  aind=53009277
 ```
 
-Do not relaunch the other 12 wells until B6 export `53009271` proves the
-no-timespan full-series fix by writing `B6.bin`, `channel_mapping.csv`, and
-`binary_export_manifest.json`.
+B6 no-timespan proof result:
+
+```text
+53009271 axion-export-well       COMPLETED 00:01:48 exit 0
+53009273 axion-export-nwb        COMPLETED 00:00:21 exit 0
+53009275 axion-aind-si-prep      COMPLETED 00:00:06 exit 0
+53009277 axion-aind-nwb          RUNNING as of 2026-07-06 17:00 EDT
+```
+
+B6 export log confirms the intended full-series call:
+
+```text
+EXPORT_DURATION_S=NaN
+Loaded ..., time range all time (timespan argument omitted)
+Wrote B6.bin, channel_mapping.csv, binary_export_manifest.json
+```
+
+After B6 proved the export fix, the other 12 failed wells were relaunched:
+
+```text
+Submitted 2026-07-06 16:59 EDT
+Command file:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_remaining_after_no_timespan_B6_command.txt
+Latest submitted table:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submitted_remaining_after_no_timespan_B6_latest.tsv
+```
+
+Relaunched 12-well dependency chains:
+
+```text
+B8  export=53009927  nwb=53009928  spikeinterface=53009929  aind=53009930
+C1  export=53009931  nwb=53009932  spikeinterface=53009933  aind=53009934
+C7  export=53009935  nwb=53009936  spikeinterface=53009937  aind=53009938
+D1  export=53009939  nwb=53009940  spikeinterface=53009941  aind=53009942
+D7  export=53009943  nwb=53009944  spikeinterface=53009945  aind=53009946
+E6  export=53009947  nwb=53009948  spikeinterface=53009949  aind=53009950
+E7  export=53009951  nwb=53009952  spikeinterface=53009953  aind=53009954
+E8  export=53009955  nwb=53009956  spikeinterface=53009957  aind=53009958
+F1  export=53009959  nwb=53009960  spikeinterface=53009961  aind=53009962
+F6  export=53009963  nwb=53009964  spikeinterface=53009965  aind=53009966
+F7  export=53009967  nwb=53009968  spikeinterface=53009969  aind=53009970
+F8  export=53009971  nwb=53009972  spikeinterface=53009973  aind=53009974
+```
+
+Queue state after relaunch: the 12 export jobs were `PENDING (Priority)`, their
+downstream jobs were `PENDING (Dependency)`, and B6 AIND parent `53009277` was
+running. B6 AIND had already submitted Nextflow child jobs
+`53009975`/`53009976` for preprocessing/NWB ecephys.
 
 ## Historical Issues Log
 
@@ -1371,12 +1517,12 @@ Start here instead:
    export because it used `EXPORT_DURATION_S=NaN`.
 3. Inspect the final A1 output tree if needed:
    `results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/`.
-4. Monitor the focused B6 no-timespan retry chain:
-   `export=53009271`, `nwb=53009273`, `spikeinterface=53009275`,
-   `aind=53009277`.
-5. If B6 export succeeds, relaunch the other 12 failed wells with the regenerated
-   fixed per-well submit scripts. If it fails, inspect
-   `logs/axion-export-well-53009271.out` before submitting more.
+4. Monitor B6 AIND parent `53009277` and its Nextflow trace under
+   `results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/B6/`.
+5. Monitor the 12 relaunched export jobs listed in
+   `submitted_remaining_after_no_timespan_B6_latest.tsv`; they should write
+   `<well>.bin`, `channel_mapping.csv`, and `binary_export_manifest.json` before
+   their NWB/SpikeInterface/AIND dependencies release.
 6. For future rest-of-recording submissions, use the generated
    `jobs/aind_batches/<recording_stem>/submit_all_wells.sh`; it has been
    regenerated with the fixed `sbatch --parsable` submit mechanism.

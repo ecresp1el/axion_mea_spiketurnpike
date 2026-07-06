@@ -78,6 +78,7 @@ mkdir -p \
   "${AIND_NWB_INPUT_ROOT}" \
   "${AIND_RESULTS_ROOT}" \
   "${AIND_WORK_ROOT}" \
+  "${AIND_NXF_HOME_ROOT}" \
   "${AIND_CONTAINER_DIR}" \
   "${AIND_CONTAINER_HOME}" \
   "${AIND_XDG_CACHE_HOME}" \
@@ -89,6 +90,8 @@ mkdir -p \
 input_dir="${AIND_NWB_INPUT_ROOT}/${RECORDING_STEM}/${WELL}"
 results_dir="${AIND_RESULTS_ROOT}/${RECORDING_STEM}/${WELL}"
 work_dir="${AIND_WORK_ROOT}/${RECORDING_STEM}/${WELL}"
+launch_dir="${work_dir}/launch"
+nxf_home="${AIND_NXF_HOME_ROOT}/${RECORDING_STEM}/${WELL}"
 run_job_dir="${AIND_JOBS_ROOT}/${RECORDING_STEM}/${WELL}"
 repro_dir="${results_dir}/repro"
 
@@ -100,7 +103,7 @@ if [[ -d "${results_dir}" && "${AIND_ALLOW_OVERWRITE}" != "true" ]]; then
   fi
 fi
 
-mkdir -p "${input_dir}" "${results_dir}/nextflow" "${work_dir}" "${run_job_dir}" "${repro_dir}"
+mkdir -p "${input_dir}" "${results_dir}/nextflow" "${work_dir}" "${launch_dir}" "${nxf_home}" "${run_job_dir}" "${repro_dir}"
 rm -f "${input_dir}"/*.nwb
 ln -s "$(realpath "${NWB_FILE}")" "${input_dir}/$(basename "${NWB_FILE}")"
 
@@ -112,6 +115,7 @@ module load "${AIND_SINGULARITY_MODULE}"
 export AIND_ACCOUNT AIND_CPU_PARTITION AIND_GPU_PARTITION AIND_GPU_GRES
 export NXF_SINGULARITY_CACHEDIR="${AIND_CONTAINER_DIR}"
 export NXF_APPTAINER_CACHEDIR="${AIND_CONTAINER_DIR}"
+export NXF_HOME="${nxf_home}"
 export NXF_SYNTAX_PARSER="${NXF_SYNTAX_PARSER:-v1}"
 export SINGULARITY_CACHEDIR="${AIND_SINGULARITY_CACHE_DIR}"
 export SINGULARITY_TMPDIR="${AIND_SINGULARITY_TMPDIR}"
@@ -159,6 +163,8 @@ echo "NWB_FILE=${NWB_FILE}"
 echo "DATA_PATH=${input_dir}"
 echo "RESULTS_PATH=${results_dir}"
 echo "WORK_DIR=${work_dir}"
+echo "NEXTFLOW_LAUNCH_DIR=${launch_dir}"
+echo "NXF_HOME=${NXF_HOME}"
 echo "AIND_PARAMS_FILE=${AIND_PARAMS_FILE}"
 echo "AIND_RUNMODE=${AIND_RUNMODE}"
 echo "AIND_SORTER=${AIND_SORTER}"
@@ -206,7 +212,18 @@ fi
     echo "module load ${AIND_OPENJDK_MODULE@Q}"
   fi
   echo "module load ${AIND_SINGULARITY_MODULE@Q}"
+  echo "cd ${launch_dir@Q}"
+  echo "export NXF_HOME=${NXF_HOME@Q}"
+  echo "export NXF_SINGULARITY_CACHEDIR=${NXF_SINGULARITY_CACHEDIR@Q}"
+  echo "export NXF_APPTAINER_CACHEDIR=${NXF_APPTAINER_CACHEDIR@Q}"
   echo "export NXF_SYNTAX_PARSER=${NXF_SYNTAX_PARSER@Q}"
+  echo "export SINGULARITY_CACHEDIR=${SINGULARITY_CACHEDIR@Q}"
+  echo "export SINGULARITY_TMPDIR=${SINGULARITY_TMPDIR@Q}"
+  echo "export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR@Q}"
+  echo "export APPTAINER_TMPDIR=${APPTAINER_TMPDIR@Q}"
+  echo "export HOME=${HOME@Q}"
+  echo "export XDG_CACHE_HOME=${XDG_CACHE_HOME@Q}"
+  echo "export MPLCONFIGDIR=${MPLCONFIGDIR@Q}"
   printf 'DATA_PATH=%q RESULTS_PATH=%q ' "${input_dir}" "${results_dir}"
   printf '%q ' "${nextflow_command[@]}"
   echo
@@ -258,6 +275,7 @@ if [[ "${AIND_ENABLE_MONITOR}" == "true" ]]; then
   echo "AIND monitor log: ${monitor_log}"
 fi
 
+cd "${launch_dir}"
 DATA_PATH="${input_dir}" RESULTS_PATH="${results_dir}" "${nextflow_command[@]}"
 
 echo "Axion AIND NWB job finished: $(date)"
