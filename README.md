@@ -64,6 +64,15 @@ sbatch slurm/check_kilosort_env.sbatch
 The successful 2026-07-05 GPU check was Slurm job `52950844`: torch saw one
 Tesla V100 on `gl1020`, CUDA was available, and Kilosort imported.
 
+The current Great Lakes raw inventory is documented in
+`docs/GREATLAKES_KILOSORT_HANDOFF.md`. In short, the source tree contains 14
+Axion `.raw` files under `/nfs/turbo/umms-parent/axion_mea_files_directory`: 7
+primary `.raw` files and 7 `_BroadbandProcessor.raw` files. MATLAB metadata
+shows the primary files as `NeuralBroadband` with `0.1 Hz IIR` digital
+high-pass and no digital low-pass; the `_BroadbandProcessor.raw` files carry
+the Broadband Processor spike-band branch, `200 Hz` to `5 kHz`. Use the handoff
+for exact paths and Slurm inventory provenance.
+
 Prepare one well for Kilosort without launching sorting:
 
 ```bash

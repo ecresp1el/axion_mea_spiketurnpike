@@ -38,6 +38,82 @@ cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
 bash scripts/create_greatlakes_project_folder.sh
 ```
 
+## Raw File Inventory And Filtering State
+
+Source Axion raw tree on Great Lakes:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_files_directory
+```
+
+MATLAB/Slurm metadata inventory output:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv
+```
+
+Inventory provenance:
+
+- Slurm job `52953365` completed the first full MATLAB metadata pass on
+  `2026-07-05`; all 14 `.raw` files returned `status=ok`.
+- Slurm job `52953515` reran the inventory after adding explicit filter fields;
+  it completed on `2026-07-05` in `00:06:41` on `gl3460`.
+- The metadata path opens one raw file at a time through MATLAB AxionFileLoader
+  classes, reads header/tag metadata only, closes the file, and does not load
+  continuous voltage traces.
+
+Current file count:
+
+| File state | Count | Filtering interpretation from MATLAB metadata |
+|---|---:|---|
+| Primary `.raw` | 7 | `AnalogMode=NeuralBroadband`; `Digital High Pass Filter=0.1 Hz IIR`; `Digital Low Pass Filter=None` |
+| `_BroadbandProcessor.raw` | 7 | Same recording metadata plus Broadband Processor high-frequency band `200 Hz` high-pass to `5 kHz` low-pass, both `Butterworth`, `1` pole |
+| Total `.raw` files | 14 | All sampled at `12500 Hz` |
+
+Important interpretation:
+
+- The `200 Hz` to `5 kHz` spike-band filtering applies to the
+  `_BroadbandProcessor.raw` files only: **7 of 14 total raw files**.
+- The primary `.raw` files are not the `200 Hz` to `5 kHz` Broadband Processor
+  outputs. They are NeuralBroadband recordings with AxIS metadata showing
+  `0.1 Hz IIR` digital high-pass and no digital low-pass.
+- The `_BroadbandProcessor.raw` metadata also reports a low-frequency median
+  processor branch: `1 Hz` to `200 Hz` using `Median DownSampler`. For spike
+  sorting, the relevant Broadband Processor spike-band branch is the
+  high-frequency `200 Hz` to `5 kHz` band.
+- The inventory CSV can look visually awkward if opened as plain text because
+  Axion stores some settings inside multiline description fields. Use the
+  explicit filter columns and this handoff interpretation rather than manually
+  reading embedded description lines.
+
+Raw files currently present:
+
+| Source folder | Primary raw | BroadbandProcessor raw | Plate state | Duration from metadata |
+|---|---:|---:|---|---:|
+| `2_12_2026/129-8447` | 3 | 3 | `FortyEightWellLumos`, 768 channels | 600 s; one primary is 599.75 s |
+| `2_20_2026/129-8447` | 1 | 1 | `FortyEightWellLumos`, 768 channels | 2252 s |
+| `2_24_2026/134-0150` | 2 | 2 | `SixWell`, 384 channels | 1199.75 s and 1 s test |
+| `2_25_2026/129-8447` | 1 | 1 | `FortyEightWellLumos`, 768 channels | 900 s |
+
+Exact raw paths:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_12_2026/129-8447/opto_test_meis2_with_E2opsin(000).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_12_2026/129-8447/opto_test_meis2_with_E2opsin(000)_BroadbandProcessor.raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_12_2026/129-8447/opto_test_meis2_with_E2opsin(001).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_12_2026/129-8447/opto_test_meis2_with_E2opsin(001)_BroadbandProcessor.raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_12_2026/129-8447/opto_test_meis2_with_E2opsin(002).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_12_2026/129-8447/opto_test_meis2_with_E2opsin(002)_BroadbandProcessor.raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_20_2026/129-8447/test(000).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_20_2026/129-8447/test(000)_BroadbandProcessor.raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_24_2026/134-0150/test(000).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_24_2026/134-0150/test(000)_BroadbandProcessor.raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_24_2026/134-0150/test(001).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_24_2026/134-0150/test(001)_BroadbandProcessor.raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000).raw
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw
+```
+
 ## Environment
 
 Conda file:
