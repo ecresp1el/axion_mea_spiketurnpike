@@ -48,11 +48,21 @@ bash scripts/create_greatlakes_project_folder.sh
 bash scripts/setup_kilosort_env.sh
 ```
 
+This Kilosort env intentionally does not behave like the smaller project envs
+used elsewhere. It lives on Turbo and uses Turbo-backed conda/pip caches because
+PyTorch plus CUDA made the home-prefix install hit `No space left on device`.
+`scripts/setup_kilosort_env.sh` first creates the conda env, then installs
+`kilosort==4.1.3` with pip inside that env so package failures are visible.
+See `docs/GREATLAKES_KILOSORT_HANDOFF.md` before changing this pattern.
+
 Check GPU/env readiness:
 
 ```bash
 sbatch slurm/check_kilosort_env.sbatch
 ```
+
+The successful 2026-07-05 GPU check was Slurm job `52950844`: torch saw one
+Tesla V100 on `gl1020`, CUDA was available, and Kilosort imported.
 
 Prepare one well for Kilosort without launching sorting:
 

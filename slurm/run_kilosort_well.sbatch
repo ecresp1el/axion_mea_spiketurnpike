@@ -80,7 +80,9 @@ else
 fi
 
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
+set +u
 conda activate "${CONDA_ENV}"
+set -u
 python --version
 which python
 python "${REPO_ROOT}/scripts/check_kilosort_env.py"

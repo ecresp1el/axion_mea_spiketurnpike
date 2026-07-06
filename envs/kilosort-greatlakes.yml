@@ -13,5 +13,3 @@ dependencies:
   - ipykernel
   - pytorch>=2.2
   - pytorch-cuda=12.1
-  - pip:
-      - kilosort==4.1.3

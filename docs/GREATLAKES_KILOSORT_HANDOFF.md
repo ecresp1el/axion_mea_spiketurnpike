@@ -46,6 +46,27 @@ Conda file:
 envs/kilosort-greatlakes.yml
 ```
 
+Important difference from older project envs:
+
+- This env is intentionally installed under Turbo, not under
+  `/home/elcrespo/miniconda3/envs`.
+- Kilosort pulls in PyTorch plus CUDA libraries, so it is much larger than the
+  older Axion/opto analysis envs. On 2026-07-05, a home-prefix install failed
+  with `No space left on device`.
+- The repo therefore sends both conda packages and pip wheels to Turbo:
+
+  ```text
+  CONDA_ENV=${PROJECT_ROOT}/envs/axion-kilosort
+  CONDA_PKGS_DIRS=${PROJECT_ROOT}/conda_pkgs
+  PIP_CACHE_DIR=${PROJECT_ROOT}/pip_cache
+  ```
+
+- `scripts/setup_kilosort_env.sh` uses a two-step install on purpose:
+  first conda creates the Python/PyTorch/CUDA environment from
+  `envs/kilosort-greatlakes.yml`, then pip installs `kilosort==4.1.3` inside
+  the completed environment. Keeping Kilosort out of the YAML makes failures
+  easier to diagnose and avoids hiding pip errors inside a conda rollback.
+
 Create/update:
 
 ```bash
@@ -55,12 +76,39 @@ conda activate /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs
 python scripts/check_kilosort_env.py
 ```
 
+Expected storage footprint after the successful 2026-07-05 install:
+
+```text
+${PROJECT_ROOT}/envs/axion-kilosort  ~9.2G
+${PROJECT_ROOT}/conda_pkgs           ~5.5G
+${PROJECT_ROOT}/pip_cache            ~127M
+```
+
 Slurm GPU check:
 
 ```bash
 mkdir -p /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/logs
 sbatch slurm/check_kilosort_env.sbatch
 ```
+
+On 2026-07-05 this completed as Slurm job `52950844` on `gl1020` with:
+
+```text
+Python 3.11.6
+torch: 2.5.1
+kilosort: 4.1.3
+torch cuda available: True
+torch cuda device 0: Tesla V100-PCIE-16GB
+kilosort import check: ok
+```
+
+If a Slurm wrapper fails during `conda activate` with an error like
+`MKL_INTERFACE_LAYER: unbound variable`, keep the `set +u` / `set -u` guard
+around conda activation. Some conda activation hooks read unset variables, so
+strict shell mode must be paused only for activation.
+
+Do not treat `torch cuda available: False` on a login node as a failure. Login
+nodes do not expose the GPU. The authoritative check is the Slurm GPU job.
 
 ## Plate Maps
 
@@ -131,6 +179,21 @@ Outputs:
 results/kilosort/<recording_stem>/<well>/probe.json
 results/kilosort/<recording_stem>/<well>/kilosort_ready_manifest.json
 results/kilosort/<recording_stem>/<well>/kilosort4/       # after RUN_KILOSORT=true
+```
+
+Smoke test already performed:
+
+- Slurm job `52950875` ran `slurm/run_kilosort_well.sbatch` on a tiny synthetic
+  A1 binary with `RUN_KILOSORT=false`.
+- It confirmed GPU visibility, Kilosort import, plate-map lookup, probe JSON
+  writing, binary shape validation, and readiness manifest writing.
+- It did not run spike sorting, because fake 0.1 second data are only useful
+  for wiring checks.
+
+Synthetic smoke outputs live under:
+
+```text
+${PROJECT_ROOT}/scratch/env_smoke/slurm_A1_ready/
 ```
 
 ## MATLAB Bridge
