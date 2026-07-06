@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -39,6 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-metadata-inventory", type=Path, default=None)
     parser.add_argument("--kilosort-manifest", type=Path, default=None)
     parser.add_argument("--probe-json", type=Path, default=None)
+    parser.add_argument("--run-command", default=None)
+    parser.add_argument("--working-directory", default=None)
     return parser.parse_args()
 
 
@@ -63,6 +67,9 @@ def main() -> None:
         raw_metadata_inventory_csv=args.raw_metadata_inventory,
         kilosort_manifest_json=args.kilosort_manifest,
         probe_json=args.probe_json,
+        run_command=args.run_command or shlex.join([sys.executable, *sys.argv]),
+        command_argv=[sys.executable, *sys.argv],
+        working_directory=args.working_directory or os.getcwd(),
     )
     print(json.dumps({"config": config_to_json(config)}, indent=2))
     manifest = write_axion_well_nwb(config)

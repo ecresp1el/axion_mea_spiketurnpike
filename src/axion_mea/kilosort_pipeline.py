@@ -31,6 +31,9 @@ class KilosortWellConfig:
     clear_cache: bool = False
     save_preprocessed_copy: bool = False
     torch_thread_lim: int | None = None
+    run_command: str | None = None
+    command_argv: list[str] | None = None
+    working_directory: str | None = None
 
 
 def bool_from_text(value: str | bool | None, default: bool = False) -> bool:
@@ -101,6 +104,11 @@ def prepare_well_run(config: KilosortWellConfig) -> dict[str, Any]:
             "torch_thread_lim": config.torch_thread_lim,
         },
         "status": "ready_to_run" if not config.run_kilosort else "prepared_for_kilosort",
+        "provenance": {
+            "run_command": config.run_command,
+            "command_argv": config.command_argv,
+            "working_directory": config.working_directory,
+        },
         "notes": [
             "Kilosort requires a continuous row-major binary trace for this well.",
             "Axion spike-list CSVs and .spk files are downstream spike products, not raw traces for sorting.",

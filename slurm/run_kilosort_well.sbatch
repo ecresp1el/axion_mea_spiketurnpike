@@ -74,6 +74,26 @@ echo "PLATE_MAP=${PLATE_MAP}"
 echo "ELECTRODE_GEOMETRY=${ELECTRODE_GEOMETRY}"
 echo "RUN_KILOSORT=${RUN_KILOSORT}"
 
+REPRO_DIR="${OUTPUT_DIR}/repro"
+mkdir -p "${REPRO_DIR}"
+{
+  echo "#!/usr/bin/env bash"
+  echo "set -euo pipefail"
+  echo "cd ${REPO_ROOT@Q}"
+  printf 'PROJECT_CONFIG=%q SAMPLE_CONFIG=%q RUN_KILOSORT_OVERRIDE=%q sbatch %q\n' \
+    "${PROJECT_CONFIG}" "${SAMPLE_CONFIG}" "${RUN_KILOSORT}" "${REPO_ROOT}/slurm/run_kilosort_well.sbatch"
+} > "${REPRO_DIR}/submit_command.sh"
+chmod +x "${REPRO_DIR}/submit_command.sh"
+if [[ -f "${PROJECT_CONFIG}" ]]; then
+  cp "${PROJECT_CONFIG}" "${REPRO_DIR}/project_config.env"
+fi
+if [[ -n "${SAMPLE_CONFIG}" && -f "${SAMPLE_CONFIG}" ]]; then
+  cp "${SAMPLE_CONFIG}" "${REPRO_DIR}/sample_config.env"
+fi
+if [[ -f "$0" ]]; then
+  cp "$0" "${REPRO_DIR}/submitted_job.sbatch"
+fi
+
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi
 else
@@ -118,6 +138,18 @@ fi
 if [[ -n "${TORCH_THREAD_LIM}" ]]; then
   args+=(--torch-thread-lim "${TORCH_THREAD_LIM}")
 fi
+
+python_command=("${REPO_ROOT}/run_axion_kilosort.py" "${args[@]}")
+run_command_text=$(printf '%q ' python "${python_command[@]}")
+args+=(--run-command "${run_command_text}" --working-directory "${REPO_ROOT}")
+{
+  echo "#!/usr/bin/env bash"
+  echo "set -euo pipefail"
+  echo "cd ${REPO_ROOT@Q}"
+  printf '%q ' python "${python_command[@]}"
+  echo
+} > "${REPRO_DIR}/python_command.sh"
+chmod +x "${REPRO_DIR}/python_command.sh"
 
 python "${REPO_ROOT}/run_axion_kilosort.py" "${args[@]}"
 

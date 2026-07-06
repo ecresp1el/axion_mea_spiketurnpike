@@ -77,6 +77,26 @@ echo "PROBE_JSON=${PROBE_JSON}"
 echo "RAW_METADATA_INVENTORY=${RAW_METADATA_INVENTORY}"
 echo "OUTPUT_NWB=${OUTPUT_NWB}"
 
+REPRO_DIR="${NWB_OUTPUT_DIR}/repro"
+mkdir -p "${REPRO_DIR}"
+{
+  echo "#!/usr/bin/env bash"
+  echo "set -euo pipefail"
+  echo "cd ${REPO_ROOT@Q}"
+  printf 'PROJECT_CONFIG=%q NWB_CONFIG=%q sbatch %q\n' \
+    "${PROJECT_CONFIG}" "${NWB_CONFIG}" "${REPO_ROOT}/slurm/export_axion_well_nwb.sbatch"
+} > "${REPRO_DIR}/submit_command.sh"
+chmod +x "${REPRO_DIR}/submit_command.sh"
+if [[ -f "${PROJECT_CONFIG}" ]]; then
+  cp "${PROJECT_CONFIG}" "${REPRO_DIR}/project_config.env"
+fi
+if [[ -n "${NWB_CONFIG}" && -f "${NWB_CONFIG}" ]]; then
+  cp "${NWB_CONFIG}" "${REPRO_DIR}/nwb_config.env"
+fi
+if [[ -f "$0" ]]; then
+  cp "$0" "${REPRO_DIR}/submitted_job.sbatch"
+fi
+
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
 set +u
 conda activate "${CONDA_ENV}"
@@ -106,6 +126,18 @@ fi
 if [[ -f "${RAW_METADATA_INVENTORY}" ]]; then
   args+=(--raw-metadata-inventory "${RAW_METADATA_INVENTORY}")
 fi
+
+python_command=("${REPO_ROOT}/run_axion_binary_to_nwb.py" "${args[@]}")
+run_command_text=$(printf '%q ' python "${python_command[@]}")
+args+=(--run-command "${run_command_text}" --working-directory "${REPO_ROOT}")
+{
+  echo "#!/usr/bin/env bash"
+  echo "set -euo pipefail"
+  echo "cd ${REPO_ROOT@Q}"
+  printf '%q ' python "${python_command[@]}"
+  echo
+} > "${REPRO_DIR}/python_command.sh"
+chmod +x "${REPRO_DIR}/python_command.sh"
 
 python "${REPO_ROOT}/run_axion_binary_to_nwb.py" "${args[@]}"
 

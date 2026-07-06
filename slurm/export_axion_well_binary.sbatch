@@ -72,10 +72,34 @@ echo "ELECTRODE_GEOMETRY=${ELECTRODE_GEOMETRY}"
 echo "BINARY_FILE=${BINARY_FILE}"
 echo "EXPORT_OUTPUT_DIR=${EXPORT_OUTPUT_DIR}"
 
+REPRO_DIR="${EXPORT_OUTPUT_DIR}/repro"
+mkdir -p "${REPRO_DIR}"
+{
+  echo "#!/usr/bin/env bash"
+  echo "set -euo pipefail"
+  echo "cd ${REPO_ROOT@Q}"
+  printf 'PROJECT_CONFIG=%q EXPORT_CONFIG=%q sbatch %q\n' \
+    "${PROJECT_CONFIG}" "${EXPORT_CONFIG}" "${REPO_ROOT}/slurm/export_axion_well_binary.sbatch"
+} > "${REPRO_DIR}/submit_command.sh"
+chmod +x "${REPRO_DIR}/submit_command.sh"
+if [[ -f "${PROJECT_CONFIG}" ]]; then
+  cp "${PROJECT_CONFIG}" "${REPRO_DIR}/project_config.env"
+fi
+if [[ -n "${EXPORT_CONFIG}" && -f "${EXPORT_CONFIG}" ]]; then
+  cp "${EXPORT_CONFIG}" "${REPRO_DIR}/export_config.env"
+fi
+if [[ -f "$0" ]]; then
+  cp "$0" "${REPRO_DIR}/submitted_job.sbatch"
+fi
+
 module purge
 module load matlab/R2024b
 
-matlab -batch "addpath('${REPO_ROOT}/matlab', '-begin'); manifest = export_axion_well_kilosort_binary('${RAW_FILE}', '${WELL}', '${BINARY_FILE}', 'ElectrodeGeometry', '${ELECTRODE_GEOMETRY}', 'OutputDir', '${EXPORT_OUTPUT_DIR}', 'AxionLoaderRoot', '${AXION_LOADER_ROOT}', 'StartTime', ${EXPORT_START_TIME_S}, 'Duration', ${EXPORT_DURATION_S}, 'Dataset', '${DATASET}', 'RecordingStem', '${RECORDING_STEM}'); disp(manifest);"
+matlab_command="addpath('${REPO_ROOT}/matlab', '-begin'); manifest = export_axion_well_kilosort_binary('${RAW_FILE}', '${WELL}', '${BINARY_FILE}', 'ElectrodeGeometry', '${ELECTRODE_GEOMETRY}', 'OutputDir', '${EXPORT_OUTPUT_DIR}', 'AxionLoaderRoot', '${AXION_LOADER_ROOT}', 'StartTime', ${EXPORT_START_TIME_S}, 'Duration', ${EXPORT_DURATION_S}, 'Dataset', '${DATASET}', 'RecordingStem', '${RECORDING_STEM}'); disp(manifest);"
+printf 'matlab -batch %q\n' "${matlab_command}" > "${REPRO_DIR}/matlab_command.sh"
+chmod +x "${REPRO_DIR}/matlab_command.sh"
+
+matlab -batch "${matlab_command}"
 
 cat > "${KILOSORT_ENV_FILE}" <<EOF
 #!/usr/bin/env bash

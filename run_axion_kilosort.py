@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -46,6 +48,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional shell boolean, typically RUN_KILOSORT, used by Slurm wrappers.",
     )
+    parser.add_argument("--run-command", default=None)
+    parser.add_argument("--working-directory", default=None)
     return parser.parse_args()
 
 
@@ -67,6 +71,9 @@ def main() -> None:
         clear_cache=args.clear_cache,
         save_preprocessed_copy=args.save_preprocessed_copy,
         torch_thread_lim=args.torch_thread_lim,
+        run_command=args.run_command or shlex.join([sys.executable, *sys.argv]),
+        command_argv=[sys.executable, *sys.argv],
+        working_directory=args.working_directory or os.getcwd(),
     )
     print(json.dumps({"config": config_to_json(config)}, indent=2))
     manifest = run_kilosort4(config)

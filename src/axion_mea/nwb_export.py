@@ -36,6 +36,9 @@ class AxionWellNwbConfig:
     raw_metadata_inventory_csv: Path | None = None
     kilosort_manifest_json: Path | None = None
     probe_json: Path | None = None
+    run_command: str | None = None
+    command_argv: list[str] | None = None
+    working_directory: str | None = None
 
 
 def _read_json(path: Path | None) -> dict[str, Any] | None:
@@ -297,6 +300,11 @@ def write_axion_well_nwb(config: AxionWellNwbConfig) -> dict[str, Any]:
         "raw_metadata_inventory_csv": str(config.raw_metadata_inventory_csv.expanduser().resolve())
         if config.raw_metadata_inventory_csv
         else None,
+        "provenance": {
+            "run_command": config.run_command,
+            "command_argv": config.command_argv,
+            "working_directory": config.working_directory,
+        },
     }
     nwbfile.add_scratch(
         json.dumps(source_payload, indent=2),
@@ -357,6 +365,7 @@ def write_axion_well_nwb(config: AxionWellNwbConfig) -> dict[str, Any]:
             if config.raw_metadata_inventory_csv
             else None,
         },
+        "provenance": source_payload["provenance"],
     }
     manifest_path = output_nwb.with_suffix(".nwb_manifest.json")
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

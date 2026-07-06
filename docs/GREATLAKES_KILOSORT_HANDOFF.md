@@ -9,6 +9,9 @@ This handoff mirrors the working habits from `mge_organoid_pipeline`:
 - jobs source small `.env` files for project/sample configuration,
 - conda activation happens inside the Slurm script,
 - every run writes a machine-readable manifest before heavy compute starts.
+- every run output keeps a `repro/` folder with the exact submit/run command
+  and copied resolved config, matching the older Axion project
+  `repro/rebuild_command.sh` pattern.
 
 ## Project Folder
 
@@ -29,6 +32,18 @@ logs/                             # Slurm stdout/stderr and tee logs
 jobs/                             # copied sbatch files used for submission
 scratch/                          # TMPDIR for jobs
 handoffs/                         # run notes copied from repo docs as needed
+```
+
+Each per-well stage output should also keep its own local reproducibility
+bundle:
+
+```text
+<stage-output>/repro/
+  submit_command.sh               # exact sbatch command when run through Slurm
+  python_command.sh or matlab_command.sh
+  project_config.env
+  sample/export/nwb_config.env
+  submitted_job.sbatch            # future runs; current backfills may store current template
 ```
 
 Create it on Great Lakes:
