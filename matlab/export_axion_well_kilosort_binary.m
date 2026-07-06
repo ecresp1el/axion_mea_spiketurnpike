@@ -123,13 +123,12 @@ fid = fopen(outputBin, "w");
 if fid <= 0
     error("Could not open output binary for writing: %s", outputBin);
 end
-cleanupBin = onCleanup(@() fclose(fid));
 count = fwrite(fid, data.', "int16");
 expected = nSamples * nChannels;
 if count ~= expected
+    fclose(fid);
     error("Wrote %d int16 values but expected %d.", count, expected);
 end
-clear cleanupBin
 fclose(fid);
 
 mappingTable = struct2table(mappingRows);
@@ -197,9 +196,7 @@ fid = fopen(path, "w");
 if fid <= 0
     error("Could not open text file for writing: %s", path);
 end
-cleanup = onCleanup(@() fclose(fid));
 fprintf(fid, "%s\n", text);
-clear cleanup
 fclose(fid);
 end
 

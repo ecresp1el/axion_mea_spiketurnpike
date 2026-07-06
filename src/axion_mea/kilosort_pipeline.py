@@ -118,6 +118,9 @@ def run_kilosort4(config: KilosortWellConfig) -> dict[str, Any]:
     if not config.run_kilosort:
         return manifest
 
+    if not hasattr(np, "in1d"):
+        np.in1d = np.isin  # Kilosort 4.1.3 still calls the removed NumPy alias.
+
     from kilosort.run_kilosort import run_kilosort
 
     settings = {

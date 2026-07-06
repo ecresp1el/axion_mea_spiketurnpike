@@ -288,6 +288,47 @@ Synthetic smoke outputs live under:
 ${PROJECT_ROOT}/scratch/env_smoke/slurm_A1_ready/
 ```
 
+Real Axion one-well proof completed:
+
+- Export job `52953995` used MATLAB AxionFileLoader to export 60 seconds from
+  `/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw`
+  for well `A1`.
+- Output binary:
+
+  ```text
+  ${PROJECT_ROOT}/data/interim/kilosort_binary/test_2_25_2026_129-8447_test(000)/A1/A1.bin
+  ```
+
+- Export manifest and channel map:
+
+  ```text
+  ${PROJECT_ROOT}/data/interim/kilosort_binary/test_2_25_2026_129-8447_test(000)/A1/binary_export_manifest.json
+  ${PROJECT_ROOT}/data/interim/kilosort_binary/test_2_25_2026_129-8447_test(000)/A1/channel_mapping.csv
+  ```
+
+- The exported binary is `int16`, 16 channels, 750,000 samples, 60 seconds,
+  24,000,000 bytes.
+- The channel order is physical row-major:
+  `11,21,31,41,12,22,32,42,13,23,33,43,14,24,34,44`.
+- Readiness job `52954047` wrote a valid probe/readiness manifest.
+- Kilosort job `52954130` completed with `RUN_KILOSORT_OVERRIDE=true`.
+  Kilosort4 reported 4 total units, 1 good unit, and 217 spikes in this short
+  test window. Results live under:
+
+  ```text
+  ${PROJECT_ROOT}/results/kilosort/test_2_25_2026_129-8447_test(000)/A1/kilosort4/
+  ```
+
+- Kilosort 4.1.3 calls the removed NumPy alias `np.in1d`; the repo now applies
+  a compatibility shim before invoking Kilosort, and the Great Lakes env YAML
+  pins future solves to `numpy<2.4`.
+
+The first attempt against
+`opto_test_meis2_with_E2opsin(000)_BroadbandProcessor.raw` from `2026-02-12`
+was cancelled after `AxisFile(...)` stayed in metadata parsing for several
+minutes. That opto file still needs a targeted path after the exporter is
+validated on normal-offset files.
+
 ## MATLAB Bridge
 
 Use this from MATLAB to validate a well and locate source files/geometry:
