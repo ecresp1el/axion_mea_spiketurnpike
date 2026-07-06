@@ -463,6 +463,17 @@ recent output directories every 60 seconds into:
 <RESULTS_PATH>/nextflow/monitor_<jobid>.log
 ```
 
+Current retry after the quoted-path patch:
+
+```text
+53002656  axion-aind-nwb  submitted 2026-07-06 15:34 EDT
+as of 2026-07-06 15:39 EDT:
+  job_dispatch   COMPLETED
+  nwb_ecephys    COMPLETED
+  preprocessing  COMPLETED
+  53002715 nf-spikesort_kilosort4 pending on GPU partition, reason: Priority
+```
+
 Corrected params for the filtered-input route:
 
 ```text
