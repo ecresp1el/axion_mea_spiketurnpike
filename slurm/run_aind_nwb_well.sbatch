@@ -32,6 +32,8 @@ AIND_RUNMODE="${AIND_RUNMODE:-fast}"
 AIND_SORTER="${AIND_SORTER:-kilosort4}"
 AIND_ALLOW_OVERWRITE="${AIND_ALLOW_OVERWRITE:-false}"
 AIND_RESUME="${AIND_RESUME:-true}"
+AIND_ENABLE_MONITOR="${AIND_ENABLE_MONITOR:-true}"
+AIND_MONITOR_INTERVAL_SECONDS="${AIND_MONITOR_INTERVAL_SECONDS:-60}"
 
 if [[ -z "${RECORDING_STEM}" ]]; then
   echo "ERROR: set RECORDING_STEM." >&2
@@ -121,13 +123,23 @@ export MPLCONFIGDIR="${AIND_XDG_CACHE_HOME}/matplotlib"
 export TMPDIR="${TMPDIR:-${work_dir}/tmp_${SLURM_JOB_ID:-manual}}"
 mkdir -p "${TMPDIR}"
 
-# AIND capsule run scripts call `python`. The si-0.104.8 base image's AIND
-# dependencies live in `/opt/conda`. Use a real wrapper file so Singularity can
-# bind it into `/usr/local/bin/python` inside the container.
+# AIND capsule run scripts call `python`, but the maintained si-0.104.8 images
+# do not all use the same conda prefix. Use a real wrapper file so Singularity
+# can bind it into `/usr/local/bin/python` inside the container.
 rm -f "${AIND_PYTHON_SHIM_DIR}/python"
 cat > "${AIND_PYTHON_SHIM_DIR}/python" <<'EOF'
 #!/usr/bin/env sh
-exec /opt/conda/bin/python "$@"
+for candidate in \
+  /opt/conda/bin/python \
+  /home/miniconda3/bin/python \
+  /usr/bin/python3
+do
+  if [ -x "${candidate}" ]; then
+    exec "${candidate}" "$@"
+  fi
+done
+echo "ERROR: no supported container Python found." >&2
+exit 127
 EOF
 chmod +x "${AIND_PYTHON_SHIM_DIR}/python"
 export PATH="${AIND_PYTHON_SHIM_DIR}:${PATH}"
@@ -150,6 +162,8 @@ echo "WORK_DIR=${work_dir}"
 echo "AIND_PARAMS_FILE=${AIND_PARAMS_FILE}"
 echo "AIND_RUNMODE=${AIND_RUNMODE}"
 echo "AIND_SORTER=${AIND_SORTER}"
+echo "AIND_ENABLE_MONITOR=${AIND_ENABLE_MONITOR}"
+echo "AIND_MONITOR_INTERVAL_SECONDS=${AIND_MONITOR_INTERVAL_SECONDS}"
 echo "AIND_CONTAINER_DIR=${AIND_CONTAINER_DIR}"
 echo "AIND_CONTAINER_HOME=${AIND_CONTAINER_HOME}"
 echo "AIND_XDG_CACHE_HOME=${AIND_XDG_CACHE_HOME}"
@@ -205,6 +219,9 @@ if [[ -n "${AIND_CONFIG}" && -f "${AIND_CONFIG}" ]]; then
 fi
 cp "${AIND_PARAMS_FILE}" "${repro_dir}/aind_params.json"
 cp "${AIND_SLURM_CONFIG}" "${repro_dir}/aind_nextflow_slurm_greatlakes.config"
+if [[ -f "${REPO_ROOT}/scripts/monitor_aind_run.sh" ]]; then
+  cp "${REPO_ROOT}/scripts/monitor_aind_run.sh" "${repro_dir}/monitor_aind_run.sh"
+fi
 if [[ -f "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env" ]]; then
   cp "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env" "${repro_dir}/capsule_versions_custom.env"
 else
@@ -218,6 +235,28 @@ git -C "${AIND_PIPELINE_ROOT}" status --short > "${repro_dir}/aind_pipeline_stat
 realpath "${NWB_FILE}" > "${repro_dir}/input_nwb.txt"
 printf '%s\n' "${input_dir}" > "${repro_dir}/data_path.txt"
 printf '%s\n' "${results_dir}" > "${repro_dir}/results_path.txt"
+
+monitor_pid=""
+cleanup_monitor() {
+  if [[ -n "${monitor_pid}" ]] && kill -0 "${monitor_pid}" >/dev/null 2>&1; then
+    kill "${monitor_pid}" >/dev/null 2>&1 || true
+    wait "${monitor_pid}" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_monitor EXIT
+
+if [[ "${AIND_ENABLE_MONITOR}" == "true" ]]; then
+  monitor_log="${results_dir}/nextflow/monitor_${SLURM_JOB_ID:-manual}.log"
+  AIND_MONITOR_INTERVAL_SECONDS="${AIND_MONITOR_INTERVAL_SECONDS}" \
+    "${REPO_ROOT}/scripts/monitor_aind_run.sh" \
+    "${results_dir}" \
+    "${work_dir}" \
+    "${SLURM_JOB_ID:-}" \
+    > >(tee -a "${monitor_log}") 2>&1 &
+  monitor_pid="$!"
+  echo "AIND monitor started: pid=${monitor_pid}"
+  echo "AIND monitor log: ${monitor_log}"
+fi
 
 DATA_PATH="${input_dir}" RESULTS_PATH="${results_dir}" "${nextflow_command[@]}"
 

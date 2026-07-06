@@ -177,10 +177,12 @@ scripts/stage_aind_capsule_repos.sh
 ```
 
 A second environment issue was fixed by binding a small `python` wrapper into
-the AIND containers as `/usr/local/bin/python`, pointing to
-`/opt/conda/bin/python`. This is needed because AIND capsule `run` scripts call
-`python`, while the base image's dependency-complete interpreter lives under
-`/opt/conda`.
+the AIND containers as `/usr/local/bin/python`. This is needed because AIND
+capsule `run` scripts call `python`, but the maintained `si-0.104.8` images do
+not all use the same conda prefix. The wrapper now tries
+`/opt/conda/bin/python`, `/home/miniconda3/bin/python`, and `/usr/bin/python3`.
+The AIND base/NWB images use `/opt/conda`, while the Kilosort4 image uses
+`/home/miniconda3`.
 
 The current AIND smoke path is no longer blocked at container build, GitHub
 clone, or Python startup. It reached job dispatch and preprocessing with the
@@ -314,11 +316,16 @@ Standalone visible Kilosort4 image pull attempts:
 
 ```text
 52987650  aind-ks4-img  CANCELLED
+52991272  aind-ks4-img  CANCELLED
+52991562  aind-ks4-img  COMPLETED
 ```
 
 Job `52987650` used visible logs but still used Turbo scratch for
 `SINGULARITY_TMPDIR`. It ran for ~22 minutes without producing the final image,
 so it was cancelled.
+
+Job `52991272` was intended to use node-local temp but still inherited the
+Turbo temp setting, so it was cancelled quickly.
 
 The pull script was then refactored to use node-local temp space by default:
 
@@ -326,14 +333,10 @@ The pull script was then refactored to use node-local temp space by default:
 SINGULARITY_TMPDIR=/tmp/${USER}/aind_singularity_tmp_${SLURM_JOB_ID}
 ```
 
-On `gl3206`, `/tmp` had ~270G free, which should be enough for the image
-conversion. The script also now `cd`s to the AIND image directory before running
-`singularity pull`, so the final `.img` is written in the path Nextflow expects.
-
-Current node-local-temp pull job:
+The successful node-local-temp pull was:
 
 ```text
-52991272  aind-ks4-img  PENDING
+52991562  aind-ks4-img  COMPLETED in 10:50 on gl3052
 ```
 
 Submitted with saved command:
@@ -342,41 +345,136 @@ Submitted with saved command:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/container_pulls/submit_pull_aind_kilosort4_container_command.sh
 ```
 
-Logs:
+The job used node-local `/tmp` with ~270G available:
 
 ```text
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/logs/aind/aind-ks4-img-52987650.out
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/logs/aind/aind-ks4-img-52987650.err
+SINGULARITY_TMPDIR=/tmp/elcrespo/aind_singularity_tmp_52991562
+/dev/mapper/arcts_vol1-slurm_tmp  272G  2.0G  270G  1% /tmp
 ```
 
-As of `2026-07-06 13:19 EDT`, monitor `52991272`. It has not started yet.
-When it starts, confirm the log reports node-local `/tmp` for
-`SINGULARITY_TMPDIR`.
-
-The previous visible pull reached:
-
-```text
-INFO:    Converting OCI blobs to SIF format
-INFO:    Starting build...
-INFO:    Fetching OCI image...
-INFO:    Extracting OCI image...
-```
-
-The final target image is:
+The active child process was `mksquashfs`, which confirmed this was container
+filesystem compression, not Kilosort execution. The final Kilosort4 image now
+exists and should be reused by Nextflow:
 
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img
+size: 6.5G
 ```
 
-Do not resubmit AIND until that `.img` exists.
+After the image pull completed, A1 was resubmitted through the saved
+SpikeInterface command. Job `52992101` completed `job_dispatch`,
+`preprocessing`, and `nwb_ecephys`, then reached `spikesort_kilosort4` using the
+cached image. That KS4 process failed immediately with exit `127`:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/tools/aind_python_shim/python: 2:
+exec: /opt/conda/bin/python: not found
+```
+
+This was a Python-shim mismatch, not an image-pull problem and not an Axion data
+problem. The KS4 image uses `/home/miniconda3/bin/python`, while the base/NWB
+images use `/opt/conda/bin/python`.
+
+Fix applied:
+
+- `slurm/run_aind_nwb_well.sbatch` now writes a dynamic Python wrapper that
+  tries `/opt/conda/bin/python`, then `/home/miniconda3/bin/python`, then
+  `/usr/bin/python3`.
+- `config/aind_nextflow_slurm_greatlakes.config` now includes
+  `/home/miniconda3/bin` in the container `PATH`.
+
+The wrapper was tested against both containers:
+
+```text
+KS4 image -> /home/miniconda3/bin/python 3.12.11
+NWB image -> /opt/conda/bin/python 3.11.5
+```
+
+The next A1 retry after this fix was:
+
+```text
+52992259  axion-aind-nwb  FAILED
+```
+
+That job reached real Kilosort4 execution inside the AIND Kilosort4 image, but
+failed in Kilosort 4.1.7 template matching with:
+
+```text
+RuntimeError: The expanded size of the tensor (425) must match the existing size (815)
+```
+
+This was not an image/build failure. It loaded the 900 s, 16-channel A1 binary
+and entered Kilosort. The working mitigation is to reduce the Kilosort sorter
+`batch_size` from `60000` to `15000`.
+
+After reducing `batch_size`, job `52992352` completed AIND Kilosort4
+successfully:
+
+```text
+spikesort_kilosort4  COMPLETED  exit 0  realtime 9m 38s
+Raw sorting output: KiloSortSortingExtractor: 14 units - 1 segments - 12.5kHz
+Sorting output without empty units: UnitsSelectionSorting: 14 units - 1 segments - 12.5kHz
+SPIKE SORTING time: 574.12s
+```
+
+That is the key proof-of-function point: AIND can run Kilosort4 on the Axion A1
+SpikeInterface/binary input on Great Lakes, with the canonical probeinterface
+mapping, filtered-input settings, and no repeated CAR/highpass preprocessing.
+
+The same run failed one step later in AIND `postprocessing` because the params
+file lacked the explicit `postprocessing.extensions` block required by newer
+AIND postprocessing:
+
+```text
+ValueError: 'random_spikes' extension is required postprocessing and downstream steps, but not found in parameters
+```
+
+The repo default and generated A1 params now include a lean postprocessing
+extension block suitable for the smoke test, including `random_spikes`,
+`templates`, `spike_amplitudes`, `template_similarity`, `correlograms`, and
+`unit_locations`.
+
+After reducing postprocessing to those lean extensions, job `53000354`
+progressed further:
+
+```text
+job_dispatch          COMPLETED
+nwb_ecephys           COMPLETED
+preprocessing         COMPLETED
+spikesort_kilosort4   COMPLETED, 14 units, SPIKE SORTING time 577.28s
+postprocessing        COMPLETED, POSTPROCESSING time 139.71s
+curation              COMPLETED, skipped curation because no quality metrics found
+visualization         COMPLETED, local visualization generated
+results_collector     FAILED, exit 2
+```
+
+The remaining failure was not Kilosort, preprocessing, mapping, image pulling,
+or postprocessing. It was a shell quoting issue in the local AIND
+`results_collector` command: the path contains `test(000)`, and
+`pipeline/main_multi_backend.nf` passed `${DATA_PATH}` and `${RESULTS_PATH}`
+unquoted. The local AIND repo was patched to quote those path arguments in
+`results_collector` and `quality_control`.
+
+The Great Lakes wrapper now also launches a lightweight monitor by default. It
+prints Slurm state, `nextflow/trace.txt`, newest `.command.out/.err/.log`, and
+recent output directories every 60 seconds into:
+
+```text
+<RESULTS_PATH>/nextflow/monitor_<jobid>.log
+```
 
 Corrected params for the filtered-input route:
 
 ```text
 job_dispatch.spikeinterface_info.reader_kwargs.is_filtered = true
 preprocessing.custom_preprocessing_pipeline = {"astype": {"dtype": "int16"}}
+preprocessing.motion_correction.compute = false
+preprocessing.motion_correction.apply = false
 spikesorting.kilosort4.sorter.do_CAR = false
 spikesorting.kilosort4.sorter.skip_kilosort_preprocessing = true
+spikesorting.kilosort4.sorter.batch_size = 15000
+postprocessing.extensions.random_spikes = present
+postprocessing.extensions.templates = present
 AIND_RUNMODE = full
 ```
 
@@ -448,6 +546,29 @@ QC outputs when enabled
 
 Exact folder names should follow the current AIND pipeline's result collector
 and documentation.
+
+Operational order in the current AIND `main_multi_backend.nf` is:
+
+```text
+job_dispatch
+  -> nwb_ecephys + preprocessing
+  -> spikesort_kilosort4
+  -> postprocessing
+  -> curation
+  -> visualization
+  -> results_collector
+  -> quality_control + quality_control_collector
+  -> nwb_units
+```
+
+In plain terms: `preprocessed/` is created before Kilosort, `spikesorted/` is
+created by Kilosort, and `postprocessed/` is created afterward from the
+preprocessed recording plus sorted spikes. `postprocessing/` does not generate
+the first sorted output; it computes analyzer extensions such as random spikes,
+templates, amplitudes, correlograms, template similarity, and unit locations.
+Final top-level result folders under `RESULTS_PATH` are organized by the AIND
+`results_collector`. Before `results_collector` succeeds, many real outputs live
+only in Nextflow work directories under `scratch/aind_nextflow/.../capsule/results`.
 
 ## How To Begin The Pipeline From Raw Data
 
@@ -640,15 +761,18 @@ generation across selected wells while the single-well AIND run finishes.
 
 ### Step 5: Single-Well Current-AIND Smoke Test
 
-For the already exported A1 NWB, the exact submit command is saved here:
+For the current A1 SpikeInterface/binary route, the exact submit command is
+saved here:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/spikeinterface/submit_aind_spikeinterface_command.sh
+```
+
+The older direct-NWB submit commands are still preserved here for provenance,
+but they are not the current smoke-test route:
 
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/submit_aind_nwb_well_command.sh
-```
-
-The overwrite retry command is saved here:
-
-```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/submit_aind_nwb_well_retry_allow_overwrite_command.sh
 ```
 
@@ -658,15 +782,16 @@ Monitoring commands:
 squeue -j <job_id> -o '%.18i %.9P %.32j %.2t %.12M %.12L %.6D %R'
 sacct -j <job_id> --format=JobID,JobName%32,State,ExitCode,Elapsed,MaxRSS,NodeList -P
 tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/run_aind_nwb_well_<job_id>.log'
+tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/nextflow/monitor_<job_id>.log'
 tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/nextflow/trace.txt'
 ```
 
 Next technical step:
 
-1. Keep the corrected SpikeInterface binary + ProbeInterface input route running
-   for A1.
-2. Keep monitoring A1 retry job `52986225`.
-3. If A1 completes Kilosort4 and downstream AIND outputs, generalize
+1. Resubmit the current A1 SpikeInterface command after the quoted-path AIND
+   patch.
+2. Confirm `results_collector`, QC collection, and final `nwb_units` now complete.
+3. If A1 completes final AIND outputs, generalize
    `scripts/prepare_aind_spikeinterface_well.py` into the selected-well batch
    preparation flow.
 4. Regenerate the A1 NWB with the patched NWB writer before retesting direct NWB
@@ -778,18 +903,23 @@ again. The next corrected filtered-input A1 smoke test was:
 ```
 
 It proved AIND ingestion and neutral preprocessing, but was cancelled because a
-stale Kilosort4 image lock blocked the sorter image pull. Current corrected
-filtered-input A1 smoke test:
+stale Kilosort4 image lock blocked the sorter image pull. A later visible
+node-local-temp pull completed the KS4 image successfully. The follow-up A1
+smoke job reached `spikesort_kilosort4`, proving that Nextflow can reuse the
+cached KS4 image, but failed on a Python-shim mismatch because the KS4 image
+uses `/home/miniconda3/bin/python` instead of `/opt/conda/bin/python`.
+
+Current corrected filtered-input A1 smoke retry:
 
 ```text
-52986225  axion-aind-nwb  RUNNING
+52992259  axion-aind-nwb  PENDING at submission, reason: Priority
 ```
 
-Monitor `52986225` next. It has completed `job_dispatch`, neutral
-`preprocessing`, and `nwb_ecephys`, and is currently waiting at the AIND
-Kilosort4 Singularity image pull. If the image pull continues to block, the next
-debug target is the AIND sorter container/cache mechanism, not Axion ingestion
-and not the user's separate working Kilosort install.
+Monitor `52992259` next. It should resume the completed upstream tasks and rerun
+`spikesort_kilosort4` with the dynamic Python wrapper. If it fails again, the
+next debug target is inside the AIND KS4 capsule/container runtime, not Axion
+ingestion, not the canonical mapping, and not the user's separate working
+Kilosort install.
 
 ### Filtered BroadbandProcessor Input Policy
 
@@ -868,12 +998,16 @@ mechanism is, or how Slurm resources map. Those questions are answered below.
 
 Start here instead:
 
-1. Check A1 corrected filtered-input SpikeInterface retry job `52986225`.
-2. If A1 passes Kilosort4 and downstream AIND steps, generalize the
+1. Resubmit A1 with the current saved SpikeInterface command after the
+   quoted-path AIND patch.
+2. Monitor `nextflow/monitor_<jobid>.log`, `nextflow/trace.txt`, and the main
+   Slurm log.
+3. Confirm `results_collector`, QC collection, and final `nwb_units` complete.
+4. If A1 passes final AIND steps, generalize the
    SpikeInterface input generation across selected wells.
-3. Only after one well completes, submit AIND for the selected wells prepared by
+5. Only after one well completes, submit AIND for the selected wells prepared by
    `scripts/prepare_aind_well_batch.sh`.
-4. Regenerate A1 NWB before retrying direct NWB input, because the existing A1
+6. Regenerate A1 NWB before retrying direct NWB input, because the existing A1
    NWB predates the `rel_x/rel_y/rel_z` mapping fix.
 
 Useful files to inspect first:

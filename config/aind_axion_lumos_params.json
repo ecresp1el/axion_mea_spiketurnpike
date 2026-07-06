@@ -64,7 +64,7 @@
       "raise_if_fails": true,
       "clear_cache": false,
       "sorter": {
-        "batch_size": 60000,
+        "batch_size": 15000,
         "nblocks": 0,
         "Th_universal": 9,
         "Th_learned": 8,
@@ -125,7 +125,29 @@
       "radius_um": 400
     },
     "duplicate_threshold": 0.9,
-    "return_in_uV": true
+    "return_in_uV": true,
+    "extensions": {
+      "random_spikes": {
+        "max_spikes_per_unit": 500,
+        "method": "uniform",
+        "margin_size": null,
+        "seed": null
+      },
+      "templates": {},
+      "spike_amplitudes": {
+        "peak_sign": "neg"
+      },
+      "template_similarity": {
+        "method": "l1"
+      },
+      "correlograms": {
+        "window_ms": 50.0,
+        "bin_ms": 1.0
+      },
+      "unit_locations": {
+        "method": "monopolar_triangulation"
+      }
+    }
   },
   "nwb": {
     "ecephys": {

@@ -40,10 +40,10 @@ module load singularity
 
 export SINGULARITY_CACHEDIR="${AIND_SINGULARITY_CACHEDIR:-${PROJECT_ROOT}/scratch/aind_singularity_cache}"
 export APPTAINER_CACHEDIR="${SINGULARITY_CACHEDIR}"
-if [[ -n "${AIND_SINGULARITY_TMPDIR:-}" ]]; then
-  export SINGULARITY_TMPDIR="${AIND_SINGULARITY_TMPDIR}"
-else
+if [[ "${AIND_USE_NODE_LOCAL_TMP:-true}" == "true" ]]; then
   export SINGULARITY_TMPDIR="/tmp/${USER}/aind_singularity_tmp_${SLURM_JOB_ID:-manual}"
+else
+  export SINGULARITY_TMPDIR="${AIND_SINGULARITY_TMPDIR:-${PROJECT_ROOT}/scratch/aind_singularity_tmp}"
 fi
 export APPTAINER_TMPDIR="${SINGULARITY_TMPDIR}"
 mkdir -p "${SINGULARITY_CACHEDIR}" "${SINGULARITY_TMPDIR}"
