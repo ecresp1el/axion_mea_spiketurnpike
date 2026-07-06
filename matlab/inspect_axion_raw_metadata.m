@@ -1,11 +1,11 @@
 function metadataTable = inspect_axion_raw_metadata(sourceRoot, outputCsv, axionLoaderRoot)
-%INSPECT_AXION_RAW_METADATA Inventory Axion .raw files using MATLAB AxisFile.
+%INSPECT_AXION_RAW_METADATA Inventory Axion .raw files using MATLAB metadata peep.
 %
 % metadataTable = inspect_axion_raw_metadata(sourceRoot, outputCsv, axionLoaderRoot)
 %
-% This function intentionally reads metadata through the MATLAB AxionFileLoader
-% AxisFile class. It does not copy raw files, parse derived CSV exports, or load
-% continuous voltage traces into memory.
+% This function intentionally reads metadata through MATLAB AxionFileLoader
+% classes. It does not copy raw files, parse derived CSV exports, construct
+% loadable DataSet objects, or load continuous voltage traces into memory.
 
 arguments
     sourceRoot (1, 1) string
@@ -28,7 +28,7 @@ for idx = 1:numel(rawFiles)
     rawPath = string(fullfile(rawFiles(idx).folder, rawFiles(idx).name));
     fprintf("Inspecting raw metadata %d/%d: %s\n", idx, numel(rawFiles), rawPath);
 
-    clear axisFile dataSet
+    clear metadataInfo
     row = empty_row();
     row.source_root = sourceRoot;
     row.source_dir = string(rawFiles(idx).folder);
@@ -39,58 +39,19 @@ for idx = 1:numel(rawFiles)
     row.recording_stem = recording_stem_from_raw(rawFiles(idx).name);
 
     try
-        axisFile = AxisFile(char(rawPath));
-
-        row.axis_filename = string(axisFile.FileName);
-        row.primary_data_type = double(axisFile.PrimaryDataType);
-        row.header_version_major = double(axisFile.HeaderVersionMajor);
-        row.header_version_minor = double(axisFile.HeaderVersionMinor);
-        row.num_datasets = numel(axisFile.DataSets);
-        row.num_plate_map_entries = numel(axisFile.PlateMap);
-        row.num_channels = numel(axisFile.ChannelArray.Channels);
-        row.plate_type_id = double(axisFile.ChannelArray.PlateType);
-        row.plate_type_name = plate_type_name(axisFile.ChannelArray.PlateType);
-        row.well_dimensions = mat2str(PlateTypes.GetWellDimensions(axisFile.ChannelArray.PlateType));
-        row.electrode_dimensions = mat2str(PlateTypes.GetElectrodeDimensions(axisFile.ChannelArray.PlateType));
-
-        if ~isempty(axisFile.DataSets)
-            dataSet = axisFile.DataSets(1);
-            row.dataset_class = string(class(dataSet));
-            row.dataset_name = string_or_empty(dataSet.Name);
-            row.dataset_description = string_or_empty(dataSet.Description);
-            row.sampling_frequency_hz = double(dataSet.SamplingFrequency);
-            row.voltage_scale_v_per_sample = double(dataSet.VoltageScale);
-            row.block_vector_start_time = datetime_string(dataSet.BlockVectorStartTime);
-            row.experiment_start_time = datetime_string(dataSet.ExperimentStartTime);
-            row.added_date = datetime_string(dataSet.AddedDate);
-            row.modified_date = datetime_string(dataSet.ModifiedDate);
-            row.sample_type = double(dataSet.SampleType);
-            row.num_channels_per_block = double(dataSet.NumChannelsPerBlock);
-            row.num_samples_per_block = double(dataSet.NumSamplesPerBlock);
-            row.data_region_start = double(dataSet.DataRegionStart);
-            row.data_region_length = double(dataSet.DataRegionLength);
-            if isprop(dataSet, "Duration")
-                row.duration_s = double(dataSet.Duration);
-            end
+        metadataInfo = peek_axion_raw_metadata(rawPath);
+        metadataFields = fieldnames(metadataInfo);
+        for fieldIdx = 1:numel(metadataFields)
+            fieldName = metadataFields{fieldIdx};
+            row.(fieldName) = metadataInfo.(fieldName);
         end
-
-        row.metadata_recording_name = metadata_value(axisFile, "RecordingName");
-        row.metadata_description = metadata_value(axisFile, "Description");
-        row.metadata_investigator = metadata_value(axisFile, "Investigator");
-        row.metadata_analog_mode = metadata_value(axisFile, "AnalogMode");
-        row.metadata_barcode = metadata_value(axisFile, "Barcode");
-        row.metadata_biocore_version = metadata_value(axisFile, "BioCoreVersion");
-        row.metadata_keys = strjoin(string(keys(axisFile.MetaData)), ";");
 
     catch ME
         row.status = "error";
         row.error_message = string(ME.message);
     end
 
-    if exist("axisFile", "var") && isa(axisFile, "AxisFile")
-        delete(axisFile);
-    end
-    clear axisFile dataSet
+    clear metadataInfo
 
     if row.status == ""
         row.status = "ok";
