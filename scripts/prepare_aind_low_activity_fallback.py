@@ -88,7 +88,10 @@ def main() -> None:
         "set -euo pipefail",
         f"cd {q(REPO_ROOT)}",
         f"submitted={q(fallback_root / 'submitted_jobs.tsv')}",
-        ": > \"${submitted}\"",
+        # Keep prior fallback rows when sparse wells fail at different times.
+        # The recording supervisor may submit C7 first and B6/F6 later; appending
+        # preserves the complete fallback provenance for the collector.
+        "touch \"${submitted}\"",
         "",
         "submit_one() {",
         "  local well=\"$1\"",

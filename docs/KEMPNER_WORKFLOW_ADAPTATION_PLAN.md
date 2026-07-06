@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 17:15 EDT
+Date updated: 2026-07-06 19:05 EDT
 
 ## Goal
 
@@ -213,19 +213,22 @@ Already implemented:
   - standard per-well parallel AIND submission,
   - status collector with recording_status and per-well stages,
   - separate low_activity_ks4_nt2 fallback generator/submission script,
-  - manual proof submission for B6 and C7 fallback.
+  - manual proof submission for B6 and C7 fallback,
+  - coupled sparse-well fallback v2 submission for B6, C7, and F6,
+  - fallback v2 has now completed the full AIND path through nwb_units for all
+    three sparse wells.
 
 Still needed before broad multi-recording deployment:
   - automate fallback detection/submission from the status collector or a
     recording supervisor script,
-  - include fallback states in the main recording status summary,
   - run the same state machine across multiple recordings.
 ```
 
-Current terminal collector snapshot for the first recording:
+Fresh collector snapshot for the first recording after fallback merge support:
 
 ```text
-recording_status: complete_with_failures
+Generated: 2026-07-06T19:02:03
+recording_status: complete_success_with_fallback
 candidate_wells: 48
 selected_wells: 14
 prepared_wells: 14
@@ -233,26 +236,42 @@ submitted_wells_with_real_ids: 13
 binary_exports_done: 13
 nwb_exports_done: 14
 spikeinterface_prep_done: 14
-selected_wells_done_or_running: 11
-selected_wells_completed: 11
-selected_wells_failed: 3
+selected_wells_done_or_running: 14
+selected_wells_completed: 14
+selected_wells_standard_completed: 11
+selected_wells_fallback_completed: 3
+selected_wells_fallback_running: 0
+selected_wells_fallback_failed: 0
+selected_wells_failed: 0
 selected_wells_running: 0
 selected_wells_terminal: 14
 aind_running: 0
 aind_completed: 11
-current_failed_or_cancelled: 3
+fallback_completed: 3
+fallback_running: 0
+fallback_failed: 0
+current_failed_or_cancelled: 0
 historical_attempts_seen: 89
-stage_counts: {"aind_completed": 11, "aind_failed": 3, "not_selected": 34}
+stage_counts: {"aind_completed": 11, "fallback_completed": 3, "not_selected": 34}
+```
+
+Collector output paths:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batch_status/workflow_status_latest.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batch_status/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batch_status/workflow_status_latest.json
 ```
 
 Interpretation of that snapshot:
 
-- The first recording is terminal from the standard AIND route perspective:
-  all 14 selected wells are accounted for.
-- 11 selected wells completed end-to-end through `nwb_units`.
-- 3 selected wells failed in standard Kilosort4 with sparse/low-sortability
-  template-initialization errors.
-- No standard AIND jobs from this recording are still running.
+- The first recording is terminal after merging standard and fallback routes.
+- 11 selected wells completed end-to-end through standard AIND.
+- 3 selected wells failed standard Kilosort4 with sparse/low-sortability
+  template-initialization errors, then completed through fallback v2.
+- The fallback wells are now marked `fallback_completed` in the collector:
+  B6, C7, F6.
+- No AIND jobs from this recording are still running.
 - The 12 quick AIND parent failures did not fail during export, NWB, or
   SpikeInterface prep. Those upstream per-well artifacts were produced, and the
   fixed-cache rerun supersedes those failed parent attempts.
@@ -525,6 +544,70 @@ n_templates=2
 nearest_templates=2
 n_pcs=2
 ```
+
+Fallback v2 final state as of 2026-07-06 19:05 EDT:
+
+```text
+Important distinction:
+  Full fallback success is now confirmed for B6, C7, and F6.
+  The status collector now merges fallback result roots and reports the first
+  recording as complete_success_with_fallback.
+
+B6:
+  parent AIND job: 53016428 COMPLETED exit 0, elapsed 22m20s
+  Kilosort4 child: 53016467 COMPLETED exit 0
+  Kilosort4 trace duration: 14m20s, realtime 13m39s
+  postprocessing child: 53016651 COMPLETED exit 0
+  postprocessing trace duration: 3m15s, realtime 2m28s
+  observed KS4/postprocessing unit count: 14
+  nwb_units child: 53016784 COMPLETED exit 0
+  quality_control_collector child: 53016810 COMPLETED exit 0
+
+C7:
+  parent AIND job: 53016429 COMPLETED exit 0, elapsed 21m48s
+  Kilosort4 child: 53016472 COMPLETED exit 0
+  Kilosort4 trace duration: 13m05s, realtime 12m55s
+  postprocessing child: 53016638 COMPLETED exit 0
+  postprocessing trace duration: 3m, realtime 2m44s
+  curation child: 53016723 COMPLETED exit 0
+  visualization child: 53016733 COMPLETED exit 0
+  observed KS4 unit count: 32
+  nwb_units child: 53016771 COMPLETED exit 0
+  quality_control_collector child: 53016783 COMPLETED exit 0
+
+F6:
+  parent AIND job: 53016430 COMPLETED exit 0, elapsed 22m21s
+  Kilosort4 child: 53016470 COMPLETED exit 0
+  Kilosort4 trace duration: 13m30s, realtime 13m15s
+  postprocessing child: 53016637 COMPLETED exit 0
+  postprocessing trace duration: 3m, realtime 2m32s
+  curation child: 53016722 COMPLETED exit 0
+  observed KS4/postprocessing unit count: 17
+  nwb_units child: 53016781 COMPLETED exit 0
+  quality_control_collector child: 53016791 COMPLETED exit 0
+```
+
+This is the key fallback proof so far: the original standard failures
+(`n_samples=2-4 should be >= n_clusters=6`) and the fallback v1 shape mismatch
+were both avoided by coupling `n_templates`, `nearest_templates`, and `n_pcs`
+to 2 for the isolated sparse-well fallback route.
+
+True single-recording result, after counting fallback v2:
+
+```text
+candidate_wells: 48
+selected_wells: 14
+standard_completed_through_nwb_units: 11
+standard_failed_then_fallback_completed: 3
+unresolved_selected_wells: 0
+true_recording_status: complete_success_with_fallback
+```
+
+Implemented collector change: `scripts/summarize_aind_batch_status.py` now
+discovers `jobs/aind_fallbacks/<recording>/<label>/submitted_jobs.tsv`, reads
+each fallback manifest/result root, parses fallback Nextflow traces, and
+promotes a standard failed well to `fallback_completed` when the fallback trace
+contains `nwb_units COMPLETED`.
 
 Reproducible cache/layout rule for future AIND scale-up:
 

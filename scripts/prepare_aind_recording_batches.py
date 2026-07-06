@@ -155,6 +155,29 @@ def main() -> None:
             "",
         ]
     )
+    supervisor_lines = script_header()
+    supervisor_lines.extend(
+        [
+            f"SUPERVISOR_LOG={q(output_dir / 'supervise_all_recordings.log')}",
+            f"SUPERVISOR_JOBS={q(output_dir / 'submitted_recording_supervisors.tsv')}",
+            ": > \"${SUPERVISOR_LOG}\"",
+            ": > \"${SUPERVISOR_JOBS}\"",
+            "",
+            "run_recording_supervisor() {",
+            "  local recording=\"$1\"",
+            "  local supervisor_output_dir=\"$2\"",
+            "  local job_id",
+            "  echo \"Starting supervisor for ${recording}\" | tee -a \"${SUPERVISOR_LOG}\"",
+            "  job_id=\"$(env "
+            f"PROJECT_CONFIG={q(args.project_config.expanduser().resolve())} "
+            "RECORDING_STEM=\"${recording}\" "
+            "SUPERVISOR_OUTPUT_DIR=\"${supervisor_output_dir}\" "
+            f"sbatch --parsable {q(REPO_ROOT / 'slurm/run_aind_recording_supervisor.sbatch')})\"",
+            "  printf 'recording=%s supervisor_job=%s output_dir=%s\\n' \"${recording}\" \"${job_id}\" \"${supervisor_output_dir}\" | tee -a \"${SUPERVISOR_LOG}\" | tee -a \"${SUPERVISOR_JOBS}\"",
+            "}",
+            "",
+        ]
+    )
 
     planned_rows: list[dict[str, str]] = []
     for index, row in enumerate(manifest_rows, start=1):
@@ -181,6 +204,7 @@ def main() -> None:
         batch_root = project_root / "jobs" / "aind_batches" / recording_stem
         submit_script = batch_root / "submit_all_wells.sh"
         submitted_jobs = batch_root / "submitted_jobs.tsv"
+        supervisor_output_dir = project_root / "jobs" / "aind_recording_supervisors" / recording_stem
         aind_input = field(row, "aind_input", args.aind_input) or args.aind_input
         allow_overwrite = truthy(
             field(row, "allow_aind_overwrite", ""),
@@ -275,8 +299,13 @@ def main() -> None:
                 "run_recording_submit "
                 f"{q(recording_stem)} {q(submit_script)} {q(submitted_jobs)}"
             )
+            supervisor_lines.append(
+                "run_recording_supervisor "
+                f"{q(recording_stem)} {q(supervisor_output_dir)}"
+            )
         else:
             prepare_lines.append(f"echo 'Skipping disabled recording {recording_stem}'")
+            supervisor_lines.append(f"echo 'Skipping disabled recording {recording_stem}'")
 
         planned_rows.append(
             {
@@ -292,15 +321,19 @@ def main() -> None:
                 "batch_root": str(batch_root),
                 "prepare_submit_script": str(submit_script),
                 "submitted_jobs": str(submitted_jobs),
+                "supervisor_output_dir": str(supervisor_output_dir),
             }
         )
 
     prepare_script = output_dir / "prepare_all_recordings.sh"
     submit_script = output_dir / "submit_all_recordings.sh"
+    supervisor_script = output_dir / "supervise_all_recordings.sh"
     prepare_script.write_text("\n".join(prepare_lines) + "\n", encoding="utf-8")
     submit_script.write_text("\n".join(submit_lines) + "\n", encoding="utf-8")
+    supervisor_script.write_text("\n".join(supervisor_lines) + "\n", encoding="utf-8")
     prepare_script.chmod(0o755)
     submit_script.chmod(0o755)
+    supervisor_script.chmod(0o755)
 
     fieldnames = [
         "enabled",
@@ -315,6 +348,7 @@ def main() -> None:
         "batch_root",
         "prepare_submit_script",
         "submitted_jobs",
+        "supervisor_output_dir",
     ]
     with (output_dir / "recording_batch_manifest.csv").open(
         "w", encoding="utf-8", newline=""
@@ -329,6 +363,7 @@ def main() -> None:
     print(f"Prepared recording batch plan for {len(planned_rows)} recordings under {output_dir}")
     print(f"Prepare script: {prepare_script}")
     print(f"Submit script: {submit_script}")
+    print(f"Supervisor script: {supervisor_script}")
     print(f"Manifest: {output_dir / 'recording_batch_manifest.csv'}")
     if args.run_prepare:
         subprocess.run(["bash", str(prepare_script)], check=True)

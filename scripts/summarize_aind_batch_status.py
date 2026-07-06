@@ -23,6 +23,9 @@ JOB_LINE_RE = re.compile(
     r"nwb_job=(?P<nwb_job>\S+)\s+spikeinterface_job=(?P<spikeinterface_job>\S+)\s+"
     r"aind_job=(?P<aind_job>\S+)"
 )
+FALLBACK_JOB_LINE_RE = re.compile(
+    r"well=(?P<well>\S+)\s+aind_job=(?P<aind_job>\S+)\s+env_file=(?P<env_file>\S+)"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -104,6 +107,40 @@ def parse_submitted_file(path: Path, recording_stem: str) -> list[dict[str, Any]
     return attempts
 
 
+def parse_fallback_submitted_file(path: Path, recording_stem: str) -> list[dict[str, Any]]:
+    attempts = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    fallback_label = path.parent.name
+    for match in FALLBACK_JOB_LINE_RE.finditer(text):
+        row = match.groupdict()
+        manifest = path.parent / row["well"] / f"{recording_stem}_{row['well']}_{fallback_label}_manifest.json"
+        manifest_data: dict[str, Any] = {}
+        if manifest.is_file():
+            try:
+                manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                manifest_data = {}
+        row.update(
+            {
+                "recording_stem": recording_stem,
+                "fallback_label": fallback_label,
+                "submitted_file": str(path),
+                "submitted_file_name": path.name,
+                "submitted_file_mtime": path.stat().st_mtime,
+                "real_slurm_ids": str(row["aind_job"]).isdigit(),
+                "manifest_file": str(manifest) if manifest.is_file() else "",
+                "fallback_reason": manifest_data.get("reason", ""),
+                "fallback_results_dir": manifest_data.get("results_dir", ""),
+                "fallback_work_dir": manifest_data.get("work_dir", ""),
+                "n_templates": manifest_data.get("n_templates", ""),
+                "nearest_templates": manifest_data.get("nearest_templates", ""),
+                "n_pcs": manifest_data.get("n_pcs", ""),
+            }
+        )
+        attempts.append(row)
+    return attempts
+
+
 def discover_batch_roots(project_root: Path, recording_stems: list[str]) -> list[Path]:
     batches_root = project_root / "jobs" / "aind_batches"
     if recording_stems:
@@ -126,6 +163,34 @@ def latest_attempts(attempts: list[dict[str, Any]]) -> dict[tuple[str, str], dic
         if current is None or new_sort > current_sort:
             latest[key] = attempt
     return latest
+
+
+def latest_fallback_attempts(attempts: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for attempt in attempts:
+        if not attempt.get("real_slurm_ids"):
+            continue
+        key = (attempt["recording_stem"], attempt["well"])
+        current = latest.get(key)
+        current_sort = (
+            current.get("submitted_file_mtime", 0) if current else -1,
+            int(current.get("aind_job", 0)) if current else -1,
+        )
+        new_sort = (attempt.get("submitted_file_mtime", 0), int(attempt.get("aind_job", 0)))
+        if current is None or new_sort > current_sort:
+            latest[key] = attempt
+    return latest
+
+
+def discover_fallback_attempts(project_root: Path, recording_stems: list[str]) -> list[dict[str, Any]]:
+    fallbacks_root = project_root / "jobs" / "aind_fallbacks"
+    stems = recording_stems or [path.name for path in discover_batch_roots(project_root, [])]
+    attempts: list[dict[str, Any]] = []
+    for stem in stems:
+        recording_fallback_root = fallbacks_root / stem
+        for submitted in sorted(recording_fallback_root.glob("*/submitted_jobs.tsv")):
+            attempts.extend(parse_fallback_submitted_file(submitted, stem))
+    return attempts
 
 
 def query_sacct(job_ids: list[str]) -> dict[str, dict[str, str]]:
@@ -248,6 +313,15 @@ def derive_stage(row: dict[str, Any]) -> str:
     if row.get("aind_trace_nwb_units_completed"):
         return "aind_completed"
 
+    if row.get("fallback_trace_nwb_units_completed"):
+        return "fallback_completed"
+    if int(row.get("fallback_trace_failed_tasks", 0) or 0) > 0 or state_in(row, "fallback_aind", FAILED_STATES):
+        return "fallback_failed"
+    if state_is(row, "fallback_aind", "RUNNING"):
+        return "fallback_running"
+    if state_is(row, "fallback_aind", "PENDING"):
+        return "fallback_pending"
+
     if state_in(row, "export", FAILED_STATES):
         return "export_failed"
     if state_is(row, "export", "RUNNING"):
@@ -286,7 +360,12 @@ def derive_stage(row: dict[str, Any]) -> str:
     return "si_prep_completed"
 
 
-def summarize_recording(batch_root: Path, sacct_states: dict[str, dict[str, str]], squeue_states: dict[str, dict[str, str]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def summarize_recording(
+    batch_root: Path,
+    sacct_states: dict[str, dict[str, str]],
+    squeue_states: dict[str, dict[str, str]],
+    fallback_attempts: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     recording_stem = batch_root.name
     selection_rows = read_csv(batch_root / "selection" / "well_selection_manifest.csv")
     batch_rows = read_csv(batch_root / "well_batch_manifest.csv")
@@ -295,6 +374,8 @@ def summarize_recording(batch_root: Path, sacct_states: dict[str, dict[str, str]
     for path in sorted(batch_root.glob("submitted*.tsv")) + sorted(batch_root.glob("*/retry*.tsv")):
         attempts.extend(parse_submitted_file(path, recording_stem))
     latest = latest_attempts(attempts)
+    fallback_attempts = fallback_attempts or []
+    latest_fallback = latest_fallback_attempts(fallback_attempts)
     rows = []
     for selected_row in selection_rows:
         well = selected_row.get("well", "")
@@ -305,6 +386,13 @@ def summarize_recording(batch_root: Path, sacct_states: dict[str, dict[str, str]
         spikeinterface_dir = optional_path(batch_row.get("spikeinterface_dir"))
         aind_results_dir = optional_path(batch_row.get("aind_results_dir"))
         trace = parse_trace(aind_results_dir / "nextflow" / "trace.txt") if aind_results_dir else parse_trace(Path(""))
+        fallback_attempt = latest_fallback.get((recording_stem, well), {})
+        fallback_results_dir = optional_path(fallback_attempt.get("fallback_results_dir"))
+        fallback_trace = (
+            parse_trace(fallback_results_dir / "nextflow" / "trace.txt")
+            if fallback_results_dir
+            else parse_trace(Path(""))
+        )
         row: dict[str, Any] = {
             "recording_stem": recording_stem,
             "well": well,
@@ -330,6 +418,16 @@ def summarize_recording(batch_root: Path, sacct_states: dict[str, dict[str, str]
             "spikeinterface_dir": str(spikeinterface_dir) if spikeinterface_dir else "",
             "si_params_exists": any(spikeinterface_dir.glob("*_aind_spikeinterface_params.json")) if path_exists(spikeinterface_dir) else False,
             "aind_results_dir": str(aind_results_dir) if aind_results_dir else "",
+            "fallback_attempt_count": sum(1 for item in fallback_attempts if item.get("well") == well),
+            "fallback_label": fallback_attempt.get("fallback_label", ""),
+            "fallback_reason": fallback_attempt.get("fallback_reason", ""),
+            "fallback_aind_job": fallback_attempt.get("aind_job", ""),
+            "fallback_env_file": fallback_attempt.get("env_file", ""),
+            "fallback_manifest_file": fallback_attempt.get("manifest_file", ""),
+            "fallback_results_dir": str(fallback_results_dir) if fallback_results_dir else "",
+            "fallback_n_templates": fallback_attempt.get("n_templates", ""),
+            "fallback_nearest_templates": fallback_attempt.get("nearest_templates", ""),
+            "fallback_n_pcs": fallback_attempt.get("n_pcs", ""),
         }
         for prefix, job_key in [
             ("export", "export_job"),
@@ -343,6 +441,19 @@ def summarize_recording(batch_root: Path, sacct_states: dict[str, dict[str, str]
             row[f"{prefix}_exit_code"] = state.get("exit_code", "")
             row[f"{prefix}_queue_reason"] = state.get("queue_reason", "")
         row.update(trace)
+        fallback_state = merge_job_state(str(row.get("fallback_aind_job", "")), sacct_states, squeue_states)
+        row["fallback_aind_state"] = fallback_state.get("state", "")
+        row["fallback_aind_elapsed"] = fallback_state.get("elapsed") or fallback_state.get("queue_time", "")
+        row["fallback_aind_exit_code"] = fallback_state.get("exit_code", "")
+        row["fallback_aind_queue_reason"] = fallback_state.get("queue_reason", "")
+        for key, value in fallback_trace.items():
+            if key == "trace_exists":
+                fallback_key = "fallback_trace_exists"
+            elif key.startswith("aind_trace_"):
+                fallback_key = "fallback_trace_" + key[len("aind_trace_"):]
+            else:
+                fallback_key = f"fallback_{key}"
+            row[fallback_key] = value
         row["derived_stage"] = derive_stage(row)
         rows.append(row)
     return rows, attempts
@@ -357,12 +468,17 @@ def build_summary(rows: list[dict[str, Any]], attempts: list[dict[str, Any]]) ->
         stages = Counter(row["derived_stage"] for row in rec_rows)
         current_failed = sum(1 for row in rec_rows if row["derived_stage"].endswith("_failed"))
         selected_rows = [row for row in rec_rows if row["selected"]]
-        selected_completed = sum(1 for row in selected_rows if row["derived_stage"] == "aind_completed")
-        selected_running = sum(1 for row in selected_rows if row["derived_stage"] == "aind_running")
+        selected_completed = sum(1 for row in selected_rows if row["derived_stage"] in {"aind_completed", "fallback_completed"})
+        selected_running = sum(1 for row in selected_rows if row["derived_stage"] in {"aind_running", "fallback_running"})
         selected_failed = sum(1 for row in selected_rows if row["derived_stage"].endswith("_failed"))
         selected_terminal = selected_completed + selected_failed
+        fallback_completed = stages.get("fallback_completed", 0)
+        fallback_running = stages.get("fallback_running", 0)
+        fallback_failed = stages.get("fallback_failed", 0)
         if not selected_rows:
             recording_status = "no_selected_wells"
+        elif selected_completed == len(selected_rows) and fallback_completed:
+            recording_status = "complete_success_with_fallback"
         elif selected_completed == len(selected_rows):
             recording_status = "complete_success"
         elif selected_terminal == len(selected_rows):
@@ -380,12 +496,19 @@ def build_summary(rows: list[dict[str, Any]], attempts: list[dict[str, Any]]) ->
             "binary_exports_done": sum(1 for row in rec_rows if row["binary_exists"] and row["channel_mapping_exists"] and row["binary_manifest_exists"]),
             "nwb_exports_done": sum(1 for row in rec_rows if row["nwb_exists"]),
             "spikeinterface_prep_done": sum(1 for row in rec_rows if row["si_params_exists"]),
-            "selected_wells_done_or_running": sum(1 for row in selected_rows if row["derived_stage"] in {"aind_completed", "aind_running"}),
+            "selected_wells_done_or_running": sum(1 for row in selected_rows if row["derived_stage"] in {"aind_completed", "aind_running", "fallback_completed", "fallback_running"}),
             "selected_wells_completed": selected_completed,
+            "selected_wells_standard_completed": stages.get("aind_completed", 0),
+            "selected_wells_fallback_completed": fallback_completed,
+            "selected_wells_fallback_running": fallback_running,
+            "selected_wells_fallback_failed": fallback_failed,
             "selected_wells_failed": selected_failed,
             "selected_wells_running": selected_running,
             "selected_wells_terminal": selected_terminal,
             "aind_completed": stages.get("aind_completed", 0),
+            "fallback_completed": fallback_completed,
+            "fallback_running": fallback_running,
+            "fallback_failed": fallback_failed,
             "aind_running": stages.get("aind_running", 0),
             "current_failed_or_cancelled": current_failed,
             "historical_attempts_seen": sum(1 for item in attempts if item.get("recording_stem") == recording),
@@ -414,11 +537,18 @@ def write_text_summary(path: Path, summary: dict[str, Any]) -> None:
             "spikeinterface_prep_done",
             "selected_wells_done_or_running",
             "selected_wells_completed",
+            "selected_wells_standard_completed",
+            "selected_wells_fallback_completed",
+            "selected_wells_fallback_running",
+            "selected_wells_fallback_failed",
             "selected_wells_failed",
             "selected_wells_running",
             "selected_wells_terminal",
             "aind_running",
             "aind_completed",
+            "fallback_completed",
+            "fallback_running",
+            "fallback_failed",
             "current_failed_or_cancelled",
             "historical_attempts_seen",
         ]:
@@ -441,16 +571,21 @@ def main() -> None:
     for batch_root in batch_roots:
         for path in sorted(batch_root.glob("submitted*.tsv")) + sorted(batch_root.glob("*/retry*.tsv")):
             all_attempts.extend(parse_submitted_file(path, batch_root.name))
+    fallback_attempts = discover_fallback_attempts(project_root, args.recording_stem)
     job_ids = []
     for attempt in all_attempts:
         if attempt.get("real_slurm_ids"):
             job_ids.extend([attempt["export_job"], attempt["nwb_job"], attempt["spikeinterface_job"], attempt["aind_job"]])
+    for attempt in fallback_attempts:
+        if attempt.get("real_slurm_ids"):
+            job_ids.append(attempt["aind_job"])
     sacct_states = {} if args.no_slurm else query_sacct(job_ids)
     squeue_states = {} if args.no_slurm else query_squeue(job_ids)
     rows: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
     for batch_root in batch_roots:
-        rec_rows, rec_attempts = summarize_recording(batch_root, sacct_states, squeue_states)
+        rec_fallback_attempts = [item for item in fallback_attempts if item.get("recording_stem") == batch_root.name]
+        rec_rows, rec_attempts = summarize_recording(batch_root, sacct_states, squeue_states, rec_fallback_attempts)
         rows.extend(rec_rows)
         attempts.extend(rec_attempts)
     summary = build_summary(rows, attempts)
@@ -460,7 +595,10 @@ def main() -> None:
     json_path = output_dir / f"workflow_status_{timestamp}.json"
     txt_path = output_dir / f"workflow_status_{timestamp}.txt"
     write_csv(csv_path, rows)
-    json_path.write_text(json.dumps({"summary": summary, "wells": rows, "attempts": attempts}, indent=2), encoding="utf-8")
+    json_path.write_text(
+        json.dumps({"summary": summary, "wells": rows, "attempts": attempts, "fallback_attempts": fallback_attempts}, indent=2),
+        encoding="utf-8",
+    )
     write_text_summary(txt_path, summary)
     for source, latest_name in [
         (csv_path, "workflow_status_latest.csv"),
