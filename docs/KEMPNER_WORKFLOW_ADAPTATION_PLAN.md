@@ -118,6 +118,52 @@ Failure reasons:
 
 Conclusion: do not spend more time making the old wrapper run. Use current AIND.
 
+The current AIND route has progressed past the old Kempner/DSL1 problems, but
+it has its own Great Lakes deployment blocker.
+
+Current-AIND failed jobs:
+
+```text
+52973797  axion-aind-nwb  FAILED
+52975962  axion-aind-nwb  FAILED
+52976013  axion-aind-nwb  FAILED
+```
+
+Current-AIND failure reasons:
+
+- `52973797`: AIND launched successfully and began pulling
+  `docker://ghcr.io/allenneuraldynamics/aind-ephys-pipeline-base:si-0.104.8`,
+  but Nextflow killed the Singularity pull at its default 20 minute timeout
+  while the SIF was still being created. The log also reported an NFS lock
+  problem after the timeout. This was an environment/container staging problem,
+  not an Axion data-ingestion problem.
+- `52975962`: immediate retry failed before Nextflow because the previous failed
+  results directory existed and `AIND_ALLOW_OVERWRITE` was not set.
+- `52976013`: retry with overwrite got past image creation. The base image now
+  exists:
+
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/ghcr.io-allenneuraldynamics-aind-ephys-pipeline-base-si-0.104.8.img
+  ```
+
+  This run submitted the first AIND process, `job_dispatch`, but the process
+  failed when the container tried to clone capsule code from GitHub:
+
+  ```text
+  fatal: unable to access 'https://github.com/AllenNeuralDynamics/aind-ephys-job-dispatch/':
+  Failed to connect to github.com port 443: Connection timed out
+  ```
+
+Conclusion: do not keep treating the current blocker as "we need to build the
+image." The base image was pulled successfully after increasing the pull
+timeout. The active blocker is that AIND's Nextflow processes clone capsule
+repositories from GitHub at runtime, and Great Lakes compute-node/container
+network access timed out. The next implementation step is to remove runtime
+GitHub dependence from Slurm tasks, for example by pre-staging the pinned AIND
+capsule repos locally and making AIND clone from local paths or `file://` URLs,
+or by confirming a Great Lakes-supported proxy/network method for containerized
+GitHub access.
+
 ## Desired Architecture Going Forward
 
 Keep the repos separate:
@@ -134,6 +180,12 @@ Recommended source of truth:
 2. Kempner repo for notes about cluster deployment and how they adapted AIND.
 3. This Axion repo for data conversion, metadata, geometry, provenance, and
    launch configs only.
+
+Pre-AIND well selection and raw/sidecar asset tracking are documented in
+`docs/AIND_WELL_SELECTION.md`. That gate records which raw files have the
+required `*_spike_counts.csv` activity asset, optional `*_spike_list.csv`
+annotations, raw metadata matches, and which wells pass the current
+`min_total_spikes=11` threshold before parallel job preparation.
 
 The output tree should be made by upstream AIND result collection/NWB export
 steps, not by our own local sorting wrapper.
@@ -156,36 +208,338 @@ QC outputs when enabled
 Exact folder names should follow the current AIND pipeline's result collector
 and documentation.
 
-## Next Conversation Starting Point
+## How To Begin The Pipeline From Raw Data
 
-Start with the current AIND repo:
+This is the operational starting sequence. It is intentionally split into an
+Axion ingestion stage and an AIND execution stage so we can keep making progress
+on selection, provenance, binary export, and NWB writing even while the AIND
+runtime-clone issue is being fixed.
 
-```bash
-cd /home/elcrespo/Desktop/githubprojects
-git clone https://github.com/AllenNeuralDynamics/aind-ephys-pipeline.git
-```
+### Required Source Assets
 
-Then inspect:
+For each Axion recording, the bridge expects:
 
 ```text
-aind-ephys-pipeline/pipeline/main_multi_backend.nf
-aind-ephys-pipeline/pipeline/capsule_versions.env
-aind-ephys-pipeline/params_app/
-aind-ephys-pipeline/sample_dataset/
-aind-ephys-pipeline/docs/
+<recording_stem>_BroadbandProcessor.raw or <recording_stem>.raw
+<recording_stem>_spike_counts.csv
+<recording_stem>_spike_list.csv
+metadata/plate_maps/axion_48_well_opto_plate_map.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv
 ```
 
-Questions to answer next:
+What each file is used for:
 
-1. Which current AIND input path is best for Axion: NWB, SpikeInterface, or AIND
-   session folder?
-2. Does current AIND job-dispatch still accept NWB `ElectricalSeries` directly,
-   or should the Axion bridge write a SpikeInterface-compatible folder instead?
-3. What parameter file/schema does current AIND use for Kilosort4 settings?
-4. How should Great Lakes Slurm resources map onto current
-   `main_multi_backend.nf`?
-5. Which current GHCR container tags are required, and should they replace the
-   older `si-0.101.2` Kempner images?
+- `.raw`: continuous voltage source for per-well binary export.
+- `*_spike_counts.csv`: lightweight activity gate before sorting. This is where
+  total spikes and active-electrode counts are computed.
+- `*_spike_list.csv`: well annotations such as `Active`, `Control`, and
+  `Treatment` when present.
+- plate map CSV: defines candidate well IDs and plate position metadata.
+- raw metadata inventory: joins raw-file provenance such as plate type,
+  duration, sampling rate, raw kind, and source paths.
+
+Assumptions:
+
+- Each well is treated as an independent 16-channel recording for export, NWB,
+  and AIND sorting.
+- Wells on the same plate type share the same 4x4 electrode geometry:
+  `metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv`.
+- Selection does not open the continuous raw voltage. It only checks file assets
+  and reads Axion CSV sidecars.
+- The default activity gate is `min_total_spikes=11`, meaning a well needs more
+  than 10 total Axion sidecar spikes to proceed.
+- Current selected wells for the 2026-02-25 test recording are:
+
+  ```text
+  D7 C1 F8 E7 A1 E6 F7 B8 B6 D1 F6 C7 E8 F1
+  ```
+
+### Environment Setup
+
+Use the repo wrappers because they source `config/greatlakes_project.env` and
+activate the existing conda environment where appropriate.
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+bash scripts/create_greatlakes_project_folder.sh
+bash scripts/setup_aind_nextflow.sh
+```
+
+Important environment files:
+
+```text
+config/greatlakes_project.env
+config/aind_axion_lumos_params.json
+config/aind_nextflow_slurm_greatlakes.config
+```
+
+`config/greatlakes_project.env` defines project roots, conda env paths, Slurm
+partitions/accounts, AIND paths, Singularity cache paths, and plate-map paths.
+`config/aind_axion_lumos_params.json` holds the AIND/Kilosort4 parameters for
+Axion/Lumos wells. `config/aind_nextflow_slurm_greatlakes.config` maps AIND
+processes to Great Lakes Slurm and now sets a longer
+`singularity.pullTimeout = '2h'` / `apptainer.pullTimeout = '2h'`.
+
+### Step 1: Inventory Which Recordings Have Usable Assets
+
+Run this before selecting wells. It answers which raw files do and do not have
+the sidecars needed for the activity gate.
+
+```bash
+bash scripts/inventory_aind_selection_assets.sh \
+  --raw-root /nfs/turbo/umms-parent/axion_mea_files_directory \
+  --plate-map metadata/plate_maps/axion_48_well_opto_plate_map.csv \
+  --raw-metadata-inventory /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv \
+  --output-dir /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_selection_asset_inventory
+```
+
+Generated files:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_selection_asset_inventory/aind_selection_asset_inventory.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_selection_asset_inventory/aind_selection_asset_inventory.csv
+```
+
+Current result for the visible raw tree: 14 raw files found, 14 have
+`*_spike_counts.csv`, 14 have `*_spike_list.csv`, 14 have raw metadata matches,
+and 0 are missing required selection assets.
+
+### Step 2: Select Wells For One Recording
+
+Example for the 2026-02-25 test recording:
+
+```bash
+bash scripts/select_aind_wells.sh \
+  --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings' \
+  --raw-file '/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw' \
+  --plate-map metadata/plate_maps/axion_48_well_opto_plate_map.csv \
+  --raw-metadata-inventory /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv \
+  --output-dir '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/selection' \
+  --min-total-spikes 11 \
+  --min-active-electrodes 1
+```
+
+Generated files:
+
+```text
+.../selection/well_selection_manifest.json
+.../selection/well_selection_manifest.csv
+```
+
+The manifest records selected/rejected wells, spike counts, active electrodes,
+missing assets, source raw file, plate mapping, raw metadata match status, and
+selection rank. The selector prints the assumptions, asset status, selected
+wells, and rejection reason counts to stdout.
+
+### Step 3: Generate Per-Well Job Files And Submit Commands
+
+Use the selection manifest to prepare only wells that pass the activity gate:
+
+```bash
+bash scripts/prepare_aind_well_batch.sh \
+  --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings' \
+  --raw-file '/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw' \
+  --selection-manifest '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/selection/well_selection_manifest.csv' \
+  --allow-aind-overwrite
+```
+
+Generated files:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/well_batch_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/well_batch_manifest.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/submit_all_wells.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/<well>/export_binary.env
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/<well>/export_nwb.env
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/<well>/run_aind.env
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/<recording_stem>/<well>/submit_commands.sh
+```
+
+For the 2026-02-25 test, this currently prepares 14 wells.
+
+### Step 4: Slurm Jobs Used By The Pipeline
+
+The batch submit scripts chain three jobs per selected well:
+
+```text
+slurm/export_axion_well_binary.sbatch
+slurm/export_axion_well_nwb.sbatch
+slurm/run_aind_nwb_well.sbatch
+```
+
+Job responsibilities:
+
+- `export_axion_well_binary.sbatch`: loads MATLAB, reads the Axion raw file with
+  AxionFileLoader, exports one well's continuous voltage to `A1.bin`-style
+  binary, writes `channel_mapping.csv`, `binary_export_manifest.json`, and a
+  reproducible submit command.
+- `export_axion_well_nwb.sbatch`: activates the conda env from
+  `config/greatlakes_project.env`, packages the binary as a per-well NWB, and
+  writes PyNWB/provenance outputs.
+- `run_aind_nwb_well.sbatch`: loads OpenJDK and Singularity, stages the NWB as
+  AIND input, runs current AIND `pipeline/main_multi_backend.nf`, and records
+  the exact Nextflow command under the result `repro/` folder.
+
+To submit all selected wells:
+
+```bash
+bash '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_all_wells.sh'
+```
+
+Important: do not submit the whole selected batch into AIND until the current
+AIND runtime GitHub-clone issue is fixed. It is fine to use the first two jobs
+to continue validating Axion export and NWB generation across selected wells.
+For AIND itself, keep using a single well, currently A1, until `job_dispatch`
+gets past local capsule staging.
+
+### Step 5: Single-Well Current-AIND Smoke Test
+
+For the already exported A1 NWB, the exact submit command is saved here:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/submit_aind_nwb_well_command.sh
+```
+
+The overwrite retry command is saved here:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/submit_aind_nwb_well_retry_allow_overwrite_command.sh
+```
+
+Monitoring commands:
+
+```bash
+squeue -j <job_id> -o '%.18i %.9P %.32j %.2t %.12M %.12L %.6D %R'
+sacct -j <job_id> --format=JobID,JobName%32,State,ExitCode,Elapsed,MaxRSS,NodeList -P
+tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/run_aind_nwb_well_<job_id>.log'
+tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/nextflow/trace.txt'
+```
+
+Next technical step before another AIND retry:
+
+1. Clone/stage the pinned capsule repos from
+   `/home/elcrespo/Desktop/githubprojects/aind-ephys-pipeline/pipeline/capsule_versions.env`
+   into a stable local/Turbo folder.
+2. Add a `capsule_versions_custom.env` or local patch so
+   `main_multi_backend.nf` clones those local repos instead of GitHub URLs at
+   runtime.
+3. Re-run only the A1 current-AIND smoke test.
+4. After A1 passes `job_dispatch`, then scale the AIND job step to selected
+   wells.
+
+## Next Conversation Starting Point
+
+Do not restart by asking whether AIND can use NWB, what the Kilosort4 parameter
+mechanism is, or how Slurm resources map. Those questions are answered below.
+
+Start here instead:
+
+1. Implement local AIND capsule staging so Slurm tasks do not need outbound
+   GitHub access from inside containers.
+2. Re-run only the A1 current-AIND smoke test through `job_dispatch`.
+3. If A1 passes job dispatch, continue through preprocessing and Kilosort4.
+4. Only after one well completes, submit AIND for the selected wells prepared by
+   `scripts/prepare_aind_well_batch.sh`.
+
+Useful files to inspect first:
+
+```text
+/home/elcrespo/Desktop/githubprojects/aind-ephys-pipeline/pipeline/main_multi_backend.nf
+/home/elcrespo/Desktop/githubprojects/aind-ephys-pipeline/pipeline/capsule_versions.env
+/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/config/aind_nextflow_slurm_greatlakes.config
+/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/slurm/run_aind_nwb_well.sbatch
+```
+
+The specific code path to address is the `clone_repo()` helper in
+`main_multi_backend.nf`. It currently runs `git clone "${repo_url}"`
+inside each AIND process. On Great Lakes this reached the container, then failed
+while cloning `aind-ephys-job-dispatch` from GitHub. The next patch should make
+those repo URLs local/staged for the pinned commits in `capsule_versions.env`.
+
+## Current-AIND Questions Answered
+
+Checked on `2026-07-06` against a fresh local clone of
+`AllenNeuralDynamics/aind-ephys-pipeline` at:
+
+```text
+39b08d11c8c11f5b64078a9c2e789927518fccab
+```
+
+Answers:
+
+1. Use the Axion per-well NWB as the first AIND input path.
+   Current AIND docs list NWB as a supported input type, and the pinned
+   `aind-ephys-job-dispatch` capsule accepts `--input nwb`. The job-dispatch
+   code enumerates available NWB `ElectricalSeries` paths with
+   `SpikeInterface` and reads acquisition series directly. The Axion NWB writer
+   already creates an acquisition `ElectricalSeries` named
+   `<WELL>_ElectricalSeries`, with 12.5 kHz sampling and electrode x/y
+   locations. Therefore the first target should be direct NWB ingestion, not an
+   AIND session folder. If this fails, the most likely reason is exact
+   SpikeInterface probe/location interpretation, and the fallback is a
+   SpikeInterface recording folder with an explicit `probe_paths` value.
+
+2. The current Kilosort4 parameter mechanism is the AIND top-level JSON
+   parameter file passed to `main_multi_backend.nf` with `--params_file`.
+   Kilosort4 settings live under:
+
+   ```json
+   {
+     "spikesorting": {
+       "sorter": "kilosort4",
+       "kilosort4": {
+         "skip_motion_correction": true,
+         "min_drift_channels": 17,
+         "sorter": {}
+       }
+     }
+   }
+   ```
+
+   The nested `spikesorting.kilosort4.sorter` object is forwarded to the
+   SpikeInterface Kilosort4 wrapper. AIND's current schema does not accept the
+   old direct-run integer `x_centers=4`; the Axion params file leaves
+   `x_centers` as `null` because drift correction is disabled with `nblocks=0`,
+   `do_correction=false`, `skip_motion_correction=true`, and
+   `min_drift_channels=17` for a 16-channel well.
+
+3. Great Lakes resources map through a custom Nextflow config layered after
+   AIND's `pipeline/nextflow_slurm.config`. The base AIND config owns per-step
+   CPU, memory, time, and GPU process definitions. The Axion override sets:
+
+   ```text
+   params.default_queue = standard
+   params.gpu_queue = gpu
+   process.clusterOptions = -A parent0
+   spikesort_kilosort4.clusterOptions = -A parent0 --gres=gpu:1
+   ```
+
+   This preserves AIND's step-level defaults while mapping partitions, account,
+   and GPU request to Great Lakes. With Nextflow `26.04.4`, AIND's current
+   `nextflow_slurm.config` also needs `NXF_SYNTAX_PARSER=v1` so its Groovy-style
+   config declarations parse cleanly; the launcher exports this by default.
+
+New current-AIND scaffold:
+
+```text
+config/aind_axion_lumos_params.json
+config/aind_nextflow_slurm_greatlakes.config
+config/example_aind_nwb_well.env
+slurm/run_aind_nwb_well.sbatch
+```
+
+Submit the first current-AIND one-well run with:
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+bash scripts/setup_aind_nextflow.sh
+AIND_CONFIG=config/example_aind_nwb_well.env sbatch slurm/run_aind_nwb_well.sbatch
+```
+
+The current AIND pipeline derives the container tag from
+`pipeline/capsule_versions.env`; the checked clone uses
+`SPIKEINTERFACE_VERSION=0.104.8`, so the target images are `si-0.104.8` images,
+not the older Kempner `si-0.101.2` images.
 
 ## Axion-Specific Settings To Carry Forward
 

@@ -1,0 +1,84 @@
+# AIND Well Selection And Asset Inventory
+
+This step decides which Axion wells should be exported and submitted as independent AIND spike-sorting jobs. It is deliberately a lightweight provenance and activity gate before the expensive raw export, NWB writing, container setup, and Kilosort4 execution.
+
+## What This Step Assumes
+
+- Candidate wells come from the plate map CSV, not from the raw voltage file.
+- The continuous `.raw` voltage file is not loaded during selection.
+- Activity is scored from the Axion `*_spike_counts.csv` sidecar by summing interval spike counts per well.
+- Active electrode counts are scored from electrode columns in `*_spike_counts.csv`, such as `A1_11`.
+- Well annotations such as `Active`, `Control`, and `Treatment` are read from the `Well Information` block in `*_spike_list.csv` when that file is present.
+- Raw provenance is joined from `matlab_axisfile_raw_metadata_inventory.csv` when exactly one row matches by `raw_file`, `raw_name`, or `recording_stem`.
+- The default activity threshold is `min_total_spikes=11`, which means a well needs more than 10 total spikes to pass.
+
+## Methods Used
+
+This gate does not use SciPy signal-processing methods. It does not filter traces, detect spikes from voltage, or estimate noise. The computations are table operations:
+
+- `csv.reader` parses the metadata header and `Well Information` block in `*_spike_list.csv`.
+- `pandas.read_csv` loads `*_spike_counts.csv` and optional raw metadata inventory files.
+- `pandas.melt` converts Axion's wide spike-count table into long well/electrode tables.
+- `pandas.groupby(...).sum()` computes total spikes per well and per electrode.
+- Boolean file checks record whether the raw file, spike-count sidecar, spike-list sidecar, plate map, and raw metadata inventory are present.
+
+The actual spike sorting remains downstream in AIND/SpikeInterface/Kilosort4.
+
+## Generated Files
+
+`scripts/select_aind_wells.sh` writes:
+
+- `well_selection_manifest.json`: complete provenance, criteria, assumptions, asset status, summary, and per-well rows.
+- `well_selection_manifest.csv`: per-well table for review and batch filtering.
+
+Each well row includes:
+
+- `selected`: whether the well passes the current gate.
+- `selection_reason`: `selected` or semicolon-separated rejection reasons.
+- `total_spikes`: total Axion spike-count sidecar events for that well.
+- `active_electrodes`: electrodes with at least `min_spikes_per_active_electrode`.
+- `raw_file_exists`, `spike_counts_csv_exists`, `spike_list_csv_exists`, `raw_metadata_matched`.
+- `missing_assets`: missing file assets for the source recording.
+- `selection_rank`: rank among selected wells by descending total spikes.
+
+`scripts/inventory_aind_selection_assets.sh` writes:
+
+- `aind_selection_asset_inventory.json`: complete raw-file asset inventory.
+- `aind_selection_asset_inventory.csv`: one row per `.raw` file under `--raw-root`.
+
+This inventory is how we keep track of files that cannot yet be evaluated because they are missing `*_spike_counts.csv`, `*_spike_list.csv`, or metadata provenance.
+
+## Example Commands
+
+Inventory all available raw files:
+
+```bash
+bash scripts/inventory_aind_selection_assets.sh \
+  --raw-root /nfs/turbo/umms-parent/axion_mea_files_directory \
+  --plate-map metadata/plate_maps/axion_48_well_opto_plate_map.csv \
+  --raw-metadata-inventory /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv \
+  --output-dir /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_selection_asset_inventory
+```
+
+Select useful wells for one recording:
+
+```bash
+bash scripts/select_aind_wells.sh \
+  --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings' \
+  --raw-file '/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw' \
+  --plate-map metadata/plate_maps/axion_48_well_opto_plate_map.csv \
+  --raw-metadata-inventory /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/metadata/matlab_axisfile_raw_metadata_inventory.csv \
+  --output-dir '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/selection' \
+  --min-total-spikes 11 \
+  --min-active-electrodes 1
+```
+
+Prepare only selected wells for parallel export, NWB, and AIND sorting:
+
+```bash
+bash scripts/prepare_aind_well_batch.sh \
+  --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings' \
+  --raw-file '/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw' \
+  --selection-manifest '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/selection/well_selection_manifest.csv' \
+  --allow-aind-overwrite
+```

@@ -1,4 +1,5 @@
 .DS_Store
 .conda/
+.nextflow/
 __pycache__/
 *.pyc

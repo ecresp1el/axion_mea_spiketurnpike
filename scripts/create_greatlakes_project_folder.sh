@@ -13,9 +13,16 @@ mkdir -p \
   "${PROJECT_ROOT}/data/interim/kilosort_binary" \
   "${PROJECT_ROOT}/metadata" \
   "${PROJECT_ROOT}/results/kilosort" \
+  "${PROJECT_ROOT}/results/aind" \
   "${PROJECT_ROOT}/logs" \
+  "${PROJECT_ROOT}/logs/aind" \
   "${PROJECT_ROOT}/jobs" \
+  "${PROJECT_ROOT}/jobs/aind" \
   "${PROJECT_ROOT}/scratch" \
+  "${PROJECT_ROOT}/scratch/aind_nextflow" \
+  "${PROJECT_ROOT}/scratch/aind_nextflow_install" \
+  "${PROJECT_ROOT}/containers/aind_ephys" \
+  "${PROJECT_ROOT}/tools" \
   "${PROJECT_ROOT}/handoffs"
 
 echo "Project folder ready: ${PROJECT_ROOT}"
