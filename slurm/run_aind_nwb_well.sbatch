@@ -77,6 +77,7 @@ mkdir -p \
   "${AIND_RESULTS_ROOT}" \
   "${AIND_WORK_ROOT}" \
   "${AIND_CONTAINER_DIR}" \
+  "${AIND_PYTHON_SHIM_DIR}" \
   "${AIND_SINGULARITY_CACHE_DIR}" \
   "${AIND_SINGULARITY_TMPDIR}"
 
@@ -114,6 +115,17 @@ export APPTAINER_TMPDIR="${AIND_SINGULARITY_TMPDIR}"
 export TMPDIR="${TMPDIR:-${work_dir}/tmp_${SLURM_JOB_ID:-manual}}"
 mkdir -p "${TMPDIR}"
 
+# AIND capsule run scripts call `python`. The si-0.104.8 base image's AIND
+# dependencies live in `/opt/conda`. Use a real wrapper file so Singularity can
+# bind it into `/usr/local/bin/python` inside the container.
+rm -f "${AIND_PYTHON_SHIM_DIR}/python"
+cat > "${AIND_PYTHON_SHIM_DIR}/python" <<'EOF'
+#!/usr/bin/env sh
+exec /opt/conda/bin/python "$@"
+EOF
+chmod +x "${AIND_PYTHON_SHIM_DIR}/python"
+export PATH="${AIND_PYTHON_SHIM_DIR}:${PATH}"
+
 exec > >(tee -a "${results_dir}/run_aind_nwb_well_${SLURM_JOB_ID:-manual}.log") 2>&1
 
 echo "Axion AIND NWB job started: $(date)"
@@ -133,6 +145,12 @@ echo "AIND_PARAMS_FILE=${AIND_PARAMS_FILE}"
 echo "AIND_RUNMODE=${AIND_RUNMODE}"
 echo "AIND_SORTER=${AIND_SORTER}"
 echo "AIND_CONTAINER_DIR=${AIND_CONTAINER_DIR}"
+echo "AIND_PYTHON_SHIM_DIR=${AIND_PYTHON_SHIM_DIR}"
+if [[ -f "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env" ]]; then
+  echo "AIND_CAPSULE_VERSIONS=${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env"
+else
+  echo "AIND_CAPSULE_VERSIONS=${AIND_PIPELINE_ROOT}/pipeline/capsule_versions.env"
+fi
 echo "NXF_SYNTAX_PARSER=${NXF_SYNTAX_PARSER}"
 
 {
@@ -179,6 +197,11 @@ if [[ -n "${AIND_CONFIG}" && -f "${AIND_CONFIG}" ]]; then
 fi
 cp "${AIND_PARAMS_FILE}" "${repro_dir}/aind_params.json"
 cp "${AIND_SLURM_CONFIG}" "${repro_dir}/aind_nextflow_slurm_greatlakes.config"
+if [[ -f "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env" ]]; then
+  cp "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env" "${repro_dir}/capsule_versions_custom.env"
+else
+  cp "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions.env" "${repro_dir}/capsule_versions.env"
+fi
 cp "$0" "${repro_dir}/submitted_job.sbatch"
 git -C "${REPO_ROOT}" rev-parse HEAD > "${repro_dir}/axion_repo_commit.txt"
 git -C "${REPO_ROOT}" status --short > "${repro_dir}/axion_repo_status.txt"

@@ -21,8 +21,10 @@ mkdir -p \
   "${PROJECT_ROOT}/scratch" \
   "${PROJECT_ROOT}/scratch/aind_nextflow" \
   "${PROJECT_ROOT}/scratch/aind_nextflow_install" \
+  "${PROJECT_ROOT}/aind_capsule_repos" \
   "${PROJECT_ROOT}/containers/aind_ephys" \
   "${PROJECT_ROOT}/tools" \
+  "${PROJECT_ROOT}/tools/aind_python_shim" \
   "${PROJECT_ROOT}/handoffs"
 
 echo "Project folder ready: ${PROJECT_ROOT}"
