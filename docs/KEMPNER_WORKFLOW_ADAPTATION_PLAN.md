@@ -1,133 +1,196 @@
-# Kempner Workflow Handoff
+# Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date: 2026-07-05
+Date updated: 2026-07-06
 
-Reference evaluated:
+## Goal
 
-- `KempnerInstitute/ephys-spike-sorting`
-- inspected commit `15f4f4b388f9864fb6762b8ada3af209b576ec21`
-- AIND job-dispatch capsule commit used by Kempner:
-  `d6bdb9cc02d6711790a5c406cd50c1434074b5e2`
+Use the maintained Allen Neural Dynamics ephys pipeline and Kempner's cluster
+adaptation instead of rebuilding spike sorting, postprocessing, curation,
+visualization, result collection, or NWB-units export ourselves.
 
-## Current Decision
+This repo should only own the Axion-specific bridge:
 
-Use Kempner/AIND as the downstream workflow that makes the final spike-sorting
-output tree.
+- read Axion `.raw`/continuous voltage data,
+- resolve the Axion well and 4x4 electrode geometry,
+- write one supported input artifact per well, preferably NWB or another input
+  format accepted by the AIND pipeline,
+- preserve Axion metadata/provenance,
+- launch the upstream workflow so upstream code creates the output tree.
 
-This repository owns only the Axion-specific preparation layer:
+Once Axion data is presented in a supported format, downstream processing should
+come from AIND/Kempner methods, not from new local reimplementations.
 
-- read Axion `.raw` metadata and continuous traces,
-- resolve the per-well 4x4 electrode geometry,
-- export one well at a time to a valid NWB file,
-- record Axion provenance and source metadata in the NWB/sibling manifests,
-- submit that NWB file to the external Kempner Nextflow workflow.
+## Clearly Labeled Upstream Links
 
-The Kempner workflow owns the output structure after ingestion:
+- Allen Neural Dynamics maintained pipeline:
+  [AllenNeuralDynamics/aind-ephys-pipeline](https://github.com/AllenNeuralDynamics/aind-ephys-pipeline)
+- AIND pipeline documentation:
+  [aind-ephys-pipeline ReadTheDocs](https://aind-ephys-pipeline.readthedocs.io/en/latest/)
+- AIND architecture:
+  [Pipeline Architecture](https://aind-ephys-pipeline.readthedocs.io/en/latest/architecture.html)
+- Kempner cluster derivative:
+  [KempnerInstitute/ephys-spike-sorting](https://github.com/KempnerInstitute/ephys-spike-sorting)
+- AIND result collector:
+  [AllenNeuralDynamics/aind-ephys-results-collector](https://github.com/AllenNeuralDynamics/aind-ephys-results-collector)
+- AIND Kilosort4 capsule:
+  [AllenNeuralDynamics/aind-ephys-spikesort-kilosort4](https://github.com/AllenNeuralDynamics/aind-ephys-spikesort-kilosort4)
+- AIND job dispatch capsule:
+  [AllenNeuralDynamics/aind-ephys-job-dispatch](https://github.com/AllenNeuralDynamics/aind-ephys-job-dispatch)
 
-```text
-results/kempner/<recording_stem>/<well>/
-  curated/
-  data_description.json
-  nextflow/
-  nwb/
-  postprocessed/
-  preprocessed/
-  processing.json
-  spikesorted/
-  visualization_output.json
-  repro/
-```
+## Important Update
 
-Some folders depend on which Kempner/AIND steps complete and which run mode is
-used, but those names and contents are produced by Kempner's
-`results_collector`, not by our local Kilosort wrapper.
+Do not continue trying to force the older Kempner `pipeline/kempner_cluster`
+wrapper to run by downgrading Nextflow or Java.
 
-## Repository Boundary
+That route did successfully pull containers, but the workflow itself is an older
+DSL1-style derivative and is fragile against current Nextflow/JVM behavior. The
+better path is to move forward with the maintained AIND repo, especially its
+current SLURM/local multi-backend workflow.
 
-Do not vendor the Kempner repository into this repository.
+Current AIND documentation says:
 
-Keep it as a sibling checkout:
+- current release stream includes `1.3.0` on 2026-07-03,
+- SLURM/local deployment uses `pipeline/main_multi_backend.nf`,
+- the multi-backend workflow is Nextflow DSL2,
+- the pipeline has 11 major steps: job dispatch, preprocessing, spike sorting,
+  postprocessing, curation, visualization, result collection, QC, and NWB export,
+- outputs are intended to include NWB, QC, and visualization products,
+- container images are maintained through GHCR.
 
-```bash
-/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
-/home/elcrespo/Desktop/githubprojects/ephys-spike-sorting
-```
+Kempner remains useful as a reference for cluster paths, Slurm expectations, and
+the relationship to the Allen/AIND capsules, but the next implementation pass
+should start from the current AIND pipeline rather than the older Kempner wrapper.
 
-Our config points to that sibling checkout with:
+## What Already Worked
 
-```bash
-KEMPNER_REPO_ROOT=/home/elcrespo/Desktop/githubprojects/ephys-spike-sorting
-```
+Axion-side work:
 
-At run time, `slurm/run_kempner_nwb_well.sbatch` copies Kempner's
-`pipeline/kempner_cluster` folder into the project job area and patches only the
-cluster placeholders for Great Lakes. The upstream checkout stays unchanged.
+- Per-well Axion continuous voltage export exists.
+- A1 full-length Lumos settings test exists.
+- A1 NWB export validates with PyNWB.
+- The NWB contains an acquisition `ElectricalSeries` at 12.5 kHz and includes
+  electrode table/channel metadata.
+- Geometry is corrected to the Lumos 4x4 350 um spacing.
 
-## NWB Input Contract
-
-Kempner calls the AIND job-dispatch capsule with:
-
-```bash
---input nwb
-```
-
-The AIND capsule accepts exactly one `.nwb` file either directly in `DATA_PATH`
-or inside one child folder. It then discovers acquisition `ElectricalSeries`
-objects and keeps series sampled at 10 kHz or higher.
-
-Our Axion NWB exporter writes a per-well acquisition `ElectricalSeries` at
-12.5 kHz, so the current A1 full-length NWB is the correct handoff artifact:
+Useful input artifact:
 
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/nwb/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/test_2_25_2026_129-8447_test(000)_full_lumos_settings_A1.nwb
 ```
 
-## Great Lakes Launcher
+Kempner/AIND container setup:
 
-The single-well Kempner run is configured by:
+- Slurm job `52959088` completed successfully.
+- It pulled the needed AIND/Kempner Singularity images for a Kilosort4 path:
 
 ```text
-config/example_kempner_nwb_well.env
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/kempner_ephys/aind-ephys-pipeline-base_si-0.101.2.sif
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/kempner_ephys/aind-ephys-pipeline-nwb_si-0.101.2.sif
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/kempner_ephys/aind-ephys-spikesort-kilosort4_si-0.101.2.sif
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/kempner_ephys/aind-ephys-unit-classifier_si-0.101.2.sif
 ```
 
-and submitted with:
+These are older `si-0.101.2` images from Kempner's derivative. They are useful
+evidence that Great Lakes can pull/run AIND containers, but they should not be
+treated as the final target if current AIND uses newer tags.
+
+## What Did Not Work
+
+The older Kempner wrapper did not complete the A1 run.
+
+Failed jobs:
+
+```text
+52959089  axion-kempner-nwb  FAILED
+52972323  axion-kempner-nwb  FAILED
+```
+
+Failure reasons:
+
+- First failure: current Nextflow rejected old config references like
+  `RESULTS_PATH` in `nextflow_slurm.config`.
+- After patching that, current Nextflow parsed the config but rejected the old
+  DSL1 workflow syntax.
+- Forcing legacy parser got further, but current Nextflow no longer supports
+  pieces used by that older wrapper, such as `Channel.create`.
+- Trying to move to Nextflow `22.10.6` introduced JVM/Capsule issues on Great
+  Lakes and would make the pipeline less maintainable.
+
+Conclusion: do not spend more time making the old wrapper run. Use current AIND.
+
+## Desired Architecture Going Forward
+
+Keep the repos separate:
+
+```text
+/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+/home/elcrespo/Desktop/githubprojects/ephys-spike-sorting
+/home/elcrespo/Desktop/githubprojects/aind-ephys-pipeline
+```
+
+Recommended source of truth:
+
+1. Current AIND pipeline repo for workflow implementation.
+2. Kempner repo for notes about cluster deployment and how they adapted AIND.
+3. This Axion repo for data conversion, metadata, geometry, provenance, and
+   launch configs only.
+
+The output tree should be made by upstream AIND result collection/NWB export
+steps, not by our own local sorting wrapper.
+
+Expected upstream-style outputs include:
+
+```text
+preprocessed/
+spikesorted/
+postprocessed/
+curated/
+nwb/
+visualization/
+visualization_output.json
+data_description.json
+processing.json
+QC outputs when enabled
+```
+
+Exact folder names should follow the current AIND pipeline's result collector
+and documentation.
+
+## Next Conversation Starting Point
+
+Start with the current AIND repo:
 
 ```bash
-scripts/submit_kempner_nwb_well_job.sh config/example_kempner_nwb_well.env
+cd /home/elcrespo/Desktop/githubprojects
+git clone https://github.com/AllenNeuralDynamics/aind-ephys-pipeline.git
 ```
 
-The Slurm job:
-
-1. creates a one-file NWB input folder under
-   `${PROJECT_ROOT}/data/interim/kempner_nwb_inputs/<recording_stem>/<well>`,
-2. copies Kempner's cluster pipeline into
-   `${PROJECT_ROOT}/jobs/kempner/<recording_stem>/<well>/pipeline_kempner_cluster`,
-3. patches `clusterOptions` for Great Lakes CPU/GPU partitions,
-4. runs Kempner Nextflow with `--input nwb`, `--sorter kilosort4`, and the
-   Axion/Lumos Kilosort4 parameter file,
-5. writes final outputs under
-   `${PROJECT_ROOT}/results/kempner/<recording_stem>/<well>`.
-
-The exact launch command is stored in:
+Then inspect:
 
 ```text
-results/kempner/<recording_stem>/<well>/repro/nextflow_command.sh
-results/kempner/<recording_stem>/<well>/repro/submit_command.sh
+aind-ephys-pipeline/pipeline/main_multi_backend.nf
+aind-ephys-pipeline/pipeline/capsule_versions.env
+aind-ephys-pipeline/params_app/
+aind-ephys-pipeline/sample_dataset/
+aind-ephys-pipeline/docs/
 ```
 
-The repro folder also stores copied configs, the input NWB path, patched job
-script, and Kempner commit/status.
+Questions to answer next:
 
-## Axion Kilosort4 Parameters
+1. Which current AIND input path is best for Axion: NWB, SpikeInterface, or AIND
+   session folder?
+2. Does current AIND job-dispatch still accept NWB `ElectricalSeries` directly,
+   or should the Axion bridge write a SpikeInterface-compatible folder instead?
+3. What parameter file/schema does current AIND use for Kilosort4 settings?
+4. How should Great Lakes Slurm resources map onto current
+   `main_multi_backend.nf`?
+5. Which current GHCR container tags are required, and should they replace the
+   older `si-0.101.2` Kempner images?
 
-Kempner's Kilosort4 capsule accepts a custom JSON parameter file. For Axion
-Lumos wells, use:
+## Axion-Specific Settings To Carry Forward
 
-```text
-config/kempner_kilosort4_axion_lumos_params.json
-```
-
-Key Axion-specific values:
+These are not the whole pipeline. They are Axion/Lumos-specific settings that
+should be expressed through the current AIND parameter mechanism if possible:
 
 ```text
 nblocks = 0
@@ -147,48 +210,82 @@ Th_single_ch = 6
 do_correction = false
 ```
 
-This preserves the settings we validated locally, while allowing Kempner/AIND to
-make the downstream folders.
+Rationale:
 
-## Setup Requirements
-
-Nextflow and Singularity containers are external workflow requirements.
-
-Install Nextflow into the project folder:
-
-```bash
-scripts/setup_kempner_nextflow.sh
-```
-
-Pull Kempner/AIND Singularity images into the project folder:
-
-```bash
-scripts/pull_kempner_singularity_containers.sh
-```
-
-These helpers use the Great Lakes modules configured in
-`config/greatlakes_project.env`:
-
-```text
-openjdk/21.0.1
-singularity/4.4.1
-```
+- 4x4 Axion well geometry is fixed.
+- Channels are sparse compared with Neuropixels.
+- We do not want Neuropixels-style drift correction by default for a 16-channel
+  well.
+- The Axion geometry file is stable across wells; only well label/source files
+  change.
 
 ## Scaling Across Wells
 
-For multiple wells on the same plate, repeat the same handoff per well:
+Once one current-AIND run works, scale by generating one upstream-compatible
+input directory per well:
 
 ```text
 data/interim/nwb/<recording_stem>/<well>/<recording_stem>_<well>.nwb
-results/kempner/<recording_stem>/<well>/
 ```
 
-The geometry file does not change across wells:
+or the equivalent current AIND-supported input folder.
+
+Results should be separated by recording and well:
+
+```text
+results/aind/<recording_stem>/<well>/
+```
+
+or whatever current AIND's `RESULTS_PATH` convention requires.
+
+The Axion geometry file remains:
 
 ```text
 metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv
 ```
 
-Only the selected source files, well label, and NWB path change. A later batch
-submission layer can generate one `config/kempner_nwb_<well>.env` per row and
-submit the same Kempner Slurm wrapper for each well.
+## Do Not Reinvent
+
+Do not reimplement these locally unless the upstream method cannot accept Axion
+data even after a reasonable adapter:
+
+- Kilosort orchestration,
+- preprocessing,
+- postprocessing metrics,
+- curation,
+- visualization/Figurl products,
+- result collection,
+- NWB units export,
+- QC summaries.
+
+The correct shape is:
+
+```text
+Axion bridge -> current AIND/Kempner-supported input -> upstream pipeline outputs
+```
+
+not:
+
+```text
+Axion bridge -> local clone of every upstream processing step
+```
+
+## Current Local Artifacts To Be Aware Of
+
+The following local files/scripts exist from the first Kempner attempt. Treat
+them as experimental scaffolding, not the final direction:
+
+```text
+slurm/run_kempner_nwb_well.sbatch
+slurm/pull_kempner_containers.sbatch
+scripts/setup_kempner_nextflow.sh
+scripts/pull_kempner_singularity_containers.sh
+scripts/submit_kempner_nwb_well_job.sh
+scripts/submit_kempner_container_pull_job.sh
+config/example_kempner_nwb_well.env
+config/kempner_kilosort4_axion_lumos_params.json
+```
+
+The useful pieces to reuse are the paths, provenance habits, Axion settings, and
+container-pull lessons. The workflow target should now be current AIND
+`main_multi_backend.nf`.

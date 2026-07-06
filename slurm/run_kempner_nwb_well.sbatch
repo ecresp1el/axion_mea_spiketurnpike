@@ -107,17 +107,32 @@ gpu_options = sys.argv[3]
 config = pipeline_dir / "nextflow_slurm.config"
 text = config.read_text(encoding="utf-8")
 text = text.replace("clusterOptions = ' -p <partition_name> -A <account_name>'", f"clusterOptions = '{cpu_options}'")
+text = text.replace("RESULTS_PATH +", "env('RESULTS_PATH') +")
+text = text.replace("    singularity.autoMounts = true", "    autoMounts = true")
 config.write_text(text, encoding="utf-8")
 
 main = pipeline_dir / "main_slurm.nf"
 text = main.read_text(encoding="utf-8")
+if "DATA_PATH = System.getenv('DATA_PATH')" not in text:
+    text = text.replace(
+        "nextflow.enable.dsl = 1\n",
+        (
+            "nextflow.enable.dsl = 1\n\n"
+            "DATA_PATH = System.getenv('DATA_PATH')\n"
+            "RESULTS_PATH = System.getenv('RESULTS_PATH')\n"
+            "CONTAINER_DIR = System.getenv('CONTAINER_DIR')\n"
+        ),
+    )
 text = text.replace("clusterOptions '-p <partition_name> -A <account_name> --gres=gpu:1'", f"clusterOptions '{gpu_options}'")
 text = text.replace("clusterOptions '-p <partition_name> --constraint=intel --gres=gpu:1'", f"clusterOptions '{gpu_options}'")
 main.write_text(text, encoding="utf-8")
 PY
 
-module load "${KEMPNER_OPENJDK_MODULE}"
+if [[ -n "${KEMPNER_OPENJDK_MODULE}" ]]; then
+  module load "${KEMPNER_OPENJDK_MODULE}"
+fi
 module load "${KEMPNER_SINGULARITY_MODULE}"
+export NXF_SYNTAX_PARSER="${NXF_SYNTAX_PARSER:-v1}"
 export NXF_SINGULARITY_CACHEDIR="${KEMPNER_CONTAINER_DIR}"
 export SINGULARITY_CACHEDIR="${SINGULARITY_CACHEDIR:-${KEMPNER_SINGULARITY_CACHE_DIR}}"
 export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-${KEMPNER_SINGULARITY_TMPDIR}}"
@@ -145,6 +160,7 @@ echo "KEMPNER_RUNMODE=${KEMPNER_RUNMODE}"
 echo "KEMPNER_JOB_DISPATCH_ARGS=${KEMPNER_JOB_DISPATCH_ARGS}"
 echo "KEMPNER_SPIKESORTING_ARGS=${KEMPNER_SPIKESORTING_ARGS}"
 echo "KEMPNER_DRY_RUN=${KEMPNER_DRY_RUN}"
+echo "NXF_SYNTAX_PARSER=${NXF_SYNTAX_PARSER}"
 
 {
   echo "#!/usr/bin/env bash"
@@ -186,8 +202,11 @@ fi
 {
   echo "#!/usr/bin/env bash"
   echo "set -euo pipefail"
-  echo "module load ${KEMPNER_OPENJDK_MODULE@Q}"
+  if [[ -n "${KEMPNER_OPENJDK_MODULE}" ]]; then
+    echo "module load ${KEMPNER_OPENJDK_MODULE@Q}"
+  fi
   echo "module load ${KEMPNER_SINGULARITY_MODULE@Q}"
+  echo "export NXF_SYNTAX_PARSER=${NXF_SYNTAX_PARSER@Q}"
   printf 'CONTAINER_DIR=%q DATA_PATH=%q RESULTS_PATH=%q ' "${KEMPNER_CONTAINER_DIR}" "${input_dir}" "${results_dir}"
   printf '%q ' "${nextflow_command[@]}"
   echo
