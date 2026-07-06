@@ -29,6 +29,7 @@ Turbo project root:
 Key files:
 
 - `docs/GREATLAKES_KILOSORT_HANDOFF.md`
+- `docs/KEMPNER_WORKFLOW_ADAPTATION_PLAN.md`
 - `envs/kilosort-greatlakes.yml`
 - `config/greatlakes_project.env`
 - `config/example_kilosort_well.env`

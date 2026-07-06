@@ -291,3 +291,8 @@ The returned struct includes:
 ## Immediate Next Decision
 
 The remaining missing piece is the Axion continuous-trace exporter: either your existing MATLAB code exports per-well row-major binaries, or we add a Python/SpikeInterface conversion path once the exact Axion raw-trace format is confirmed.
+
+The Kempner/AIND ephys workflow was evaluated as a possible shortcut. The
+current recommendation is to keep that repository as an external reference and
+adapt only its orchestration ideas, not vendor the full repo here. See
+`docs/KEMPNER_WORKFLOW_ADAPTATION_PLAN.md`.
