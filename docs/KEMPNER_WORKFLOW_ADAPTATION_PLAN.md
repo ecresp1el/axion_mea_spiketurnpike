@@ -219,15 +219,15 @@ preprocessing dict was:
 
 It was cancelled because AIND fast mode overwrote the preprocessing JSON with
 `--motion skip`, causing the preprocessing capsule to fall back to highpass +
-common reference again. The next corrected smoke job is:
+common reference again. The next corrected smoke job was:
 
 ```text
-52984769  axion-aind-nwb  RUNNING
+52984769  axion-aind-nwb  CANCELLED before Kilosort4
 ```
 
-Status checked `2026-07-06 12:25 EDT`: job `52984769` has completed
-`job_dispatch`, `nwb_ecephys`, and neutral `preprocessing`. It has not yet run
-Kilosort4. The parent job is waiting at the Kilosort4 Singularity image pull:
+Status checked `2026-07-06 12:25 EDT`: job `52984769` completed
+`job_dispatch`, `nwb_ecephys`, and neutral `preprocessing`, but did not run
+Kilosort4. The parent job waited at the Kilosort4 Singularity image pull:
 
 ```text
 Pulling Singularity image docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
@@ -240,7 +240,19 @@ The Kilosort4 cache target does not exist yet; only the lock file exists:
 ```
 
 Therefore: AIND ingestion and neutral preprocessing work; Kilosort4 execution
-has not yet been proven because it is still waiting on the sorter image pull.
+has not yet been proven. The Kilosort4 image lock was stale, so `52984769` was
+cancelled and the stale lock file was removed after confirming no process had it
+open.
+
+The current corrected smoke job is:
+
+```text
+52986225  axion-aind-nwb  RUNNING
+```
+
+Status checked `2026-07-06 12:28 EDT`: job `52986225` started on `gl3206`,
+loaded the fully corrected params file, completed `job_dispatch`, and submitted
+`preprocessing` plus `nwb_ecephys`.
 
 Corrected params for the filtered-input route:
 
@@ -252,10 +264,10 @@ spikesorting.kilosort4.sorter.skip_kilosort_preprocessing = true
 AIND_RUNMODE = full
 ```
 
-Note: live job `52984769` was generated before the final motion-compute template
+Note: job `52984769` was generated before the final motion-compute template
 patch, so it printed `COMPUTE_MOTION: True` and `APPLY_MOTION: False`.
-Because `APPLY_MOTION` is false, that did not modify the voltage series. Future
-regenerated selected-well jobs now use:
+Because `APPLY_MOTION` was false, that did not modify the voltage series. Job
+`52986225` and future regenerated selected-well jobs now use:
 
 ```text
 preprocessing.motion_correction.compute = false
@@ -537,7 +549,7 @@ Next technical step:
 
 1. Keep the corrected SpikeInterface binary + ProbeInterface input route running
    for A1.
-2. Keep monitoring A1 retry job `52984769`.
+2. Keep monitoring A1 retry job `52986225`.
 3. If A1 completes Kilosort4 and downstream AIND outputs, generalize
    `scripts/prepare_aind_spikeinterface_well.py` into the selected-well batch
    preparation flow.
@@ -643,13 +655,21 @@ First corrected filtered-input A1 smoke test:
 
 That run still used AIND fast mode, which overwrote the custom preprocessing
 JSON and allowed the default highpass/common-reference preprocessing to run
-again. Current corrected filtered-input A1 smoke test:
+again. The next corrected filtered-input A1 smoke test was:
 
 ```text
-52984769  axion-aind-nwb  RUNNING
+52984769  axion-aind-nwb  CANCELLED before Kilosort4
 ```
 
-Monitor `52984769` next.
+It proved AIND ingestion and neutral preprocessing, but was cancelled because a
+stale Kilosort4 image lock blocked the sorter image pull. Current corrected
+filtered-input A1 smoke test:
+
+```text
+52986225  axion-aind-nwb  RUNNING
+```
+
+Monitor `52986225` next.
 
 ### Filtered BroadbandProcessor Input Policy
 
@@ -698,7 +718,8 @@ expects a `preprocessed_*` folder from the preprocessing capsule. `astype` does
 not high-pass filter, median-reference, whiten, or CAR the voltage series.
 Kilosort4 internal preprocessing and CAR are disabled separately.
 
-Current evidence from job `52984769`:
+Evidence from job `52984769` before it was cancelled at the stale Kilosort4
+image lock:
 
 ```text
 INPUT: spikeinterface
@@ -727,7 +748,7 @@ mechanism is, or how Slurm resources map. Those questions are answered below.
 
 Start here instead:
 
-1. Check A1 corrected filtered-input SpikeInterface retry job `52984769`.
+1. Check A1 corrected filtered-input SpikeInterface retry job `52986225`.
 2. If A1 passes Kilosort4 and downstream AIND steps, generalize the
    SpikeInterface input generation across selected wells.
 3. Only after one well completes, submit AIND for the selected wells prepared by
