@@ -214,11 +214,21 @@ The first Axion voltage-export scaffold is now:
 matlab/export_axion_well_kilosort_binary.m
 slurm/export_axion_well_binary.sbatch
 config/example_export_axion_well_binary.env
+run_axion_binary_to_nwb.py
+slurm/export_axion_well_nwb.sbatch
+config/example_export_axion_well_nwb.env
 ```
 
 It uses MATLAB AxionFileLoader to load one well from an Axion continuous
 dataset, writes `int16` time-major/interleaved binary samples, and writes a
 `channel_mapping.csv` showing the exact electrode/channel order used.
+
+The NWB adapter packages the exported binary as an NWB `ElectricalSeries`,
+copies Axion/Kilosort sidecars into NWB scratch space, stores the Axion channel
+map in the NWB electrode table, and embeds the matched row from the MATLAB raw
+metadata inventory as `axion_raw_metadata_inventory_row_json`. This is the
+preferred bridge to the Kempner/AIND workflow because NWB is one of its
+supported input types.
 
 Current contract for real data:
 

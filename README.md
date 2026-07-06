@@ -34,8 +34,10 @@ Key files:
 - `config/greatlakes_project.env`
 - `config/example_kilosort_well.env`
 - `config/example_export_axion_well_binary.env`
+- `config/example_export_axion_well_nwb.env`
 - `slurm/check_kilosort_env.sbatch`
 - `slurm/export_axion_well_binary.sbatch`
+- `slurm/export_axion_well_nwb.sbatch`
 - `slurm/run_kilosort_well.sbatch`
 - `run_axion_kilosort.py`
 - `metadata/plate_maps/axion_48_well_opto_plate_map.csv`
@@ -74,7 +76,9 @@ primary `.raw` files and 7 `_BroadbandProcessor.raw` files. MATLAB metadata
 shows the primary files as `NeuralBroadband` with `0.1 Hz IIR` digital
 high-pass and no digital low-pass; the `_BroadbandProcessor.raw` files carry
 the Broadband Processor spike-band branch, `200 Hz` to `5 kHz`. Use the handoff
-for exact paths and Slurm inventory provenance.
+for exact paths and Slurm inventory provenance. The NWB export can embed the
+matched inventory row so plate type, Axion timing, sampling, voltage scale, and
+filter metadata travel with each per-well NWB.
 
 Prepare one well for Kilosort without launching sorting:
 
