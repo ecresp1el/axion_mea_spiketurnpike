@@ -13,7 +13,8 @@ arguments
     axionLoaderRoot (1, 1) string = "/nfs/turbo/umms-parent/MannyAxionMEAscripts_v1/AxionFileLoader-main"
 end
 
-addpath(genpath(axionLoaderRoot));
+addpath(genpath(axionLoaderRoot), "-end");
+addpath(fullfile(repo_root_from_this_file(), "matlab", "axionfileloader_overrides"), "-begin");
 
 if isfile(sourceRoot)
     rawFiles = dir(sourceRoot);
@@ -27,6 +28,7 @@ for idx = 1:numel(rawFiles)
     rawPath = string(fullfile(rawFiles(idx).folder, rawFiles(idx).name));
     fprintf("Inspecting raw metadata %d/%d: %s\n", idx, numel(rawFiles), rawPath);
 
+    clear axisFile dataSet
     row = empty_row();
     row.source_root = sourceRoot;
     row.source_dir = string(rawFiles(idx).folder);
@@ -84,6 +86,11 @@ for idx = 1:numel(rawFiles)
         row.status = "error";
         row.error_message = string(ME.message);
     end
+
+    if exist("axisFile", "var") && isa(axisFile, "AxisFile")
+        delete(axisFile);
+    end
+    clear axisFile dataSet
 
     if row.status == ""
         row.status = "ok";
@@ -210,4 +217,9 @@ elseif plateType == PlateTypes.NinetySixWellLumos
 else
     name = "Unknown";
 end
+end
+
+function repoRoot = repo_root_from_this_file()
+thisFile = mfilename("fullpath");
+repoRoot = fileparts(fileparts(thisFile));
 end
