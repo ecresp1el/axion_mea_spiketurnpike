@@ -20,6 +20,45 @@ This repo should only own the Axion-specific bridge:
 Once Axion data is presented in a supported format, downstream processing should
 come from AIND/Kempner methods, not from new local reimplementations.
 
+## Current Status Snapshot
+
+As of 2026-07-06 15:52 EDT, the active single-well A1 smoke test is:
+
+```text
+53002656  axion-aind-nwb              RUNNING on gl3133
+53003310  nf-postprocessing           RUNNING on gl3047
+```
+
+Completed in the current run:
+
+```text
+job_dispatch   COMPLETED
+nwb_ecephys    COMPLETED
+preprocessing  COMPLETED
+spikesort_kilosort4 COMPLETED, 14 units, realtime 9m34s
+```
+
+Current active step:
+
+```text
+postprocessing running
+```
+
+This is not an image-build wait. The AIND base, NWB, and Kilosort4 Singularity
+images are present in the shared cache, and Nextflow found the cached KS4 image.
+Kilosort4 itself has already been proven on this A1 input in earlier AIND runs:
+job `52992352` completed KS4 with 14 units, and job `53000354` completed KS4,
+lean postprocessing, curation, and visualization. The remaining scale-up gate is
+not "can Kilosort run"; it is whether the patched local AIND workflow completes
+`results_collector`, QC collection, and final `nwb_units` after the
+parentheses-path quoting fix. The current run has now repeated the Kilosort4
+success, so the remaining gate is downstream AIND output packaging.
+
+Do not launch the full selected-well AIND batch until one A1 run completes the
+final AIND output packaging path end-to-end. It is safe to continue preparing
+selected-well inputs, manifests, and saved submit commands while the A1 smoke
+test finishes.
+
 ## Clearly Labeled Upstream Links
 
 - Allen Neural Dynamics maintained pipeline:
@@ -227,35 +266,15 @@ common reference again. The next corrected smoke job was:
 52984769  axion-aind-nwb  CANCELLED before Kilosort4
 ```
 
-Status checked `2026-07-06 12:25 EDT`: job `52984769` completed
-`job_dispatch`, `nwb_ecephys`, and neutral `preprocessing`, but did not run
-Kilosort4. The parent job waited at the Kilosort4 Singularity image pull:
+Historical note, superseded: at 2026-07-06 12:25 EDT, job `52984769` had proven
+AIND `job_dispatch`, `nwb_ecephys`, and neutral `preprocessing`, but it was
+cancelled before Kilosort4 because a stale KS4 Singularity image lock blocked
+the sorter image pull. That was an image-staging problem, not an Axion data or
+mapping problem.
 
-```text
-Pulling Singularity image docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
-```
-
-The Kilosort4 cache target does not exist yet; only the lock file exists:
-
-```text
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/.ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img.lock
-```
-
-Therefore: AIND ingestion and neutral preprocessing work; Kilosort4 execution
-has not yet been proven. The Kilosort4 image lock was stale, so `52984769` was
-cancelled and the stale lock file was removed after confirming no process had it
-open.
-
-The current corrected smoke job is:
-
-```text
-52986225  axion-aind-nwb  RUNNING
-```
-
-Status checked `2026-07-06 12:30 EDT`: job `52986225` started on `gl3206`,
-loaded the fully corrected params file, and completed `job_dispatch`,
-`preprocessing`, and `nwb_ecephys`. The preprocessing capsule used only the
-neutral `astype` step, with motion compute/apply disabled:
+The corrected preprocessing behavior from those runs remains important. The
+preprocessing capsule used only the neutral `astype` step, with motion
+compute/apply disabled:
 
 ```text
 CUSTOM_PREPROCESSING_PIPELINE: {'astype': {'dtype': 'int16'}}
@@ -264,38 +283,20 @@ APPLY_MOTION: False
 Running custom preprocessing pipeline with steps: ['astype']
 ```
 
-It is now waiting at the AIND Kilosort4 Singularity image pull:
+Current replacement fact: the final AIND KS4 image now exists and is reused by
+Nextflow:
 
 ```text
-Pulling Singularity image docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img
 ```
 
-Live process inspection on `gl3206` confirmed this is an active Nextflow
-Singularity pull/conversion, not Kilosort execution:
+Current replacement fact: AIND Kilosort4 execution has been proven on A1. Job
+`52992352` completed KS4 with 14 units, and job `53000354` completed KS4 again
+plus lean postprocessing, curation, and visualization. The active post-patch
+retry `53002656` is currently re-running the same A1 path to verify the final
+`results_collector`, QC, and `nwb_units` steps after the quoted-path fix.
 
-```text
-singularity pull --name ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img.pulling... \
-  docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
-```
-
-Nextflow redirects the pull output to `/dev/null`, so the normal Singularity
-progress output is hidden. `/proc/<singularity_pid>/io` showed read/write byte
-counters increasing, so it is slow rather than fully dead. The cache is large:
-
-```text
-26G  ${PROJECT_ROOT}/scratch/aind_singularity_cache
-9.0G ${PROJECT_ROOT}/containers/aind_ephys
-```
-
-No final Kilosort4 `.img` exists yet; only the lock exists in
-`${PROJECT_ROOT}/containers/aind_ephys`. This means the current remaining
-blocker is not the Axion data, metadata, well mapping, or neutral preprocessing
-logic. It is the AIND/Nextflow/containerized Kilosort4 setup path: pulling and
-assembling the AIND Kilosort4 container on shared storage. A separate
-user-managed Kilosort install may still run on Great Lakes; that is a different
-execution path from the AIND sorter capsule.
-
-Do not interpret the current AIND blocker as "Kilosort cannot run on Great
+Do not interpret the earlier AIND image blocker as "Kilosort cannot run on Great
 Lakes." The older Great Lakes Kilosort handoff documents that the repo's direct
 conda/Kilosort path already ran successfully:
 
@@ -467,12 +468,18 @@ Current retry after the quoted-path patch:
 
 ```text
 53002656  axion-aind-nwb  submitted 2026-07-06 15:34 EDT
-as of 2026-07-06 15:39 EDT:
-  job_dispatch   COMPLETED
-  nwb_ecephys    COMPLETED
-  preprocessing  COMPLETED
-  53002715 nf-spikesort_kilosort4 pending on GPU partition, reason: Priority
+as of 2026-07-06 15:52 EDT:
+  job_dispatch       COMPLETED
+  nwb_ecephys        COMPLETED
+  preprocessing      COMPLETED
+  spikesort_kilosort4 COMPLETED, 14 units, realtime 9m34s
+  53003310 nf-postprocessing RUNNING on gl3047
 ```
+
+What we are waiting for before scale-up: this retry needs to complete
+`postprocessing -> curation -> visualization -> results_collector -> QC ->
+nwb_units` path. The previously observed blocker was `results_collector` shell
+quoting for `test(000)` paths; that is patched locally in the AIND repo.
 
 Corrected params for the filtered-input route:
 
@@ -580,6 +587,64 @@ templates, amplitudes, correlograms, template similarity, and unit locations.
 Final top-level result folders under `RESULTS_PATH` are organized by the AIND
 `results_collector`. Before `results_collector` succeeds, many real outputs live
 only in Nextflow work directories under `scratch/aind_nextflow/.../capsule/results`.
+
+## Reproducible Deployment Checklist
+
+For a recording/plate to be deployable, keep one saved command and one manifest
+for each stage. Do not rely on terminal history.
+
+Required repo/project configuration:
+
+```text
+config/greatlakes_project.env
+config/aind_axion_lumos_params.json
+config/aind_nextflow_slurm_greatlakes.config
+/home/elcrespo/Desktop/githubprojects/aind-ephys-pipeline/pipeline/capsule_versions_custom.env
+```
+
+Required generated selection/provenance assets:
+
+```text
+jobs/aind_batches/<recording_stem>/selection/well_selection_manifest.csv
+jobs/aind_batches/<recording_stem>/selection/asset_inventory.csv
+jobs/aind_batches/<recording_stem>/submit_all_wells.sh
+```
+
+Per-well generated assets that must exist before AIND sorting:
+
+```text
+data/interim/wells/<recording_stem>/<well>/<well>.bin
+data/interim/wells/<recording_stem>/<well>/channel_mapping.csv
+data/interim/wells/<recording_stem>/<well>/binary_export_manifest.json
+data/interim/nwb/<recording_stem>/<well>/<recording_stem>_<well>.nwb
+jobs/aind/<recording_stem>/<well>/spikeinterface/*_probeinterface.json
+jobs/aind/<recording_stem>/<well>/spikeinterface/*_channel_mapping_manifest.json
+jobs/aind/<recording_stem>/<well>/spikeinterface/*_aind_spikeinterface_params.json
+jobs/aind/<recording_stem>/<well>/spikeinterface/submit_aind_spikeinterface_command.sh
+```
+
+Submit/retry rule:
+
+```bash
+bash 'jobs/aind/<recording_stem>/<well>/spikeinterface/submit_aind_spikeinterface_command.sh'
+```
+
+The wrapper uses Nextflow `-resume`, so completed tasks should be reused on
+retry. If a run fails after Kilosort, completed Kilosort work should be cached.
+If a run fails before a task completes, only that incomplete task and its
+downstream tasks should rerun. Shared Singularity images are already cached under
+the project container directory and should not be pulled again unless the image
+tag changes or the cache is removed.
+
+Monitoring files for every AIND run:
+
+```text
+results/aind/<recording_stem>/<well>/run_aind_nwb_well_<jobid>.log
+results/aind/<recording_stem>/<well>/nextflow/monitor_<jobid>.log
+results/aind/<recording_stem>/<well>/nextflow/trace.txt
+results/aind/<recording_stem>/<well>/nextflow/nextflow.log
+results/aind/<recording_stem>/<well>/repro/
+```
 
 ## How To Begin The Pipeline From Raw Data
 
@@ -765,10 +830,14 @@ bash '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_bat
 ```
 
 Important: do not submit the whole selected batch into AIND until the A1 smoke
-test completes Kilosort4 and downstream AIND outputs. The runtime GitHub-clone
-issue is already handled by local capsule staging. It is fine to continue using
-the first two jobs to validate binary export, canonical mapping, and NWB
-generation across selected wells while the single-well AIND run finishes.
+test completes the final AIND packaging path: Kilosort4, lean postprocessing,
+curation/visualization, `results_collector`, QC collection, and `nwb_units`. The
+runtime GitHub-clone issue is already handled by local capsule staging, and the
+container image pull/build issue is already handled by the shared image cache. It
+is fine to continue using the preparation jobs to validate binary export,
+canonical mapping, SpikeInterface input generation, NWB generation, manifests,
+and saved submit commands across selected wells while the single-well AIND run
+finishes.
 
 ### Step 5: Single-Well Current-AIND Smoke Test
 
@@ -797,17 +866,18 @@ tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/ai
 tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/test_2_25_2026_129-8447_test(000)_full_lumos_settings/A1/nextflow/trace.txt'
 ```
 
-Next technical step:
+Current A1 technical step:
 
-1. Resubmit the current A1 SpikeInterface command after the quoted-path AIND
-   patch.
-2. Confirm `results_collector`, QC collection, and final `nwb_units` now complete.
-3. If A1 completes final AIND outputs, generalize
-   `scripts/prepare_aind_spikeinterface_well.py` into the selected-well batch
-   preparation flow.
-4. Regenerate the A1 NWB with the patched NWB writer before retesting direct NWB
-   input.
-5. After one well completes, scale the AIND job step to selected wells.
+1. Let active job `53002656` continue. Kilosort child `53002715` completed
+   successfully; child `53003310` is running `postprocessing`.
+2. Confirm the trace advances through `postprocessing`, `curation`,
+   `visualization`, `results_collector`, QC collection, and `nwb_units`.
+3. Confirm final `RESULTS_PATH` contains the expected organized output folders,
+   not only work-dir capsule outputs.
+4. If A1 completes final AIND outputs, launch the already generated selected-well
+   batch submit script.
+5. Regenerate A1 NWB with the patched NWB writer before retrying direct NWB input;
+   the current deployable smoke route remains SpikeInterface/binary input.
 
 ### Direct NWB Versus SpikeInterface Input
 
@@ -1009,14 +1079,16 @@ mechanism is, or how Slurm resources map. Those questions are answered below.
 
 Start here instead:
 
-1. Resubmit A1 with the current saved SpikeInterface command after the
-   quoted-path AIND patch.
-2. Monitor `nextflow/monitor_<jobid>.log`, `nextflow/trace.txt`, and the main
+1. Check active A1 run `53002656` and postprocessing child `53003310`.
+2. Monitor `nextflow/monitor_53002656.log`, `nextflow/trace.txt`, and the main
    Slurm log.
-3. Confirm `results_collector`, QC collection, and final `nwb_units` complete.
-4. If A1 passes final AIND steps, generalize the
-   SpikeInterface input generation across selected wells.
-5. Only after one well completes, submit AIND for the selected wells prepared by
+3. Confirm the run advances from `spikesort_kilosort4` through
+   `postprocessing`, `curation`, `visualization`, `results_collector`, QC
+   collection, and final `nwb_units`.
+4. Confirm final `results/aind/<recording_stem>/A1/` contains organized
+   top-level outputs, not only Nextflow work-dir outputs.
+5. Only after one well completes the final AIND path, submit AIND for the
+   selected wells prepared by
    `scripts/prepare_aind_well_batch.sh`.
 6. Regenerate A1 NWB before retrying direct NWB input, because the existing A1
    NWB predates the `rel_x/rel_y/rel_z` mapping fix.
@@ -1214,8 +1286,11 @@ Generated scale-up submit script:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_all_wells.sh
 ```
 
-Do not launch the 14-well AIND batch until the active A1 smoke test confirms the
-Kilosort4 step runs successfully.
+Do not launch the 14-well AIND batch until the active A1 smoke test completes
+the final AIND path: Kilosort4, lean postprocessing, curation/visualization,
+`results_collector`, QC collection, and `nwb_units`. Kilosort4 itself has already
+completed successfully on A1; the current deployability gate is final organized
+outputs and reproducible rerun behavior.
 
 Results should be separated by recording and well:
 
