@@ -225,16 +225,41 @@ common reference again. The next corrected smoke job is:
 52984769  axion-aind-nwb  RUNNING
 ```
 
-Corrected params for the current/future filtered-input route:
+Status checked `2026-07-06 12:25 EDT`: job `52984769` has completed
+`job_dispatch`, `nwb_ecephys`, and neutral `preprocessing`. It has not yet run
+Kilosort4. The parent job is waiting at the Kilosort4 Singularity image pull:
+
+```text
+Pulling Singularity image docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
+```
+
+The Kilosort4 cache target does not exist yet; only the lock file exists:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/.ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img.lock
+```
+
+Therefore: AIND ingestion and neutral preprocessing work; Kilosort4 execution
+has not yet been proven because it is still waiting on the sorter image pull.
+
+Corrected params for the filtered-input route:
 
 ```text
 job_dispatch.spikeinterface_info.reader_kwargs.is_filtered = true
 preprocessing.custom_preprocessing_pipeline = {"astype": {"dtype": "int16"}}
-preprocessing.motion_correction.compute = false
-preprocessing.motion_correction.apply = false
 spikesorting.kilosort4.sorter.do_CAR = false
 spikesorting.kilosort4.sorter.skip_kilosort_preprocessing = true
 AIND_RUNMODE = full
+```
+
+Note: live job `52984769` was generated before the final motion-compute template
+patch, so it printed `COMPUTE_MOTION: True` and `APPLY_MOTION: False`.
+Because `APPLY_MOTION` is false, that did not modify the voltage series. Future
+regenerated selected-well jobs now use:
+
+```text
+preprocessing.motion_correction.compute = false
+preprocessing.motion_correction.apply = false
 ```
 
 ## Desired Architecture Going Forward
@@ -648,16 +673,22 @@ Broadband Processor High Frequency Digital Filter:
 
 Therefore do not re-run a 300 Hz high-pass, common reference/median subtraction,
 or Kilosort4 CAR on this already spike-band filtered and median-referenced
-input. The current Axion/AIND params now use:
+input. The Axion/AIND filtered-input params use:
 
 ```text
 job_dispatch.spikeinterface_info.reader_kwargs.is_filtered = true
 preprocessing.custom_preprocessing_pipeline = {"astype": {"dtype": "int16"}}
-preprocessing.motion_correction.compute = false
-preprocessing.motion_correction.apply = false
 spikesorting.kilosort4.sorter.do_CAR = false
 spikesorting.kilosort4.sorter.skip_kilosort_preprocessing = true
 AIND_RUNMODE = full
+```
+
+For future regenerated selected-well jobs, the preprocessing motion block is
+also disabled:
+
+```text
+preprocessing.motion_correction.compute = false
+preprocessing.motion_correction.apply = false
 ```
 
 Why `AIND_RUNMODE=full`: AIND fast mode overwrites the preprocessing args with
