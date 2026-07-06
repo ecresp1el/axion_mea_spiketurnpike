@@ -42,8 +42,9 @@ def load_electrode_geometry(electrode_geometry_csv: Path) -> list[dict[str, str]
 def build_kilosort_probe(electrode_geometry_csv: Path) -> dict[str, np.ndarray | int]:
     """Build the Kilosort4 probe dictionary for one well.
 
-    The binary row order is assumed to match the sorted geometry rows. For the
-    default Axion 4x4 geometry that means channels 11, 12, 13, 14, 21, ...
+    The binary row order is assumed to match the sorted geometry rows. Axion
+    electrode labels are column-row, so the default 4x4 physical row-major
+    order is 11, 21, 31, 41, 12, ...
     """
     rows = load_electrode_geometry(electrode_geometry_csv)
     n_chan = len(rows)

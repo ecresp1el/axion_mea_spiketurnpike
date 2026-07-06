@@ -33,7 +33,9 @@ Key files:
 - `envs/kilosort-greatlakes.yml`
 - `config/greatlakes_project.env`
 - `config/example_kilosort_well.env`
+- `config/example_export_axion_well_binary.env`
 - `slurm/check_kilosort_env.sbatch`
+- `slurm/export_axion_well_binary.sbatch`
 - `slurm/run_kilosort_well.sbatch`
 - `run_axion_kilosort.py`
 - `metadata/plate_maps/axion_48_well_opto_plate_map.csv`

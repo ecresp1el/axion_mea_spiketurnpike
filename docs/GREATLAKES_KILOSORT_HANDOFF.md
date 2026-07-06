@@ -198,11 +198,27 @@ metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv
 
 The 48-well map is `A1:F8`. The 24-well map is `A1:D6`. Treatments are placeholders so they can be filled per experiment without changing code.
 
-The default per-well geometry is a 4 x 4 grid with channel labels `11..44`. Edit this file if Axion exports or your MATLAB code confirm a different channel order or spacing.
+The default per-well geometry is a 4 x 4 grid with Axion channel labels
+`11..44`. AxionFileLoader treats electrode labels as `column,row`: electrode
+`31` is electrode column `3`, row `1`. The geometry CSV therefore stores
+physical rows/columns this way, and the Kilosort channel order is row-major
+physical layout: `11, 21, 31, 41, 12, ...`.
 
 ## Kilosort Boundary
 
 Kilosort4 needs a continuous row-major binary trace and a probe geometry. The existing Axion pipeline can parse spike-list CSVs, `.spk` waveform snippets, and stimulation metadata in `.raw`, but those are not enough by themselves for Kilosort sorting.
+
+The first Axion voltage-export scaffold is now:
+
+```text
+matlab/export_axion_well_kilosort_binary.m
+slurm/export_axion_well_binary.sbatch
+config/example_export_axion_well_binary.env
+```
+
+It uses MATLAB AxionFileLoader to load one well from an Axion continuous
+dataset, writes `int16` time-major/interleaved binary samples, and writes a
+`channel_mapping.csv` showing the exact electrode/channel order used.
 
 Current contract for real data:
 
