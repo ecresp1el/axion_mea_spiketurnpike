@@ -24,6 +24,23 @@ This gate does not use SciPy signal-processing methods. It does not filter trace
 
 The actual spike sorting remains downstream in AIND/SpikeInterface/Kilosort4.
 
+## Mapping And Ingestion Boundary
+
+Well selection does not create the final spike-sorting geometry. It only decides
+which wells deserve export. The canonical channel mapping is created later by
+the per-well raw export as:
+
+```text
+data/interim/kilosort_binary/<recording_stem>/<well>/channel_mapping.csv
+```
+
+That file is the source of truth for ingestion because it records the binary
+channel order, Axion channel identity, well label, electrode row/column, and
+physical x/y coordinates. Downstream code must load it through
+`src/axion_mea/well_mapping.py` so NWB electrode rows, ProbeInterface JSON,
+Kilosort probe dictionaries, and channel-mapping manifests are all derived from
+the same table.
+
 ## Generated Files
 
 `scripts/select_aind_wells.sh` writes:

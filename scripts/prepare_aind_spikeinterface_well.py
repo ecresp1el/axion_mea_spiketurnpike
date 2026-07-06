@@ -8,11 +8,13 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from axion_mea.well_mapping import AxionWellMapping
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,36 +36,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def write_probe(path: Path, channel_mapping: pd.DataFrame) -> None:
-    positions = channel_mapping[["x_um", "y_um"]].to_numpy(dtype=float).tolist()
-    n_channels = len(channel_mapping)
-    payload = {
-        "specification": "probeinterface",
-        "version": "0.3.2",
-        "probes": [
-            {
-                "ndim": 2,
-                "si_units": "um",
-                "annotations": {
-                    "name": "Axion 4x4 well",
-                    "manufacturer": "Axion BioSystems",
-                    "well": str(channel_mapping["well"].iloc[0]),
-                },
-                "contact_annotations": {},
-                "contact_positions": positions,
-                "contact_plane_axes": [
-                    [[1.0, 0.0], [0.0, 1.0]] for _ in range(n_channels)
-                ],
-                "contact_shapes": ["circle"] * n_channels,
-                "contact_shape_params": [{"radius": 7.5} for _ in range(n_channels)],
-                "device_channel_indices": np.arange(n_channels, dtype=int).tolist(),
-                "contact_ids": channel_mapping["channel_in_well"].astype(str).tolist(),
-            }
-        ],
-    }
-    path.write_text(json.dumps(payload, indent=4), encoding="utf-8")
-
-
 def main() -> None:
     args = parse_args()
     output_dir = args.output_dir.expanduser().resolve()
@@ -71,18 +43,27 @@ def main() -> None:
 
     binary_file = args.binary_file.expanduser().resolve()
     channel_mapping_path = args.channel_mapping.expanduser().resolve()
-    channel_mapping = pd.read_csv(channel_mapping_path)
-    if len(channel_mapping) != args.num_channels:
+    well_mapping = AxionWellMapping.from_csv(channel_mapping_path)
+    if well_mapping.n_channels != args.num_channels:
         raise SystemExit(
-            f"Channel mapping has {len(channel_mapping)} rows, expected {args.num_channels}: "
+            f"Channel mapping has {well_mapping.n_channels} rows, expected {args.num_channels}: "
             f"{channel_mapping_path}"
+        )
+    if well_mapping.well != args.well:
+        raise SystemExit(
+            f"Channel mapping is for well {well_mapping.well}, not requested well {args.well}."
         )
 
     probe_path = output_dir / f"{args.recording_stem}_{args.well}_probeinterface.json"
     params_path = output_dir / f"{args.recording_stem}_{args.well}_aind_spikeinterface_params.json"
     env_path = output_dir / "run_aind_spikeinterface.env"
 
-    write_probe(probe_path, channel_mapping)
+    well_mapping.write_probeinterface_json(probe_path)
+    mapping_manifest_path = output_dir / f"{args.recording_stem}_{args.well}_channel_mapping_manifest.json"
+    mapping_manifest_path.write_text(
+        json.dumps(well_mapping.ingestion_manifest(), indent=2),
+        encoding="utf-8",
+    )
 
     params = json.loads(args.params_template.expanduser().resolve().read_text(encoding="utf-8"))
     job_dispatch = dict(params.get("job_dispatch", {}))
@@ -128,6 +109,7 @@ def main() -> None:
 
     print(json.dumps({
         "probeinterface_json": str(probe_path),
+        "channel_mapping_manifest": str(mapping_manifest_path),
         "aind_params_file": str(params_path),
         "aind_env_file": str(env_path),
     }, indent=2))

@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from .well_mapping import AxionWellMapping
+
 
 @dataclass(frozen=True)
 class AxionWellNwbConfig:
@@ -178,7 +180,8 @@ def write_axion_well_nwb(config: AxionWellNwbConfig) -> dict[str, Any]:
     export_manifest = _read_json(config.export_manifest_json) or {}
     kilosort_manifest = _read_json(config.kilosort_manifest_json)
     probe = _read_json(config.probe_json)
-    channel_mapping = pd.read_csv(config.channel_mapping_csv.expanduser().resolve())
+    well_mapping = AxionWellMapping.from_csv(config.channel_mapping_csv)
+    channel_mapping = well_mapping.dataframe()
     source_raw = config.source_raw_file
     if source_raw is None and export_manifest.get("raw_file"):
         source_raw = Path(str(export_manifest["raw_file"]))
@@ -228,6 +231,9 @@ def write_axion_well_nwb(config: AxionWellNwbConfig) -> dict[str, Any]:
     )
 
     custom_columns = {
+        "rel_x": "SpikeInterface-compatible relative electrode x coordinate in micrometers.",
+        "rel_y": "SpikeInterface-compatible relative electrode y coordinate in micrometers.",
+        "rel_z": "SpikeInterface-compatible relative electrode z coordinate in micrometers.",
         "well": "Axion well label.",
         "channel_in_well": "Axion electrode label within the well.",
         "electrode_row": "Physical electrode row used for probe geometry.",
@@ -245,13 +251,16 @@ def write_axion_well_nwb(config: AxionWellNwbConfig) -> dict[str, Any]:
 
     for _, row in channel_mapping.iterrows():
         nwbfile.add_electrode(
-            x=float(row["x_um"]),
-            y=float(row["y_um"]),
-            z=0.0,
+            x=float(row["nwb_x"]),
+            y=float(row["nwb_y"]),
+            z=float(row["nwb_z"]),
             imp=np.nan,
             location=f"well {config.well}",
             filtering=str(export_manifest.get("dataset", "Axion continuous voltage")),
             group=group,
+            rel_x=float(row["rel_x"]),
+            rel_y=float(row["rel_y"]),
+            rel_z=float(row["rel_z"]),
             well=str(row["well"]),
             channel_in_well=str(row["channel_in_well"]),
             electrode_row=int(row["electrode_row"]),
@@ -297,6 +306,7 @@ def write_axion_well_nwb(config: AxionWellNwbConfig) -> dict[str, Any]:
         "duration_s": n_samples / fs,
         "voltage_scale_v_per_sample": float(voltage_scale),
         "channel_order": channel_mapping["channel_in_well"].astype(str).tolist(),
+        "channel_mapping_manifest": well_mapping.ingestion_manifest(),
         "raw_metadata_inventory_csv": str(config.raw_metadata_inventory_csv.expanduser().resolve())
         if config.raw_metadata_inventory_csv
         else None,
