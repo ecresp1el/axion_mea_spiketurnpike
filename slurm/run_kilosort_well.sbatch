@@ -46,6 +46,20 @@ RUN_KILOSORT="${RUN_KILOSORT_OVERRIDE:-${RUN_KILOSORT}}"
 CLEAR_CACHE="${CLEAR_CACHE:-false}"
 SAVE_PREPROCESSED_COPY="${SAVE_PREPROCESSED_COPY:-false}"
 TORCH_THREAD_LIM="${TORCH_THREAD_LIM:-}"
+NBLOCKS="${NBLOCKS:-0}"
+NT="${NT:-31}"
+NT0MIN="${NT0MIN:-}"
+DMIN="${DMIN:-350}"
+DMINX="${DMINX:-350}"
+MAX_CHANNEL_DISTANCE="${MAX_CHANNEL_DISTANCE:-400}"
+X_CENTERS="${X_CENTERS:-4}"
+NEAREST_TEMPLATES="${NEAREST_TEMPLATES:-16}"
+NEAREST_CHANS="${NEAREST_CHANS:-5}"
+MIN_TEMPLATE_SIZE="${MIN_TEMPLATE_SIZE:-50}"
+WHITENING_RANGE="${WHITENING_RANGE:-8}"
+TH_UNIVERSAL="${TH_UNIVERSAL:-9}"
+TH_LEARNED="${TH_LEARNED:-8}"
+TH_SINGLE_CH="${TH_SINGLE_CH:-6}"
 
 if [[ -z "${BINARY_FILE}" ]]; then
   echo "ERROR: set BINARY_FILE to a per-well continuous binary trace." >&2
@@ -73,6 +87,20 @@ echo "WELL=${WELL}"
 echo "PLATE_MAP=${PLATE_MAP}"
 echo "ELECTRODE_GEOMETRY=${ELECTRODE_GEOMETRY}"
 echo "RUN_KILOSORT=${RUN_KILOSORT}"
+echo "NBLOCKS=${NBLOCKS}"
+echo "NT=${NT}"
+echo "NT0MIN=${NT0MIN}"
+echo "DMIN=${DMIN}"
+echo "DMINX=${DMINX}"
+echo "MAX_CHANNEL_DISTANCE=${MAX_CHANNEL_DISTANCE}"
+echo "X_CENTERS=${X_CENTERS}"
+echo "NEAREST_TEMPLATES=${NEAREST_TEMPLATES}"
+echo "NEAREST_CHANS=${NEAREST_CHANS}"
+echo "MIN_TEMPLATE_SIZE=${MIN_TEMPLATE_SIZE}"
+echo "WHITENING_RANGE=${WHITENING_RANGE}"
+echo "TH_UNIVERSAL=${TH_UNIVERSAL}"
+echo "TH_LEARNED=${TH_LEARNED}"
+echo "TH_SINGLE_CH=${TH_SINGLE_CH}"
 
 REPRO_DIR="${OUTPUT_DIR}/repro"
 mkdir -p "${REPRO_DIR}"
@@ -118,6 +146,19 @@ args=(
   --dtype "${DTYPE}"
   --n-chan-bin "${N_CHAN_BIN}"
   --run-from-env "${RUN_KILOSORT}"
+  --nblocks "${NBLOCKS}"
+  --nt "${NT}"
+  --dmin "${DMIN}"
+  --dminx "${DMINX}"
+  --max-channel-distance "${MAX_CHANNEL_DISTANCE}"
+  --x-centers "${X_CENTERS}"
+  --nearest-templates "${NEAREST_TEMPLATES}"
+  --nearest-chans "${NEAREST_CHANS}"
+  --min-template-size "${MIN_TEMPLATE_SIZE}"
+  --whitening-range "${WHITENING_RANGE}"
+  --th-universal "${TH_UNIVERSAL}"
+  --th-learned "${TH_LEARNED}"
+  --th-single-ch "${TH_SINGLE_CH}"
 )
 
 if [[ -n "${RECORDING_STEM}" ]]; then
@@ -137,6 +178,9 @@ if [[ "${SAVE_PREPROCESSED_COPY}" == "true" ]]; then
 fi
 if [[ -n "${TORCH_THREAD_LIM}" ]]; then
   args+=(--torch-thread-lim "${TORCH_THREAD_LIM}")
+fi
+if [[ -n "${NT0MIN}" ]]; then
+  args+=(--nt0min "${NT0MIN}")
 fi
 
 python_command=("${REPO_ROOT}/run_axion_kilosort.py" "${args[@]}")

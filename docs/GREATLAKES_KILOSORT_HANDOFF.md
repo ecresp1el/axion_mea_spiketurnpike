@@ -219,6 +219,9 @@ The default per-well geometry is a 4 x 4 grid with Axion channel labels
 physical rows/columns this way, and the Kilosort channel order is row-major
 physical layout: `11, 21, 31, 41, 12, ...`.
 
+For Lumos MEA 48 runs, the repo now uses 350 um within-well electrode spacing
+in `metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv`.
+
 ## Kilosort Boundary
 
 Kilosort4 needs a continuous row-major binary trace and a probe geometry. The existing Axion pipeline can parse spike-list CSVs, `.spk` waveform snippets, and stimulation metadata in `.raw`, but those are not enough by themselves for Kilosort sorting.
@@ -258,6 +261,17 @@ Current contract for real data:
 3. Run readiness first with `RUN_KILOSORT=false`.
 
 4. Only after the manifest validates channel count, file size, plate map, and probe geometry, rerun with `RUN_KILOSORT=true`.
+
+Current Lumos MEA 48 Kilosort4 defaults before multi-well scale-up:
+
+- `n_chan_bin=16`, one binary per well.
+- `nblocks=0` to skip drift correction.
+- `nt=31`; `nt0min` left unset so Kilosort derives it.
+- `dmin=350`, `dminx=350`, `max_channel_distance=400`, `x_centers=4`.
+- `nearest_templates=16`, `nearest_chans=5`, `min_template_size=50`,
+  `whitening_range=8`.
+- Conservative thresholds retained: `Th_universal=9`, `Th_learned=8`,
+  `Th_single_ch=6`.
 
 ## One-Well Job
 

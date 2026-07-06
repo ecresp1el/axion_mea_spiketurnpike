@@ -31,6 +31,20 @@ class KilosortWellConfig:
     clear_cache: bool = False
     save_preprocessed_copy: bool = False
     torch_thread_lim: int | None = None
+    nblocks: int = 0
+    nt: int = 31
+    nt0min: int | None = None
+    dmin: float | None = 350.0
+    dminx: float = 350.0
+    max_channel_distance: float = 400.0
+    x_centers: int | None = 4
+    nearest_templates: int = 16
+    nearest_chans: int = 5
+    min_template_size: float = 50.0
+    whitening_range: int = 8
+    th_universal: float = 9.0
+    th_learned: float = 8.0
+    th_single_ch: float = 6.0
     run_command: str | None = None
     command_argv: list[str] | None = None
     working_directory: str | None = None
@@ -102,6 +116,20 @@ def prepare_well_run(config: KilosortWellConfig) -> dict[str, Any]:
             "clear_cache": config.clear_cache,
             "save_preprocessed_copy": config.save_preprocessed_copy,
             "torch_thread_lim": config.torch_thread_lim,
+            "nblocks": config.nblocks,
+            "nt": config.nt,
+            "nt0min": config.nt0min,
+            "dmin": config.dmin,
+            "dminx": config.dminx,
+            "max_channel_distance": config.max_channel_distance,
+            "x_centers": config.x_centers,
+            "nearest_templates": config.nearest_templates,
+            "nearest_chans": config.nearest_chans,
+            "min_template_size": config.min_template_size,
+            "whitening_range": config.whitening_range,
+            "Th_universal": config.th_universal,
+            "Th_learned": config.th_learned,
+            "Th_single_ch": config.th_single_ch,
         },
         "status": "ready_to_run" if not config.run_kilosort else "prepared_for_kilosort",
         "provenance": {
@@ -134,7 +162,22 @@ def run_kilosort4(config: KilosortWellConfig) -> dict[str, Any]:
     settings = {
         "n_chan_bin": config.n_chan_bin,
         "fs": config.fs,
+        "nblocks": config.nblocks,
+        "nt": config.nt,
+        "dmin": config.dmin,
+        "dminx": config.dminx,
+        "max_channel_distance": config.max_channel_distance,
+        "x_centers": config.x_centers,
+        "nearest_templates": config.nearest_templates,
+        "nearest_chans": config.nearest_chans,
+        "min_template_size": config.min_template_size,
+        "whitening_range": config.whitening_range,
+        "Th_universal": config.th_universal,
+        "Th_learned": config.th_learned,
+        "Th_single_ch": config.th_single_ch,
     }
+    if config.nt0min is not None:
+        settings["nt0min"] = config.nt0min
     result = run_kilosort(
         settings=settings,
         probe={

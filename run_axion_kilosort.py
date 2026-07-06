@@ -38,6 +38,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clear-cache", action="store_true")
     parser.add_argument("--save-preprocessed-copy", action="store_true")
     parser.add_argument("--torch-thread-lim", type=int, default=None)
+    parser.add_argument("--nblocks", type=int, default=0)
+    parser.add_argument("--nt", type=int, default=31)
+    parser.add_argument("--nt0min", type=int, default=None)
+    parser.add_argument("--dmin", type=float, default=350.0)
+    parser.add_argument("--dminx", type=float, default=350.0)
+    parser.add_argument("--max-channel-distance", type=float, default=400.0)
+    parser.add_argument("--x-centers", type=int, default=4)
+    parser.add_argument("--nearest-templates", type=int, default=16)
+    parser.add_argument("--nearest-chans", type=int, default=5)
+    parser.add_argument("--min-template-size", type=float, default=50.0)
+    parser.add_argument("--whitening-range", type=int, default=8)
+    parser.add_argument("--th-universal", type=float, default=9.0)
+    parser.add_argument("--th-learned", type=float, default=8.0)
+    parser.add_argument("--th-single-ch", type=float, default=6.0)
     parser.add_argument(
         "--run",
         action="store_true",
@@ -71,6 +85,20 @@ def main() -> None:
         clear_cache=args.clear_cache,
         save_preprocessed_copy=args.save_preprocessed_copy,
         torch_thread_lim=args.torch_thread_lim,
+        nblocks=args.nblocks,
+        nt=args.nt,
+        nt0min=args.nt0min,
+        dmin=args.dmin,
+        dminx=args.dminx,
+        max_channel_distance=args.max_channel_distance,
+        x_centers=args.x_centers,
+        nearest_templates=args.nearest_templates,
+        nearest_chans=args.nearest_chans,
+        min_template_size=args.min_template_size,
+        whitening_range=args.whitening_range,
+        th_universal=args.th_universal,
+        th_learned=args.th_learned,
+        th_single_ch=args.th_single_ch,
         run_command=args.run_command or shlex.join([sys.executable, *sys.argv]),
         command_argv=[sys.executable, *sys.argv],
         working_directory=args.working_directory or os.getcwd(),
