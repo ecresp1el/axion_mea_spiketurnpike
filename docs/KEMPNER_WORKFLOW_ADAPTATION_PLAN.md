@@ -250,9 +250,101 @@ The current corrected smoke job is:
 52986225  axion-aind-nwb  RUNNING
 ```
 
-Status checked `2026-07-06 12:28 EDT`: job `52986225` started on `gl3206`,
-loaded the fully corrected params file, completed `job_dispatch`, and submitted
-`preprocessing` plus `nwb_ecephys`.
+Status checked `2026-07-06 12:30 EDT`: job `52986225` started on `gl3206`,
+loaded the fully corrected params file, and completed `job_dispatch`,
+`preprocessing`, and `nwb_ecephys`. The preprocessing capsule used only the
+neutral `astype` step, with motion compute/apply disabled:
+
+```text
+CUSTOM_PREPROCESSING_PIPELINE: {'astype': {'dtype': 'int16'}}
+COMPUTE_MOTION: False
+APPLY_MOTION: False
+Running custom preprocessing pipeline with steps: ['astype']
+```
+
+It is now waiting at the AIND Kilosort4 Singularity image pull:
+
+```text
+Pulling Singularity image docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
+```
+
+Live process inspection on `gl3206` confirmed this is an active Nextflow
+Singularity pull/conversion, not Kilosort execution:
+
+```text
+singularity pull --name ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img.pulling... \
+  docker://ghcr.io/allenneuraldynamics/aind-ephys-spikesort-kilosort4:si-0.104.8
+```
+
+Nextflow redirects the pull output to `/dev/null`, so the normal Singularity
+progress output is hidden. `/proc/<singularity_pid>/io` showed read/write byte
+counters increasing, so it is slow rather than fully dead. The cache is large:
+
+```text
+26G  ${PROJECT_ROOT}/scratch/aind_singularity_cache
+9.0G ${PROJECT_ROOT}/containers/aind_ephys
+```
+
+No final Kilosort4 `.img` exists yet; only the lock exists in
+`${PROJECT_ROOT}/containers/aind_ephys`. This means the current remaining
+blocker is not the Axion data, metadata, well mapping, or neutral preprocessing
+logic. It is the AIND/Nextflow/containerized Kilosort4 setup path: pulling and
+assembling the AIND Kilosort4 container on shared storage. A separate
+user-managed Kilosort install may still run on Great Lakes; that is a different
+execution path from the AIND sorter capsule.
+
+Do not interpret the current AIND blocker as "Kilosort cannot run on Great
+Lakes." The older Great Lakes Kilosort handoff documents that the repo's direct
+conda/Kilosort path already ran successfully:
+
+```text
+docs/GREATLAKES_KILOSORT_HANDOFF.md
+Kilosort job 52954130 completed with RUN_KILOSORT_OVERRIDE=true.
+Kilosort4 reported 4 total units, 1 good unit, and 217 spikes in the short A1
+test output.
+```
+
+If the AIND sorter image pull continues to block, the practical fallback is to
+run the direct `slurm/run_kilosort_well.sbatch` path against the same exported
+per-well binary and canonical `channel_mapping.csv`, then keep AIND integration
+as a packaging/provenance target rather than the only path for making sorting
+progress.
+
+Standalone visible Kilosort4 image pull:
+
+```text
+52987650  aind-ks4-img  RUNNING
+```
+
+Submitted with saved command:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/container_pulls/submit_pull_aind_kilosort4_container_command.sh
+```
+
+Logs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/logs/aind/aind-ks4-img-52987650.out
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/logs/aind/aind-ks4-img-52987650.err
+```
+
+As of `2026-07-06 12:59 EDT`, the standalone pull is running visibly through:
+
+```text
+INFO:    Converting OCI blobs to SIF format
+INFO:    Starting build...
+INFO:    Fetching OCI image...
+INFO:    Extracting OCI image...
+```
+
+The final target image is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img
+```
+
+Do not resubmit AIND until that `.img` exists.
 
 Corrected params for the filtered-input route:
 
@@ -669,7 +761,11 @@ filtered-input A1 smoke test:
 52986225  axion-aind-nwb  RUNNING
 ```
 
-Monitor `52986225` next.
+Monitor `52986225` next. It has completed `job_dispatch`, neutral
+`preprocessing`, and `nwb_ecephys`, and is currently waiting at the AIND
+Kilosort4 Singularity image pull. If the image pull continues to block, the next
+debug target is the AIND sorter container/cache mechanism, not Axion ingestion
+and not the user's separate working Kilosort install.
 
 ### Filtered BroadbandProcessor Input Policy
 
