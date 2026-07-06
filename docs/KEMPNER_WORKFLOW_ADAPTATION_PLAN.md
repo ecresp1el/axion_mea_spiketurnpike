@@ -310,10 +310,30 @@ per-well binary and canonical `channel_mapping.csv`, then keep AIND integration
 as a packaging/provenance target rather than the only path for making sorting
 progress.
 
-Standalone visible Kilosort4 image pull:
+Standalone visible Kilosort4 image pull attempts:
 
 ```text
-52987650  aind-ks4-img  RUNNING
+52987650  aind-ks4-img  CANCELLED
+```
+
+Job `52987650` used visible logs but still used Turbo scratch for
+`SINGULARITY_TMPDIR`. It ran for ~22 minutes without producing the final image,
+so it was cancelled.
+
+The pull script was then refactored to use node-local temp space by default:
+
+```text
+SINGULARITY_TMPDIR=/tmp/${USER}/aind_singularity_tmp_${SLURM_JOB_ID}
+```
+
+On `gl3206`, `/tmp` had ~270G free, which should be enough for the image
+conversion. The script also now `cd`s to the AIND image directory before running
+`singularity pull`, so the final `.img` is written in the path Nextflow expects.
+
+Current node-local-temp pull job:
+
+```text
+52991272  aind-ks4-img  PENDING
 ```
 
 Submitted with saved command:
@@ -329,7 +349,11 @@ Logs:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/logs/aind/aind-ks4-img-52987650.err
 ```
 
-As of `2026-07-06 12:59 EDT`, the standalone pull is running visibly through:
+As of `2026-07-06 13:19 EDT`, monitor `52991272`. It has not started yet.
+When it starts, confirm the log reports node-local `/tmp` for
+`SINGULARITY_TMPDIR`.
+
+The previous visible pull reached:
 
 ```text
 INFO:    Converting OCI blobs to SIF format

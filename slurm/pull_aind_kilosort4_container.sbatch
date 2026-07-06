@@ -40,9 +40,14 @@ module load singularity
 
 export SINGULARITY_CACHEDIR="${AIND_SINGULARITY_CACHEDIR:-${PROJECT_ROOT}/scratch/aind_singularity_cache}"
 export APPTAINER_CACHEDIR="${SINGULARITY_CACHEDIR}"
-export SINGULARITY_TMPDIR="${AIND_SINGULARITY_TMPDIR:-${PROJECT_ROOT}/scratch/aind_singularity_tmp}"
+if [[ -n "${AIND_SINGULARITY_TMPDIR:-}" ]]; then
+  export SINGULARITY_TMPDIR="${AIND_SINGULARITY_TMPDIR}"
+else
+  export SINGULARITY_TMPDIR="/tmp/${USER}/aind_singularity_tmp_${SLURM_JOB_ID:-manual}"
+fi
 export APPTAINER_TMPDIR="${SINGULARITY_TMPDIR}"
 mkdir -p "${SINGULARITY_CACHEDIR}" "${SINGULARITY_TMPDIR}"
+trap 'rm -rf "${SINGULARITY_TMPDIR}"' EXIT
 
 echo "AIND Kilosort4 image pull started: $(date)"
 echo "Host: $(hostname)"
@@ -51,6 +56,7 @@ echo "IMAGE_URI=${IMAGE_URI}"
 echo "IMAGE_PATH=${IMAGE_PATH}"
 echo "SINGULARITY_CACHEDIR=${SINGULARITY_CACHEDIR}"
 echo "SINGULARITY_TMPDIR=${SINGULARITY_TMPDIR}"
+df -h "${SINGULARITY_TMPDIR}" "${IMAGE_DIR}" || true
 echo "singularity version: $(singularity --version)"
 
 if [[ -f "${IMAGE_PATH}" ]]; then
@@ -79,6 +85,7 @@ fi
 shopt -u nullglob
 
 echo "Running visible pull:"
+cd "${IMAGE_DIR}"
 set -x
 singularity pull --force --name "${IMAGE_NAME}" "${IMAGE_URI}"
 set +x
