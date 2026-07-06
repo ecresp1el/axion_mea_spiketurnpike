@@ -21,6 +21,11 @@
     "min_preprocessing_duration": 30,
     "max_bad_channel_fraction": 0.75,
     "denoising_strategy": "cmr",
+    "custom_preprocessing_pipeline": {
+      "astype": {
+        "dtype": "int16"
+      }
+    },
     "default_preprocessing_pipeline": {
       "phase_shift": {
         "margin_ms": 100.0
@@ -34,6 +39,8 @@
       }
     },
     "motion_correction": {
+      "compute": false,
+      "apply": false,
       "preset": "dredge_fast",
       "detect_kwargs": {},
       "select_kwargs": {},
@@ -61,7 +68,7 @@
         "nblocks": 0,
         "Th_universal": 9,
         "Th_learned": 8,
-        "do_CAR": true,
+        "do_CAR": false,
         "invert_sign": false,
         "nt": 31,
         "shift": null,
@@ -101,7 +108,7 @@
         "save_extra_vars": false,
         "do_correction": false,
         "keep_good_only": false,
-        "skip_kilosort_preprocessing": false,
+        "skip_kilosort_preprocessing": true,
         "use_binary_file": null,
         "delete_recording_dat": true
       }

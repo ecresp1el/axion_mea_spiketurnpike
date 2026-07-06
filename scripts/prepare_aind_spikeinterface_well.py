@@ -26,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--binary-file", type=Path, required=True)
     parser.add_argument("--channel-mapping", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--export-manifest", type=Path, default=None)
     parser.add_argument("--params-template", type=Path, default=REPO_ROOT / "config/aind_axion_lumos_params.json")
     parser.add_argument("--fs", type=float, default=12500.0)
     parser.add_argument("--dtype", default="int16")
@@ -58,6 +59,14 @@ def main() -> None:
     params_path = output_dir / f"{args.recording_stem}_{args.well}_aind_spikeinterface_params.json"
     env_path = output_dir / "run_aind_spikeinterface.env"
 
+    gain_to_uv = args.gain_to_uV
+    export_manifest_path = args.export_manifest.expanduser().resolve() if args.export_manifest else None
+    if gain_to_uv is None and export_manifest_path is not None and export_manifest_path.exists():
+        export_manifest = json.loads(export_manifest_path.read_text(encoding="utf-8"))
+        voltage_scale = export_manifest.get("voltage_scale_v_per_sample")
+        if voltage_scale is not None:
+            gain_to_uv = float(voltage_scale) * 1e6
+
     well_mapping.write_probeinterface_json(probe_path)
     mapping_manifest_path = output_dir / f"{args.recording_stem}_{args.well}_channel_mapping_manifest.json"
     mapping_manifest_path.write_text(
@@ -76,7 +85,7 @@ def main() -> None:
             "dtype": args.dtype,
             "num_channels": args.num_channels,
             "time_axis": 0,
-            "gain_to_uV": args.gain_to_uV,
+            "gain_to_uV": gain_to_uv,
             "offset_to_uV": args.offset_to_uV,
             "is_filtered": args.is_filtered,
         },
@@ -95,7 +104,7 @@ def main() -> None:
                 f'export WELL="{args.well}"',
                 "# NWB_FILE is still staged by the current launcher, but job_dispatch uses the SpikeInterface params below.",
                 f'export NWB_FILE="${{PROJECT_ROOT}}/data/interim/nwb/{args.recording_stem}/{args.well}/{args.recording_stem}_{args.well}.nwb"',
-                'export AIND_RUNMODE="${AIND_RUNMODE:-fast}"',
+                'export AIND_RUNMODE="${AIND_RUNMODE:-full}"',
                 'export AIND_SORTER="${AIND_SORTER:-kilosort4}"',
                 f'export AIND_PARAMS_FILE="{params_path}"',
                 'export AIND_ALLOW_OVERWRITE="true"',
@@ -112,6 +121,8 @@ def main() -> None:
         "channel_mapping_manifest": str(mapping_manifest_path),
         "aind_params_file": str(params_path),
         "aind_env_file": str(env_path),
+        "gain_to_uV": gain_to_uv,
+        "export_manifest": str(export_manifest_path) if export_manifest_path else None,
     }, indent=2))
 
 

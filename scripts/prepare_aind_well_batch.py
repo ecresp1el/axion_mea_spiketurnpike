@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", default="BroadbandHighFrequency")
     parser.add_argument("--export-start-time-s", type=float, default=0)
     parser.add_argument("--export-duration-s", default="NaN")
+    parser.add_argument("--aind-input", choices=["spikeinterface", "nwb"], default="spikeinterface")
     parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
     parser.add_argument("--project-config", type=Path, default=PROJECT_CONFIG)
     parser.add_argument("--session-description", default="Axion MEA per-well continuous voltage export for AIND ingestion")
@@ -125,12 +126,17 @@ def main() -> None:
         binary_dir = binary_root / well
         nwb_dir = nwb_root / well
         aind_dir = aind_results_root / well
+        spikeinterface_dir = project_root / "jobs" / "aind" / recording_stem / well / "spikeinterface"
         binary_file = binary_dir / f"{well}.bin"
+        channel_mapping_csv = binary_dir / "channel_mapping.csv"
+        binary_export_manifest = binary_dir / "binary_export_manifest.json"
         nwb_file = nwb_dir / f"{recording_stem}_{well}.nwb"
 
         export_env = well_job_dir / "export_binary.env"
         nwb_env = well_job_dir / "export_nwb.env"
+        spikeinterface_env = well_job_dir / "prepare_spikeinterface.env"
         aind_env = well_job_dir / "run_aind.env"
+        spikeinterface_aind_env = spikeinterface_dir / "run_aind_spikeinterface.env"
 
         write_env(
             export_env,
@@ -154,11 +160,27 @@ def main() -> None:
                 ("WELL", well),
                 ("EXPORT_OUTPUT_DIR", str(binary_dir)),
                 ("BINARY_FILE", str(binary_file)),
-                ("CHANNEL_MAPPING_CSV", str(binary_dir / "channel_mapping.csv")),
-                ("BINARY_EXPORT_MANIFEST", str(binary_dir / "binary_export_manifest.json")),
+                ("CHANNEL_MAPPING_CSV", str(channel_mapping_csv)),
+                ("BINARY_EXPORT_MANIFEST", str(binary_export_manifest)),
                 ("NWB_OUTPUT_DIR", str(nwb_dir)),
                 ("OUTPUT_NWB", str(nwb_file)),
                 ("SESSION_DESCRIPTION", args.session_description),
+            ],
+        )
+        write_env(
+            spikeinterface_env,
+            [
+                ("RECORDING_STEM", recording_stem),
+                ("WELL", well),
+                ("BINARY_FILE", str(binary_file)),
+                ("CHANNEL_MAPPING_CSV", str(channel_mapping_csv)),
+                ("BINARY_EXPORT_MANIFEST", str(binary_export_manifest)),
+                ("SPIKEINTERFACE_OUTPUT_DIR", str(spikeinterface_dir)),
+                ("FS", "12500"),
+                ("DTYPE", "int16"),
+                ("N_CHAN_BIN", "16"),
+                ("OFFSET_TO_UV", "0"),
+                ("IS_FILTERED", "true"),
             ],
         )
         write_env(
@@ -167,7 +189,7 @@ def main() -> None:
                 ("RECORDING_STEM", recording_stem),
                 ("WELL", well),
                 ("NWB_FILE", str(nwb_file)),
-                ("AIND_RUNMODE", "fast"),
+                ("AIND_RUNMODE", "full"),
                 ("AIND_SORTER", "kilosort4"),
                 ("AIND_ALLOW_OVERWRITE", "true" if args.allow_aind_overwrite else "false"),
                 ("AIND_RESUME", "true"),
@@ -176,29 +198,33 @@ def main() -> None:
 
         export_cmd = f"PROJECT_CONFIG={q(args.project_config)} EXPORT_CONFIG={q(export_env)} sbatch {q(REPO_ROOT / 'slurm/export_axion_well_binary.sbatch')}"
         nwb_cmd = f"PROJECT_CONFIG={q(args.project_config)} NWB_CONFIG={q(nwb_env)} sbatch --dependency=afterok:${{export_job}} {q(REPO_ROOT / 'slurm/export_axion_well_nwb.sbatch')}"
-        aind_cmd = f"PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(aind_env)} sbatch --dependency=afterok:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
+        spikeinterface_cmd = f"PROJECT_CONFIG={q(args.project_config)} SPIKEINTERFACE_CONFIG={q(spikeinterface_env)} sbatch --dependency=afterok:${{export_job}} {q(REPO_ROOT / 'slurm/prepare_aind_spikeinterface_well.sbatch')}"
+        if args.aind_input == "spikeinterface":
+            aind_cmd = f"PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(spikeinterface_aind_env)} sbatch --dependency=afterok:${{spikeinterface_job}}:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
+        else:
+            aind_cmd = f"PROJECT_CONFIG={q(args.project_config)} AIND_CONFIG={q(aind_env)} sbatch --dependency=afterok:${{nwb_job}} {q(REPO_ROOT / 'slurm/run_aind_nwb_well.sbatch')}"
+
+        well_submit_lines = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            f"cd {q(REPO_ROOT)}",
+            "submit_one() {",
+            "  local label=\"$1\"",
+            "  shift",
+            "  local out",
+            "  out=\"$(eval \"$*\")\"",
+            "  echo \"${label}: ${out}\"",
+            "  sed -n 's/Submitted batch job //p' <<<\"${out}\"",
+            "}",
+            f"export_job=$(submit_one export_{well} {export_cmd})",
+            f"nwb_job=$(submit_one nwb_{well} {nwb_cmd})",
+            f"spikeinterface_job=$(submit_one spikeinterface_{well} {spikeinterface_cmd})",
+            f"aind_job=$(submit_one aind_{well} {aind_cmd})",
+            "printf 'well=%s export_job=%s nwb_job=%s spikeinterface_job=%s aind_job=%s\\n' "
+            f"{q(well)} \"${{export_job}}\" \"${{nwb_job}}\" \"${{spikeinterface_job}}\" \"${{aind_job}}\"",
+        ]
         (well_job_dir / "submit_commands.sh").write_text(
-            "\n".join(
-                [
-                    "#!/usr/bin/env bash",
-                    "set -euo pipefail",
-                    f"cd {q(REPO_ROOT)}",
-                    "submit_one() {",
-                    "  local label=\"$1\"",
-                    "  shift",
-                    "  local out",
-                    "  out=\"$(eval \"$*\")\"",
-                    "  echo \"${label}: ${out}\"",
-                    "  sed -n 's/Submitted batch job //p' <<<\"${out}\"",
-                    "}",
-                    f"export_job=$(submit_one export_{well} {export_cmd})",
-                    f"nwb_job=$(submit_one nwb_{well} {nwb_cmd})",
-                    f"aind_job=$(submit_one aind_{well} {aind_cmd})",
-                    "printf 'well=%s export_job=%s nwb_job=%s aind_job=%s\\n' "
-                    f"{q(well)} \"${{export_job}}\" \"${{nwb_job}}\" \"${{aind_job}}\"",
-                ]
-            )
-            + "\n",
+            "\n".join(well_submit_lines) + "\n",
             encoding="utf-8",
         )
         (well_job_dir / "submit_commands.sh").chmod(0o755)
@@ -208,9 +234,10 @@ def main() -> None:
                 f"echo 'Submitting {well}'",
                 f"export_job=$(submit_one export_{well} {export_cmd})",
                 f"nwb_job=$(submit_one nwb_{well} {nwb_cmd})",
+                f"spikeinterface_job=$(submit_one spikeinterface_{well} {spikeinterface_cmd})",
                 f"aind_job=$(submit_one aind_{well} {aind_cmd})",
-                "printf 'well=%s export_job=%s nwb_job=%s aind_job=%s\\n' "
-                f"{q(well)} \"${{export_job}}\" \"${{nwb_job}}\" \"${{aind_job}}\" | tee -a {q(batch_root / 'submitted_jobs.tsv')}",
+                "printf 'well=%s export_job=%s nwb_job=%s spikeinterface_job=%s aind_job=%s\\n' "
+                f"{q(well)} \"${{export_job}}\" \"${{nwb_job}}\" \"${{spikeinterface_job}}\" \"${{aind_job}}\" | tee -a {q(batch_root / 'submitted_jobs.tsv')}",
                 "",
             ]
         )
@@ -226,7 +253,10 @@ def main() -> None:
                 "job_dir": str(well_job_dir),
                 "export_env": str(export_env),
                 "nwb_env": str(nwb_env),
-                "aind_env": str(aind_env),
+                "spikeinterface_env": str(spikeinterface_env),
+                "spikeinterface_dir": str(spikeinterface_dir),
+                "aind_env": str(spikeinterface_aind_env if args.aind_input == "spikeinterface" else aind_env),
+                "aind_input": args.aind_input,
             }
         )
 

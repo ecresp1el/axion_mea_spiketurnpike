@@ -182,9 +182,9 @@ the AIND containers as `/usr/local/bin/python`, pointing to
 `python`, while the base image's dependency-complete interpreter lives under
 `/opt/conda`.
 
-The current active AIND smoke test is no longer blocked at container build,
-GitHub clone, or Python startup. It reached job dispatch and preprocessing with
-the SpikeInterface input route. Job `52979722` then failed in the downstream
+The current AIND smoke path is no longer blocked at container build, GitHub
+clone, or Python startup. It reached job dispatch and preprocessing with the
+SpikeInterface input route. Job `52979722` then failed in the downstream
 `nwb_ecephys` process because PyNWB/HDMF attempted to create a cache under the
 read-only container view of `/home/elcrespo`:
 
@@ -203,6 +203,39 @@ AIND_XDG_CACHE_HOME=${PROJECT_ROOT}/scratch/aind_xdg_cache
 
 and pass `HOME`, `XDG_CACHE_HOME`, and `MPLCONFIGDIR` into Singularity/Apptainer
 processes.
+
+Job `52982762` proved that the writable-cache fix worked: `job_dispatch`,
+`nwb_ecephys`, and `preprocessing` all completed. It was intentionally cancelled
+before Kilosort4 because the source file is an Axion `_BroadbandProcessor.raw`
+stream that is already spike-band filtered and median referenced, while the old
+AIND params would have high-pass filtered and common-referenced it again.
+
+The corrected filtered-input A1 smoke job that still used an empty custom
+preprocessing dict was:
+
+```text
+52984141  axion-aind-nwb  CANCELLED before Kilosort4
+```
+
+It was cancelled because AIND fast mode overwrote the preprocessing JSON with
+`--motion skip`, causing the preprocessing capsule to fall back to highpass +
+common reference again. The next corrected smoke job is:
+
+```text
+52984769  axion-aind-nwb  RUNNING
+```
+
+Corrected params for the current/future filtered-input route:
+
+```text
+job_dispatch.spikeinterface_info.reader_kwargs.is_filtered = true
+preprocessing.custom_preprocessing_pipeline = {"astype": {"dtype": "int16"}}
+preprocessing.motion_correction.compute = false
+preprocessing.motion_correction.apply = false
+spikesorting.kilosort4.sorter.do_CAR = false
+spikesorting.kilosort4.sorter.skip_kilosort_preprocessing = true
+AIND_RUNMODE = full
+```
 
 ## Desired Architecture Going Forward
 
@@ -477,9 +510,9 @@ tail -f '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/ai
 
 Next technical step:
 
-1. Keep the active SpikeInterface binary + ProbeInterface input route running
+1. Keep the corrected SpikeInterface binary + ProbeInterface input route running
    for A1.
-2. Keep monitoring A1 retry job `52982762`.
+2. Keep monitoring A1 retry job `52984769`.
 3. If A1 completes Kilosort4 and downstream AIND outputs, generalize
    `scripts/prepare_aind_spikeinterface_well.py` into the selected-well batch
    preparation flow.
@@ -566,16 +599,95 @@ OSError: [Errno 30] Read-only file system: '/home/elcrespo'
 Fix applied after that failure: the AIND launcher/config now set `HOME`,
 `XDG_CACHE_HOME`, and `MPLCONFIGDIR` to writable Turbo scratch paths before
 running Nextflow. The saved SpikeInterface submit command was then resubmitted
-as:
+as `52982762`, which completed `job_dispatch`, `nwb_ecephys`, and
+`preprocessing`.
 
 ```text
-52982762  axion-aind-nwb  RUNNING
+52982762  axion-aind-nwb  CANCELLED before Kilosort4
 ```
 
-The new run log confirms `AIND_CONTAINER_HOME` and `AIND_XDG_CACHE_HOME` point
-to Turbo scratch. The retry has already completed `job_dispatch` and submitted
-`nwb_ecephys` plus `preprocessing`; monitor `trace.txt` to see whether
-`nwb_ecephys` clears the previous PyNWB cache failure.
+That run used the old redundant-processing settings. It was cancelled after raw
+metadata confirmed this input is already an Axion BroadbandProcessor spike-band
+stream with median referencing.
+
+First corrected filtered-input A1 smoke test:
+
+```text
+52984141  axion-aind-nwb  CANCELLED before Kilosort4
+```
+
+That run still used AIND fast mode, which overwrote the custom preprocessing
+JSON and allowed the default highpass/common-reference preprocessing to run
+again. Current corrected filtered-input A1 smoke test:
+
+```text
+52984769  axion-aind-nwb  RUNNING
+```
+
+Monitor `52984769` next.
+
+### Filtered BroadbandProcessor Input Policy
+
+The current A1 source is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw
+```
+
+MATLAB raw metadata for this file reports:
+
+```text
+Sampling Frequency: 12.5 kHz
+Voltage Scale: -5.484861781483107E-08 V/sample
+Referencing Method: Median
+Analog Mode Setting: Neural Broadband
+Broadband Processor High Frequency Digital Filter:
+  High Pass Filter: Butterworth, 1 pole, 200 Hz
+  Low Pass Filter: Butterworth, 1 pole, 5 kHz
+```
+
+Therefore do not re-run a 300 Hz high-pass, common reference/median subtraction,
+or Kilosort4 CAR on this already spike-band filtered and median-referenced
+input. The current Axion/AIND params now use:
+
+```text
+job_dispatch.spikeinterface_info.reader_kwargs.is_filtered = true
+preprocessing.custom_preprocessing_pipeline = {"astype": {"dtype": "int16"}}
+preprocessing.motion_correction.compute = false
+preprocessing.motion_correction.apply = false
+spikesorting.kilosort4.sorter.do_CAR = false
+spikesorting.kilosort4.sorter.skip_kilosort_preprocessing = true
+AIND_RUNMODE = full
+```
+
+Why `AIND_RUNMODE=full`: AIND fast mode overwrites the preprocessing args with
+`--motion skip`, which prevents the custom preprocessing JSON from reaching the
+capsule. The neutral `astype` step is needed because the AIND Kilosort4 capsule
+expects a `preprocessed_*` folder from the preprocessing capsule. `astype` does
+not high-pass filter, median-reference, whiten, or CAR the voltage series.
+Kilosort4 internal preprocessing and CAR are disabled separately.
+
+Current evidence from job `52984769`:
+
+```text
+INPUT: spikeinterface
+sampling_frequency: 12500.0
+gain_to_uV: -0.054848617814831066
+is_filtered: True
+CUSTOM_PREPROCESSING_PIPELINE: {'astype': {'dtype': 'int16'}}
+Running custom preprocessing pipeline with steps: ['astype']
+```
+
+The previous `52982762` preprocessing provenance showed the old behavior was:
+
+```text
+BinaryRecordingExtractor
+  -> HighpassFilterRecording
+  -> DetectAndRemoveBadChannelsRecording
+  -> CommonReferenceRecording
+```
+
+That old behavior should not be used for `_BroadbandProcessor.raw` scale-up.
 
 ## Next Conversation Starting Point
 
@@ -584,7 +696,7 @@ mechanism is, or how Slurm resources map. Those questions are answered below.
 
 Start here instead:
 
-1. Check A1 current-AIND SpikeInterface retry job `52982762`.
+1. Check A1 corrected filtered-input SpikeInterface retry job `52984769`.
 2. If A1 passes Kilosort4 and downstream AIND steps, generalize the
    SpikeInterface input generation across selected wells.
 3. Only after one well completes, submit AIND for the selected wells prepared by
@@ -751,6 +863,42 @@ jobs/aind/<recording_stem>/<well>/spikeinterface/submit_aind_spikeinterface_comm
 
 The mapping manifest is the audit trail that lets AIND outputs map back to the
 original Axion raw file, plate, well, and channel order.
+
+The selected-well batch generator now writes this dependency chain for each
+selected well:
+
+```text
+export_axion_well_binary.sbatch
+  -> export_axion_well_nwb.sbatch
+  -> prepare_aind_spikeinterface_well.sbatch
+export_axion_well_nwb.sbatch + prepare_aind_spikeinterface_well.sbatch
+  -> run_aind_nwb_well.sbatch using SpikeInterface params
+```
+
+The AIND job is submitted with `afterok:${spikeinterface_job}:${nwb_job}`. The
+NWB dependency is currently retained because `run_aind_nwb_well.sbatch` still
+expects an `NWB_FILE` to stage, even when AIND `job_dispatch.input` is
+`spikeinterface`.
+
+The 2026-02-25 selected-well batch has been regenerated for 14 wells with:
+
+```bash
+bash scripts/prepare_aind_well_batch.sh \
+  --recording-stem 'test_2_25_2026_129-8447_test(000)_full_lumos_settings' \
+  --raw-file '/nfs/turbo/umms-parent/axion_mea_files_directory/2_25_2026/129-8447/test(000)_BroadbandProcessor.raw' \
+  --selection-manifest '/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/selection/well_selection_manifest.csv' \
+  --allow-aind-overwrite \
+  --aind-input spikeinterface
+```
+
+Generated scale-up submit script:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_all_wells.sh
+```
+
+Do not launch the 14-well AIND batch until the active A1 smoke test confirms the
+Kilosort4 step runs successfully.
 
 Results should be separated by recording and well:
 
