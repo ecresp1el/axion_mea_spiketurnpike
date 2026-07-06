@@ -55,6 +55,10 @@ info = struct( ...
     "metadata_description", "", ...
     "metadata_investigator", "", ...
     "metadata_analog_mode", "", ...
+    "metadata_high_pass_filter", "", ...
+    "metadata_high_pass_cutoff", "", ...
+    "metadata_low_pass_filter", "", ...
+    "metadata_low_pass_cutoff", "", ...
     "metadata_barcode", "", ...
     "metadata_biocore_version", "", ...
     "metadata_keys", "");
@@ -204,10 +208,15 @@ if metadata.Count == 0 && ~isempty(notes)
 end
 
 info.num_plate_map_entries = plateMapCount;
+rawDescription = metadata_value_raw(metadata, "Description");
 info.metadata_recording_name = metadata_value(metadata, "RecordingName");
-info.metadata_description = metadata_value(metadata, "Description");
+info.metadata_description = sanitize_text(rawDescription);
 info.metadata_investigator = metadata_value(metadata, "Investigator");
 info.metadata_analog_mode = metadata_value(metadata, "AnalogMode");
+info.metadata_high_pass_filter = description_setting(rawDescription, "High Pass Filter");
+info.metadata_high_pass_cutoff = description_setting(rawDescription, "High Pass Cutoff Freq.");
+info.metadata_low_pass_filter = description_setting(rawDescription, "Low Pass Filter");
+info.metadata_low_pass_cutoff = description_setting(rawDescription, "Low Pass Cutoff Freq.");
 info.metadata_barcode = metadata_value(metadata, "Barcode");
 info.metadata_biocore_version = metadata_value(metadata, "BioCoreVersion");
 info.metadata_keys = strjoin(string(keys(metadata)), ";");
@@ -242,10 +251,34 @@ end
 end
 
 function value = metadata_value(metadata, key)
+value = sanitize_text(metadata_value_raw(metadata, key));
+end
+
+function value = metadata_value_raw(metadata, key)
 if isKey(metadata, key)
     value = string(metadata(key));
 else
     value = "";
+end
+end
+
+function value = sanitize_text(inputValue)
+value = string(inputValue);
+value = replace(value, sprintf('\r\n'), " | ");
+value = replace(value, newline, " | ");
+value = replace(value, sprintf('\r'), " | ");
+value = strip(value);
+end
+
+function value = description_setting(description, settingName)
+value = "";
+lines = splitlines(string(description));
+for idx = 1:numel(lines)
+    parts = split(lines(idx), ",");
+    if numel(parts) >= 2 && strcmpi(strtrim(parts(1)), settingName)
+        value = sanitize_text(strjoin(strtrim(parts(2:end)), ","));
+        return
+    end
 end
 end
 

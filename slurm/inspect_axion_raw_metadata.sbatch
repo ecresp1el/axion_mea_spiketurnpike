@@ -39,6 +39,6 @@ echo "OUTPUT_CSV=${OUTPUT_CSV}"
 module purge
 module load matlab/R2024b
 
-matlab -batch "addpath('${REPO_ROOT}/matlab'); T = inspect_axion_raw_metadata('${AXION_SOURCE_ROOT}', '${OUTPUT_CSV}', '${AXION_LOADER_ROOT}'); disp(T(:, {'raw_name','raw_file_kind','status','sampling_frequency_hz','num_channels','num_plate_map_entries','plate_type_name','well_dimensions','electrode_dimensions','duration_s','metadata_analog_mode'}));"
+matlab -batch "addpath('${REPO_ROOT}/matlab'); T = inspect_axion_raw_metadata('${AXION_SOURCE_ROOT}', '${OUTPUT_CSV}', '${AXION_LOADER_ROOT}'); disp(T(:, {'raw_name','raw_file_kind','status','sampling_frequency_hz','num_channels','num_plate_map_entries','plate_type_name','well_dimensions','electrode_dimensions','duration_s','metadata_analog_mode','metadata_high_pass_filter','metadata_high_pass_cutoff','metadata_low_pass_filter','metadata_low_pass_cutoff'}));"
 
 echo "Axion raw metadata inspection finished: $(date)"
