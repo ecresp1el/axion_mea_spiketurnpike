@@ -212,6 +212,76 @@ standalone file ground-truth audit:
       raw stim parse status: {"ok": 88}
     This suggests the last hidden partial had landed by this audit, but a final
     source-side rsync dry-run should still be used before freezing a manifest.
+  frozen upload-set audit:
+    After the user confirmed all potential processing files were finalized, a
+    freeze-ready audit was written at 2026-07-07T11:30:03:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1129_final_upload_set
+    Counts:
+      visible .raw files: 88
+      logical raw groups: 42
+      incoming/new_upload .raw files: 74
+      incoming/new_upload logical groups: 35
+      upload temp fragments: 0
+      platemap files: 10
+      raw stim parse status: {"ok": 88}
+    Additional filter-provenance outputs were written:
+      filter_ground_truth_summary.csv
+      filter_ground_truth_summary.json
+      filter_metadata_counts_by_raw_variant.csv
+    Filter/variant ground truth from this frozen audit:
+      raw files by variant:
+        primary_raw: 42
+        filter_1Hz-200Hz: 19
+        filter_200Hz-3kHz: 19
+        broadband_processor_raw: 8
+      logical group variant shapes:
+        primary_raw only: 16
+        primary_raw + broadband_processor_raw: 7
+        primary_raw + filter_1Hz-200Hz + filter_200Hz-3kHz: 18
+        primary_raw + filter_1Hz-200Hz + filter_200Hz-3kHz + broadband_processor_raw: 1
+      Therefore, 19 logical recording groups have the matched Axion filter pair:
+        _Filter(1Hz-200Hz).raw
+        _Filter(200Hz-3kHz).raw
+      These 19 groups account for 38 filtered raw files. All matched filter-pair
+      groups are in the new_upload scope. The 7 primary+broadband-only groups
+      are older_or_existing.
+    Interpretation:
+      Important correction: `primary_raw` only means the file has the primary
+      Axion `.raw` filename, not that it is unfiltered. The acquisition filter
+      settings for primary raws are in the raw `dataset_description` metadata.
+      The audit now parses these into:
+        acquisition_analog_mode_setting
+        acquisition_digital_high_pass_filter
+        acquisition_digital_low_pass_filter
+        derived_high_pass_filter
+        derived_low_pass_filter
+      Current metadata-matched primary_raw filter breakdown:
+        11 primary raws:
+          Analog Mode Setting = Neural Broadband
+          Digital High Pass Filter = 0.1 Hz IIR
+          Digital Low Pass Filter = None
+        5 primary raws:
+          Analog Mode Setting = Neural Spikes
+          Digital High Pass Filter = 200 Hz IIR
+          Digital Low Pass Filter = 3 kHz Kaiser Window
+        3 primary raws:
+          Analog Mode Setting = Neural Broadband
+          Digital High Pass Filter = 200 Hz IIR
+          Digital Low Pass Filter = None
+        2 primary raws:
+          Analog Mode Setting = Neural Spikes
+          Digital High Pass Filter = 200 Hz IIR
+          Digital Low Pass Filter = None
+        21 primary raws:
+          metadata missing in the current joined metadata inventory, so their
+          primary acquisition filter setting is not yet confirmed by metadata.
+      The Axion-generated raw filename/variant still identifies derived files
+      such as `_Filter(1Hz-200Hz)`, `_Filter(200Hz-3kHz)`, and
+      `_BroadbandProcessor`, but the primary `.raw` filter must be interpreted
+      from metadata. Exact metadata-derived filter settings remain incomplete
+      until the MATLAB raw metadata inventory is rerun after the final upload;
+      the frozen audit still shows 45 raw files as metadata_missing because it
+      joined against the older 2026-07-07T09:47 metadata inventory.
   schema update:
     raw_files.csv now carries Axion metadata timing fields when metadata is
     available:

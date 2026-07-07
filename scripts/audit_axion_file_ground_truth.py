@@ -171,6 +171,15 @@ def meta_value(meta: dict[str, str] | None, key: str) -> str:
     return meta.get(key, "")
 
 
+def dataset_description_setting(meta: dict[str, str] | None, setting_name: str) -> str:
+    description = meta_value(meta, "dataset_description")
+    for line in re.split(r"[\r\n]+", description):
+        parts = [part.strip() for part in line.split(",")]
+        if parts and parts[0].lower() == setting_name.lower():
+            return ",".join(parts[1:]).strip()
+    return ""
+
+
 def add_group_value(group: dict[str, Any], key: str, value: str) -> None:
     if value:
         group[key].add(value)
@@ -356,6 +365,11 @@ def main() -> None:
             "metadata_recording_names": set(),
             "metadata_descriptions": set(),
             "metadata_barcodes": set(),
+            "acquisition_analog_mode_settings": set(),
+            "acquisition_digital_high_pass_filters": set(),
+            "acquisition_digital_low_pass_filters": set(),
+            "derived_high_pass_filters": set(),
+            "derived_low_pass_filters": set(),
             "stim_parse_statuses": Counter(),
             "stim_parse_errors": set(),
             "stim_event_counts": set(),
@@ -445,6 +459,16 @@ def main() -> None:
             add_group_value(group, "metadata_recording_names", meta_value(meta, "metadata_recording_name"))
             add_group_value(group, "metadata_descriptions", meta_value(meta, "metadata_description"))
             add_group_value(group, "metadata_barcodes", meta_value(meta, "metadata_barcode"))
+            analog_mode_setting = dataset_description_setting(meta, "Analog Mode Setting") or meta_value(meta, "metadata_analog_mode")
+            digital_high_pass_filter = dataset_description_setting(meta, "Digital High Pass Filter")
+            digital_low_pass_filter = dataset_description_setting(meta, "Digital Low Pass Filter")
+            derived_high_pass_filter = dataset_description_setting(meta, "High Pass Filter")
+            derived_low_pass_filter = dataset_description_setting(meta, "Low Pass Filter")
+            add_group_value(group, "acquisition_analog_mode_settings", analog_mode_setting)
+            add_group_value(group, "acquisition_digital_high_pass_filters", digital_high_pass_filter)
+            add_group_value(group, "acquisition_digital_low_pass_filters", digital_low_pass_filter)
+            add_group_value(group, "derived_high_pass_filters", derived_high_pass_filter)
+            add_group_value(group, "derived_low_pass_filters", derived_low_pass_filter)
             group["stim_parse_statuses"][str(stim_summary["stim_parse_status"])] += 1
             add_group_value(group, "stim_parse_errors", str(stim_summary["stim_parse_error"]))
             add_group_value(group, "stim_event_counts", str(stim_summary["stim_event_count"]))
@@ -494,6 +518,11 @@ def main() -> None:
                 "metadata_recording_name": meta.get("metadata_recording_name", "") if meta else "",
                 "metadata_description": meta.get("metadata_description", "") if meta else "",
                 "metadata_barcode": meta.get("metadata_barcode", "") if meta else "",
+                "acquisition_analog_mode_setting": analog_mode_setting,
+                "acquisition_digital_high_pass_filter": digital_high_pass_filter,
+                "acquisition_digital_low_pass_filter": digital_low_pass_filter,
+                "derived_high_pass_filter": derived_high_pass_filter,
+                "derived_low_pass_filter": derived_low_pass_filter,
             }
             raw_row.update(stim_summary)
             raw_rows.append(raw_row)
@@ -585,6 +614,11 @@ def main() -> None:
             "metadata_recording_names": joined_values(group["metadata_recording_names"]),
             "metadata_descriptions": joined_values(group["metadata_descriptions"]),
             "metadata_barcodes": joined_values(group["metadata_barcodes"]),
+            "acquisition_analog_mode_settings": joined_values(group["acquisition_analog_mode_settings"]),
+            "acquisition_digital_high_pass_filters": joined_values(group["acquisition_digital_high_pass_filters"]),
+            "acquisition_digital_low_pass_filters": joined_values(group["acquisition_digital_low_pass_filters"]),
+            "derived_high_pass_filters": joined_values(group["derived_high_pass_filters"]),
+            "derived_low_pass_filters": joined_values(group["derived_low_pass_filters"]),
             "stim_parse_status_counts": json.dumps(dict(group["stim_parse_statuses"]), sort_keys=True),
             "stim_parse_errors": joined_values(group["stim_parse_errors"]),
             "has_stim_events": has_stim_events,
