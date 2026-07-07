@@ -41,6 +41,10 @@ end
 if ~isfolder(outputDir)
     mkdir(outputDir);
 end
+failureManifestPath = fullfile(outputDir, "binary_export_failure.json");
+if isfile(failureManifestPath)
+    delete(failureManifestPath);
+end
 
 addpath(genpath(axionLoaderRoot), "-end");
 addpath(fullfile(repo_root_from_this_file(), "matlab", "axionfileloader_overrides"), "-begin");
@@ -52,23 +56,41 @@ if ~ismember("connected", string(geometry.Properties.VariableNames))
 end
 geometry = geometry(connected_mask(geometry.connected), :);
 
-axisFile = AxisFile(char(rawFile));
-cleanupAxis = onCleanup(@() delete(axisFile));
-dataSet = select_dataset(axisFile, datasetName);
-if isempty(dataSet)
-    error("Dataset %s was not found in %s.", datasetName, rawFile);
+try
+    axisFile = AxisFile(char(rawFile));
+catch ME
+    write_failure_manifest(failureManifestPath, rawFile, recordingStem, well, datasetName, ...
+        "axisfile_open", ME);
+    rethrow(ME);
 end
-if numel(dataSet) > 1
-    dataSet = dataSet(1);
+cleanupAxis = onCleanup(@() delete(axisFile));
+try
+    dataSet = select_dataset(axisFile, datasetName);
+    if isempty(dataSet)
+        error("AxionExport:DatasetNotFound", "Dataset %s was not found in %s.", datasetName, rawFile);
+    end
+    if numel(dataSet) > 1
+        dataSet = dataSet(1);
+    end
+catch ME
+    write_failure_manifest(failureManifestPath, rawFile, recordingStem, well, datasetName, ...
+        "dataset_selection", ME);
+    rethrow(ME);
 end
 
-if isnan(duration) || duration <= 0
-    timeRangeDescription = "all time (timespan argument omitted)";
-    waveforms = dataSet.LoadData(char(well), LoadArgs.ByElectrodeDimensions);
-else
-    timeRange = [startTime, startTime + duration];
-    timeRangeDescription = mat2str(timeRange);
-    waveforms = dataSet.LoadData(char(well), timeRange, LoadArgs.ByElectrodeDimensions);
+try
+    if isnan(duration) || duration <= 0
+        timeRangeDescription = "all time (timespan argument omitted)";
+        waveforms = dataSet.LoadData(char(well), LoadArgs.ByElectrodeDimensions);
+    else
+        timeRange = [startTime, startTime + duration];
+        timeRangeDescription = mat2str(timeRange);
+        waveforms = dataSet.LoadData(char(well), timeRange, LoadArgs.ByElectrodeDimensions);
+    end
+catch ME
+    write_failure_manifest(failureManifestPath, rawFile, recordingStem, well, datasetName, ...
+        "load_data", ME);
+    rethrow(ME);
 end
 
 fprintf("Loaded %s, well %s, dataset %s, time range %s\n", rawFile, well, datasetName, timeRangeDescription);
@@ -167,6 +189,34 @@ write_text_file(manifestPath, jsonencode(manifest, PrettyPrint=true));
 fprintf("Wrote binary: %s\n", outputBin);
 fprintf("Wrote mapping: %s\n", mappingCsv);
 fprintf("Wrote manifest: %s\n", manifestPath);
+end
+
+function write_failure_manifest(path, rawFile, recordingStem, well, datasetName, phase, ME)
+report = string(getReport(ME, "extended", "hyperlinks", "off"));
+failure = struct();
+failure.analysis_kind = "axion_well_kilosort_binary_export_failure";
+failure.status = "failed";
+failure.phase = string(phase);
+failure.failure_class = classify_failure(report);
+failure.checked_at = string(datetime("now", "TimeZone", "local", "Format", "yyyy-MM-dd HH:mm:ss ZZZZ"));
+failure.raw_file = string(rawFile);
+failure.recording_stem = string(recordingStem);
+failure.well = string(well);
+failure.dataset = string(datasetName);
+failure.error_identifier = string(ME.identifier);
+failure.error_message = string(ME.message);
+failure.error_report = report;
+write_text_file(path, jsonencode(failure, PrettyPrint=true));
+fprintf("Wrote export failure manifest: %s\n", path);
+end
+
+function failureClass = classify_failure(report)
+if contains(report, "Index exceeds the number of array elements. Index must not exceed 2880") && ...
+        contains(report, "LookupChannelID")
+    failureClass = "axion_axisfile_lookupchannel_open_failed";
+else
+    failureClass = "matlab_export_failed";
+end
 end
 
 function dataSet = select_dataset(axisFile, datasetName)

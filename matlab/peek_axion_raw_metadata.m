@@ -59,6 +59,9 @@ info = struct( ...
     "metadata_high_pass_cutoff", "", ...
     "metadata_low_pass_filter", "", ...
     "metadata_low_pass_cutoff", "", ...
+    "metadata_axis_version", "", ...
+    "metadata_instrument", "", ...
+    "metadata_firmware_version", "", ...
     "metadata_barcode", "", ...
     "metadata_biocore_version", "", ...
     "metadata_keys", "");
@@ -217,6 +220,9 @@ info.metadata_high_pass_filter = description_setting(rawDescription, "High Pass 
 info.metadata_high_pass_cutoff = description_setting(rawDescription, "High Pass Cutoff Freq.");
 info.metadata_low_pass_filter = description_setting(rawDescription, "Low Pass Filter");
 info.metadata_low_pass_cutoff = description_setting(rawDescription, "Low Pass Cutoff Freq.");
+info.metadata_axis_version = description_setting(rawDescription, "AxIS Version");
+info.metadata_instrument = description_instrument(rawDescription);
+info.metadata_firmware_version = description_suffix_setting(rawDescription, "Firmware");
 info.metadata_barcode = metadata_value(metadata, "Barcode");
 info.metadata_biocore_version = metadata_value(metadata, "BioCoreVersion");
 info.metadata_keys = strjoin(string(keys(metadata)), ";");
@@ -279,6 +285,32 @@ for idx = 1:numel(lines)
         value = sanitize_text(strjoin(strtrim(parts(2:end)), ","));
         return
     end
+end
+end
+
+function value = description_suffix_setting(description, settingSuffix)
+value = "";
+lines = splitlines(string(description));
+for idx = 1:numel(lines)
+    parts = split(lines(idx), ",");
+    if numel(parts) >= 2 && endsWith(strtrim(parts(1)), settingSuffix, "IgnoreCase", true)
+        value = sanitize_text(strjoin(strtrim(parts(2:end)), ","));
+        return
+    end
+end
+end
+
+function value = description_instrument(description)
+value = "";
+lines = splitlines(string(description));
+if isempty(lines)
+    return
+end
+firstLine = string(lines(1));
+marker = " Settings";
+markerIndex = strfind(firstLine, marker);
+if ~isempty(markerIndex)
+    value = sanitize_text(extractBefore(firstLine, markerIndex(1)));
 end
 end
 

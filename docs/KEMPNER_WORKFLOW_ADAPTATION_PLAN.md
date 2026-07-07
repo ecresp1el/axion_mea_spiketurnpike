@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 21:32 EDT
+Date updated: 2026-07-07 09:31 EDT
 
 ## Goal
 
@@ -47,11 +47,111 @@ C7 -> low_activity_ks4_nt2_npcs2
 F6 -> low_activity_ks4_nt2_npcs2
 ```
 
-The current active phase is **multi-recording scale-up across Lumos
-`*_BroadbandProcessor.raw` files only**. The scale-up batch has been launched
-for the 5 eligible `FortyEightWellLumos` logical recordings. The 2 `SixWell`
-logical recordings remain intentionally blocked with `submit=false` until a
-confirmed SixWell plate map/geometry is added.
+The current active phase is **raw-ingestion compatibility triage before any new
+large scale-up submission**. The `20260706` Lumos scale-up has reached terminal
+accounting:
+
+- the previously validated `2_25_2026` recording completed successfully with
+  fallback for 3 sparse wells,
+- the `2_12_2026` and `2_20_2026` submitted recordings failed during Axion raw
+  opening/export before NWB, SpikeInterface, AIND, or Kilosort,
+- both primary `.raw` and `*_BroadbandProcessor.raw` variants fail preflight for
+  the affected `2_12_2026` and `2_20_2026` logical recordings,
+- both primary `.raw` and `*_BroadbandProcessor.raw` variants pass preflight for
+  `2_25_2026`.
+
+Do not submit another large export batch from the affected recordings until the
+Axion loader compatibility issue is fixed or a different supported ingestion
+path is chosen.
+
+The 2 `SixWell` logical recordings remain intentionally blocked with
+`submit=false` until a confirmed SixWell plate map/geometry is added.
+
+Current collector snapshot as of `2026-07-07T09:31:23`:
+
+```text
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos
+  selected_wells: 10
+  recording_status: complete_with_failures
+  stage_counts: {"ingestion_open_failed": 10, "not_selected": 38}
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos
+  selected_wells: 10
+  recording_status: complete_with_failures
+  stage_counts: {"ingestion_open_failed": 10, "not_selected": 38}
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos
+  selected_wells: 7
+  recording_status: complete_with_failures
+  stage_counts: {"ingestion_open_failed": 7, "not_selected": 41}
+
+2_20_2026_129-8447_test(000)_FortyEightWellLumos
+  selected_wells: 24
+  recording_status: complete_with_failures
+  stage_counts: {"ingestion_open_failed": 24, "not_selected": 24}
+
+2_25_2026_129-8447_test(000)_FortyEightWellLumos
+  selected_wells: 14
+  recording_status: complete_success_with_fallback
+  selected_wells_standard_completed: 11
+  selected_wells_fallback_completed: 3
+  stage_counts: {"aind_completed": 11, "fallback_completed": 3, "not_selected": 34}
+```
+
+Status files refreshed by:
+
+```text
+bash scripts/summarize_aind_batch_status.sh \
+  --output-dir /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status \
+  --recording-stem '2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos' \
+  --recording-stem '2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos' \
+  --recording-stem '2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos' \
+  --recording-stem '2_20_2026_129-8447_test(000)_FortyEightWellLumos' \
+  --recording-stem '2_25_2026_129-8447_test(000)_FortyEightWellLumos'
+```
+
+Updated status outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.json
+```
+
+Collector logic was updated on `2026-07-07` so export logs containing the Axion
+`LookupChannelID` / `Index must not exceed 2880` signature are reported as:
+
+```text
+derived_stage: ingestion_open_failed
+export_failure_class: axion_axisfile_lookupchannel_open_failed
+```
+
+The normal MATLAB export path now also writes a structured failure artifact
+before rethrowing loader/export errors:
+
+```text
+<EXPORT_OUTPUT_DIR>/binary_export_failure.json
+```
+
+For the current Axion loader issue, that JSON records:
+
+```text
+analysis_kind: axion_well_kilosort_binary_export_failure
+phase: axisfile_open
+failure_class: axion_axisfile_lookupchannel_open_failed
+error_message: <MATLAB exception message>
+error_report: <full MATLAB getReport output>
+raw_file, recording_stem, well, dataset
+```
+
+The status collector reads `binary_export_failure.json` first and falls back to
+log-signature detection for older jobs that failed before this structured
+failure artifact existed.
+
+This keeps raw ingestion/open failures separate from low-activity Kilosort4
+failures, which remain handled by the `low_activity_ks4_nt2_npcs2` fallback.
+
+Historical launch state from the initial `20260706` scale-up:
 
 Scale-up launch state as of `2026-07-06T21:02:51`:
 
@@ -312,27 +412,141 @@ How to interpret the result:
   variant is compatible with the current loader/export path.
 ```
 
-Goals for `2026-07-07`:
+Preflight final readout as of `2026-07-07T09:31`:
 
 ```text
-1. Finish the raw-ingestion preflight readout.
-   Check all 10 submitted preflight jobs and summarize:
-     primary .raw AxisFile status
-     *_BroadbandProcessor.raw AxisFile status
-     dataset visibility
-     1 second A1 LoadData status
+All 10 Slurm preflight jobs completed with exit 0 and wrote preflight_result.json.
+The job exit code only means the diagnostic completed; the JSON status is the
+raw-ingestion result.
 
-   Ground-truth files:
-     /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/submitted_preflight_jobs.tsv
-     /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/<label>/preflight_result.json
+2_12_000_primary
+  raw: opto_test_meis2_with_E2opsin(000).raw
+  dataset: RawVoltageData
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
 
-2. Decide the ingestion policy before launching more scale-up exports.
-   Do not continue blindly with *_BroadbandProcessor.raw if preflight shows that
-   those files fail AxisFile while primary .raw passes. The next scale-up
-   manifest should choose the raw variant that passes preflight and record that
-   decision per logical recording.
+2_12_000_broadband
+  raw: opto_test_meis2_with_E2opsin(000)_BroadbandProcessor.raw
+  dataset: BroadbandHighFrequency
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
 
-3. Separate the two failure classes clearly.
+2_12_001_primary
+  raw: opto_test_meis2_with_E2opsin(001).raw
+  dataset: RawVoltageData
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
+
+2_12_001_broadband
+  raw: opto_test_meis2_with_E2opsin(001)_BroadbandProcessor.raw
+  dataset: BroadbandHighFrequency
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
+
+2_12_002_primary
+  raw: opto_test_meis2_with_E2opsin(002).raw
+  dataset: RawVoltageData
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
+
+2_12_002_broadband
+  raw: opto_test_meis2_with_E2opsin(002)_BroadbandProcessor.raw
+  dataset: BroadbandHighFrequency
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
+
+2_20_000_primary
+  raw: test(000).raw
+  dataset: RawVoltageData
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
+
+2_20_000_broadband
+  raw: test(000)_BroadbandProcessor.raw
+  dataset: BroadbandHighFrequency
+  peek_ok: true
+  axisfile_ok: false
+  dataset_ok: false
+  tiny_load_ok: false
+  overall_status: axisfile_open_failed_after_metadata_peek
+  error: Index exceeds the number of array elements. Index must not exceed 2880.
+
+2_25_000_primary
+  raw: test(000).raw
+  dataset: RawVoltageData
+  peek_ok: true
+  axisfile_ok: true
+  dataset_ok: true
+  tiny_load_ok: true
+  overall_status: ok
+
+2_25_000_broadband
+  raw: test(000)_BroadbandProcessor.raw
+  dataset: BroadbandHighFrequency
+  peek_ok: true
+  axisfile_ok: true
+  dataset_ok: true
+  tiny_load_ok: true
+  overall_status: ok
+```
+
+Interpretation after final readout:
+
+```text
+Primary .raw does not rescue the affected recordings. The failure occurs in
+AxisFile construction for both raw variants, after metadata peek succeeds.
+
+Eligible for current AIND route without loader work:
+  2_25_2026_129-8447_test(000)_FortyEightWellLumos
+
+Blocked by Axion loader compatibility:
+  2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos
+  2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos
+  2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos
+  2_20_2026_129-8447_test(000)_FortyEightWellLumos
+```
+
+Updated goals for `2026-07-07`:
+
+```text
+1. Completed: finish the raw-ingestion preflight readout.
+   All 10 preflight jobs completed and wrote JSON. The affected recordings fail
+   AxisFile for both primary .raw and *_BroadbandProcessor.raw. 2_25 passes for
+   both variants.
+
+2. Completed: decide immediate ingestion policy before more scale-up exports.
+   Do not continue with the affected 2_12 or 2_20 recordings through the current
+   AxisFile/export route. Switching to primary .raw is not sufficient.
+
+3. Completed: separate the two failure classes clearly.
    Class A: raw ingestion/export-open failure:
      AxisFile(rawFile) fails with LookupChannelID / index must not exceed 2880.
      This blocks export before NWB, SpikeInterface, AIND, or Kilosort.
@@ -341,24 +555,29 @@ Goals for `2026-07-07`:
      Kilosort4 fails because n_samples/clips < n_templates.
      This is handled by the low_activity_ks4_nt2_npcs2 fallback.
 
-4. Update the collector/supervisor logic if needed.
-   Export-open failures should be recorded as ingestion failures, not confused
-   with Kilosort failures. They should stop downstream dependencies for that
-   well/recording and produce a clear per-recording tally.
+4. Completed: update collector logic for known export-open failures.
+   scripts/summarize_aind_batch_status.py now labels export logs containing the
+   LookupChannelID / 2880-index signature as ingestion_open_failed with
+   export_failure_class=axion_axisfile_lookupchannel_open_failed.
 
 5. Preserve reproducibility.
    Every new manifest, preflight command, submitted Slurm command, and result
    summary should live under the project folder with a copied command/env/repro
    path. Avoid repo-root Nextflow/cache clutter.
 
-6. Only after ingestion policy is settled, prepare a fresh scale-up.
-   Candidate next run:
-     use only recordings/raw variants that pass preflight,
-     keep SixWell blocked until geometry is confirmed,
-     submit at recording level with per-well dependencies,
-     keep automatic low-activity fallback enabled.
+6. Next: investigate or bypass the Axion AxisFile compatibility issue.
+   Candidate paths:
+     patch/override the Axion MATLAB loader for the affected channel metadata,
+     use a different Axion-supported export/conversion route,
+     or acquire/export compatible raw files from AxIS if available.
 
-7. Update this handoff before any new large submission.
+7. Only after ingestion compatibility is solved, prepare a fresh scale-up.
+   Candidate next run should include only recordings/raw variants that pass
+   preflight, keep SixWell blocked until geometry is confirmed, submit at
+   recording level with per-well dependencies, and keep automatic low-activity
+   fallback enabled.
+
+8. Update this handoff before any new large submission.
    The handoff should state:
      which raw variant was selected per recording,
      why it was selected,
@@ -387,7 +606,7 @@ The active scale-up control and status files are:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.json
 ```
 
-The active run logic is:
+The submitted `20260706` run logic was:
 
 ```text
 1. Use recordings_manifest.csv to include only ready FortyEightWellLumos
@@ -399,6 +618,14 @@ The active run logic is:
    isolated low_activity_ks4_nt2_npcs2 fallback automatically.
 5. Treat the collector outputs as the current ground truth for per-well and
    per-recording status.
+```
+
+Current policy after preflight:
+
+```text
+Do not reuse that broad *_BroadbandProcessor.raw preference for affected
+recordings. 2_12 and 2_20 are blocked for both primary and BroadbandProcessor
+variants under the current AxisFile/export route.
 ```
 
 Scale-up safety checkpoints:

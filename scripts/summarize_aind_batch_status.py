@@ -18,6 +18,11 @@ from typing import Any
 DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
 FAILED_STATES = {"BOOT_FAIL", "CANCELLED", "DEADLINE", "FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "PREEMPTED", "TIMEOUT"}
 ACTIVE_STATES = {"CONFIGURING", "COMPLETING", "PENDING", "RUNNING", "SUSPENDED"}
+AXION_LOOKUPCHANNEL_PATTERNS = (
+    "Index exceeds the number of array elements. Index must not exceed 2880",
+    "BasicChannelArray/LookupChannel",
+    "LookupChannelID",
+)
 JOB_LINE_RE = re.compile(
     r"well=(?P<well>\S+)\s+export_job=(?P<export_job>\S+)\s+"
     r"nwb_job=(?P<nwb_job>\S+)\s+spikeinterface_job=(?P<spikeinterface_job>\S+)\s+"
@@ -288,6 +293,80 @@ def parse_trace(trace_path: Path) -> dict[str, Any]:
     }
 
 
+def read_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def export_failure_manifest(binary_file: Path | None) -> Path | None:
+    if not binary_file:
+        return None
+    path = binary_file.parent / "binary_export_failure.json"
+    return path if path.is_file() else None
+
+
+def export_log_candidates(binary_file: Path | None, project_root: Path, export_job: str) -> list[Path]:
+    if not export_job:
+        return []
+    candidates = []
+    if binary_file:
+        candidates.append(binary_file.parent / f"export_axion_well_binary_{export_job}.log")
+    candidates.extend(
+        [
+            project_root / "logs" / f"axion-export-well-{export_job}.out",
+            project_root / "logs" / f"axion-export-well-{export_job}.err",
+        ]
+    )
+    seen = set()
+    unique = []
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        unique.append(path)
+    return unique
+
+
+def classify_export_failure(binary_file: Path | None, project_root: Path, export_job: str) -> dict[str, str]:
+    failure_json = export_failure_manifest(binary_file)
+    failure_payload = read_json_object(failure_json) if failure_json else {}
+    if failure_payload:
+        failure_class = str(failure_payload.get("failure_class", "") or "")
+        phase = str(failure_payload.get("phase", "") or "")
+        message = str(failure_payload.get("error_message", "") or "")
+        return {
+            "export_failure_class": failure_class,
+            "export_failure_reason": message or f"MATLAB export failed during {phase}.",
+            "export_failure_phase": phase,
+            "export_failure_json": str(failure_json),
+            "export_failure_log": "",
+        }
+    for log_path in export_log_candidates(binary_file, project_root, export_job):
+        if not log_path.is_file():
+            continue
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        if all(pattern in text for pattern in AXION_LOOKUPCHANNEL_PATTERNS):
+            return {
+                "export_failure_class": "axion_axisfile_lookupchannel_open_failed",
+                "export_failure_reason": "AxisFile(rawFile) failed during Axion channel lookup: index must not exceed 2880.",
+                "export_failure_phase": "axisfile_open",
+                "export_failure_json": "",
+                "export_failure_log": str(log_path),
+            }
+    return {
+        "export_failure_class": "",
+        "export_failure_reason": "",
+        "export_failure_phase": "",
+        "export_failure_json": "",
+        "export_failure_log": "",
+    }
+
+
 def read_csv_tab(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
         return list(csv.DictReader(handle, delimiter="\t"))
@@ -322,6 +401,8 @@ def derive_stage(row: dict[str, Any]) -> str:
     if state_is(row, "fallback_aind", "PENDING"):
         return "fallback_pending"
 
+    if row.get("export_failure_class") == "axion_axisfile_lookupchannel_open_failed":
+        return "ingestion_open_failed"
     if state_in(row, "export", FAILED_STATES):
         return "export_failed"
     if state_is(row, "export", "RUNNING"):
@@ -367,6 +448,7 @@ def summarize_recording(
     fallback_attempts: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     recording_stem = batch_root.name
+    project_root = batch_root.parents[2]
     selection_rows = read_csv(batch_root / "selection" / "well_selection_manifest.csv")
     batch_rows = read_csv(batch_root / "well_batch_manifest.csv")
     batch_by_well = {row.get("well", ""): row for row in batch_rows}
@@ -440,6 +522,18 @@ def summarize_recording(
             row[f"{prefix}_elapsed"] = state.get("elapsed") or state.get("queue_time", "")
             row[f"{prefix}_exit_code"] = state.get("exit_code", "")
             row[f"{prefix}_queue_reason"] = state.get("queue_reason", "")
+        if state_in(row, "export", FAILED_STATES):
+            row.update(classify_export_failure(binary_file, project_root, str(row.get("export_job", ""))))
+        else:
+            row.update(
+                {
+                    "export_failure_class": "",
+                    "export_failure_reason": "",
+                    "export_failure_phase": "",
+                    "export_failure_json": "",
+                    "export_failure_log": "",
+                }
+            )
         row.update(trace)
         fallback_state = merge_job_state(str(row.get("fallback_aind_job", "")), sacct_states, squeue_states)
         row["fallback_aind_state"] = fallback_state.get("state", "")
