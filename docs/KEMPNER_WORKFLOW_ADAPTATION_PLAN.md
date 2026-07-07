@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 20:38 EDT
+Date updated: 2026-07-06 21:05 EDT
 
 ## Goal
 
@@ -53,7 +53,7 @@ for the 5 eligible `FortyEightWellLumos` logical recordings. The 2 `SixWell`
 logical recordings remain intentionally blocked with `submit=false` until a
 confirmed SixWell plate map/geometry is added.
 
-Scale-up launch state as of `2026-07-06T20:38:04`:
+Scale-up launch state as of `2026-07-06T21:02:51`:
 
 ```text
 logical_recordings_in_manifest: 7
@@ -73,20 +73,90 @@ Submission safe:
 
 Export safe:
   not yet
-  2_25_2026 has 11/14 binary exports done; the other submitted recordings are still exporting.
+  2_25_2026 has completed export and entered AIND.
+  The other four submitted recordings are still in full-series export.
 
 NWB/SI prep safe:
   not yet
-  2_25_2026 has 11/14 NWB exports and 11/14 SpikeInterface prep outputs done.
+  2_25_2026 has entered AIND for all 14 selected wells.
+  The other four submitted recordings are waiting on export before NWB/SI prep can run.
 
 AIND/Kilosort entered:
   partially
-  2_25_2026 has 11 selected wells in AIND running.
+  2_25_2026 has 14 selected wells in AIND running.
+  At least one 2_25_2026 well, A1, has completed spikesort_kilosort4.
   The other four submitted recordings have not reached AIND yet.
 
 Recording safe:
   not yet
   No submitted scale-up recording is terminal yet.
+```
+
+Current per-recording collector status as of `2026-07-06T21:02:51`:
+
+```text
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos
+  selected_wells: 10
+  current_stage: export_running
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos
+  selected_wells: 10
+  current_stage: export_running
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos
+  selected_wells: 7
+  current_stage: export_running
+
+2_20_2026_129-8447_test(000)_FortyEightWellLumos
+  selected_wells: 24
+  current_stage: export_running
+
+2_25_2026_129-8447_test(000)_FortyEightWellLumos
+  selected_wells: 14
+  current_stage: aind_running
+```
+
+Current elapsed-time checkpoint as of `2026-07-06T21:02:51`:
+
+```text
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000) export jobs
+  running since 20:16 EDT, about 46 minutes
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001) export jobs
+  running since 20:19 EDT, about 43 minutes
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002) export jobs
+  running since 20:23 EDT, about 39 minutes
+
+2_20_2026_129-8447_test(000) export jobs
+  running since 20:26 EDT, about 36 minutes
+
+2_25_2026_129-8447_test(000) AIND jobs
+  running since about 20:32-20:40 EDT, about 22-31 minutes
+```
+
+Why this checkpoint is waiting:
+
+```text
+1. The current scale-up exports the whole time series for each selected well.
+   EXPORT_DURATION_S is intentionally NaN/full-series, not a subset window.
+
+2. Multiple selected wells from the same Axion recording are exported in
+   parallel, so those jobs compete for reads from the same large raw file and
+   writes to the project output area.
+
+3. Slurm is throttling some downstream work with AssocGrpMemLimit. This means
+   the account/user memory limit is saturated, so some tasks are queued even
+   though the workflow submitted them correctly.
+
+4. Many downstream axion-export-nwb, axion-aind-si-prep, and axion-aind-nwb jobs
+   are PENDING with Dependency because they correctly wait for export jobs to
+   finish first.
+
+5. At least one AIND/Kilosort task in the active scale-up has completed:
+   2_25_2026 A1 completed spikesort_kilosort4 in about 12 minutes. Final
+   recording-level success is still waiting on the remaining wells and final
+   units/QC/result collector stages.
 ```
 
 The submitted scale-up recordings are:
