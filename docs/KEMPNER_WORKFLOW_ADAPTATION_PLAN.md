@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 19:05 EDT
+Date updated: 2026-07-06 20:21 EDT
 
 ## Goal
 
@@ -20,7 +20,88 @@ This repo should only own the Axion-specific bridge:
 Once Axion data is presented in a supported format, downstream processing should
 come from AIND/Kempner methods, not from new local reimplementations.
 
-## Current Status Snapshot
+## Current Operational State
+
+The single-recording gate is complete. A fresh recording-level run using
+`*_BroadbandProcessor.raw` completed end-to-end:
+
+```text
+recording_stem:
+  test_2_25_2026_129-8447_test(000)_full_lumos_settings_fresh_20260706_191012
+
+recording_status: complete_success_with_fallback
+candidate_wells: 48
+selected_wells: 14
+selected_wells_completed: 14
+selected_wells_standard_completed: 11
+selected_wells_fallback_completed: 3
+selected_wells_failed: 0
+```
+
+The three sparse wells that failed standard Kilosort4 were automatically routed
+through the labeled fallback and completed through `nwb_units`:
+
+```text
+B6 -> low_activity_ks4_nt2_npcs2
+C7 -> low_activity_ks4_nt2_npcs2
+F6 -> low_activity_ks4_nt2_npcs2
+```
+
+The current active phase is **multi-recording scale-up across Lumos
+`*_BroadbandProcessor.raw` files only**. The scale-up batch has been launched
+for the 5 eligible `FortyEightWellLumos` logical recordings. The 2 `SixWell`
+logical recordings remain intentionally blocked with `submit=false` until a
+confirmed SixWell plate map/geometry is added.
+
+Scale-up launch state as of `2026-07-06T20:20:39`:
+
+```text
+logical_recordings_in_manifest: 7
+eligible_lumos_recordings_submitted: 5
+blocked_sixwell_recordings: 2
+selected_well_pipelines_submitted: 65
+recording_supervisors_submitted: 5
+```
+
+The submitted scale-up recordings are:
+
+```text
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos: 10 wells
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos: 10 wells
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos: 7 wells
+2_20_2026_129-8447_test(000)_FortyEightWellLumos: 24 wells
+2_25_2026_129-8447_test(000)_FortyEightWellLumos: 14 wells
+```
+
+The active scale-up control and status files are:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/submitted_recording_batches.tsv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/submitted_recording_supervisors.tsv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.json
+```
+
+The active run logic is:
+
+```text
+1. Use recordings_manifest.csv to include only ready FortyEightWellLumos
+   *_BroadbandProcessor.raw recordings.
+2. Submit all selected wells in parallel through the generated per-recording
+   dependency chains.
+3. Run one recording supervisor per submitted recording.
+4. Let each supervisor detect sparse standard KS4 failures and submit the
+   isolated low_activity_ks4_nt2_npcs2 fallback automatically.
+5. Treat the collector outputs as the current ground truth for per-well and
+   per-recording status.
+```
+
+## Historical Validation And Issue Log
+
+The rest of this handoff keeps earlier failures and fixes as provenance. They
+are not the active workflow unless explicitly referenced by the current
+operational state above.
 
 As of 2026-07-06 15:58 EDT, the single-well A1 AIND smoke test completed
 end-to-end.
@@ -83,13 +164,13 @@ nextflow/
 repro/
 ```
 
-The A1 gate for scaling is satisfied from the AIND workflow perspective.
-The first 13-well scale-up submission exposed a MATLAB export bug, the
-no-timespan full-series export fix has been proven on B6, B6 is now in AIND,
-and the other 12 wells have been relaunched with the fixed route.
+Historical note: the A1 gate was the first proof that the AIND workflow could
+complete on Axion/Lumos input. That gate is now superseded by the fresh
+recording-level run, which completed 14/14 selected wells with 11 standard
+completions and 3 automatic fallback completions.
 
-Current scale-up monitoring is no longer based on manually tailing one trace at
-a time. Use the batch status collector:
+Historical monitoring for the earlier single-recording batch moved away from
+manually tailing one trace at a time and used the batch status collector:
 
 ```text
 bash scripts/summarize_aind_batch_status.sh \
@@ -2241,11 +2322,10 @@ Generated scale-up submit script:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/test_2_25_2026_129-8447_test(000)_full_lumos_settings/submit_all_wells.sh
 ```
 
-The 14-well AIND batch can now be launched from the workflow-validation
-standpoint because A1 completed the final AIND path: Kilosort4, lean
-postprocessing, curation/visualization, `results_collector`, QC collection, and
-`nwb_units`. Launch deliberately, monitor each well's trace, and use Nextflow
-`-resume` for any per-well retry rather than deleting work directories.
+Historical note: this 14-well launch instruction is superseded by the completed
+fresh recording-level run and the active Lumos `_BroadbandProcessor.raw`
+multi-recording scale-up. Use the current operational state at the top of this
+handoff for active commands and status paths.
 
 Results should be separated by recording and well:
 
@@ -2263,6 +2343,153 @@ metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv
 
 but downstream ingestion should use the generated per-well `channel_mapping.csv`
 through `AxionWellMapping`.
+
+### 2026-07-06 Fresh Recording Run And Scale-Up Prep
+
+A fresh recording-level run was started under a new recording namespace so it
+does not overwrite the earlier successful proof run:
+
+```text
+test_2_25_2026_129-8447_test(000)_full_lumos_settings_fresh_20260706_191012
+```
+
+The exact commands are saved in:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_fresh_runs/test_2_25_2026_129-8447_test(000)_full_lumos_settings_fresh_20260706_191012/fresh_run_commands.sh
+```
+
+Final fresh-run status at `2026-07-06T20:10:18`:
+
+```text
+candidate_wells: 48
+selected_wells: 14
+binary_exports_done: 14
+nwb_exports_done: 14
+spikeinterface_prep_done: 14
+selected_wells_completed: 14
+selected_wells_standard_completed: 11
+selected_wells_fallback_completed: 3
+aind_running: 0
+fallback_running: 0
+selected_wells_failed: 0
+recording_status: complete_success_with_fallback
+```
+
+The recording supervisor proved the intended recording-level fallback behavior.
+Sparse standard KS4 failures were detected at different times and were
+automatically routed to the labeled fallback `low_activity_ks4_nt2_npcs2`:
+
+```text
+C7 -> fallback job 53018023
+F6 -> fallback job 53018548
+B6 -> fallback job 53019665
+```
+
+The collector is the current ground truth for this fresh run:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_recording_supervisors/test_2_25_2026_129-8447_test(000)_full_lumos_settings_fresh_20260706_191012/collector/workflow_status_latest.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_recording_supervisors/test_2_25_2026_129-8447_test(000)_full_lumos_settings_fresh_20260706_191012/collector/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_recording_supervisors/test_2_25_2026_129-8447_test(000)_full_lumos_settings_fresh_20260706_191012/supervisor.log
+```
+
+Scale-up preparation was generated from the raw-data inventory and the
+Lumos-only `_BroadbandProcessor.raw` scale-up has now been submitted. The large
+batch was launched only after the fresh run reached
+`complete_success_with_fallback`.
+
+Inventory output:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_selection_asset_inventory_20260706_scaleup/aind_selection_asset_inventory.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_selection_asset_inventory_20260706_scaleup/aind_selection_asset_inventory.json
+```
+
+Scale-up manifest and saved commands:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recordings_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recordings_manifest_summary.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/scaleup_prepare_commands.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/scaleup_prepared_recordings_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/scaleup_prepared_recordings_summary.json
+```
+
+Prepared scale-up batch plan:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/prepare_all_recordings.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/submit_all_recordings.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/supervise_all_recordings.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/recording_batch_manifest.csv
+```
+
+Scale-up launch summary:
+
+```text
+logical_recordings_total: 7
+raw_files_inventoried: 14
+eligible_lumos_recordings_submitted: 5
+recordings_blocked: 2
+selected_well_pipelines_submitted: 65
+recording_supervisors_submitted: 5
+```
+
+Important assumption: the raw inventory contained paired Axion primary `.raw`
+files and `*_BroadbandProcessor.raw` files. The scale-up manifest currently
+de-duplicates those pairs into one logical recording and chooses the
+`*_BroadbandProcessor.raw` file for sorting, because the successful proof run and
+fresh run used that continuous voltage input. This is a major assumption, not a
+final conclusion. A later comparison workflow should include both file families
+as separate inputs with distinct `recording_stem` values so we can directly
+compare whether the primary `.raw` and `*_BroadbandProcessor.raw` filtering
+differences change spike sorting outputs.
+
+Submitted FortyEightWellLumos recordings and selected wells:
+
+```text
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos: 10 wells
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos: 10 wells
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos: 7 wells
+2_20_2026_129-8447_test(000)_FortyEightWellLumos: 24 wells
+2_25_2026_129-8447_test(000)_FortyEightWellLumos: 14 wells
+```
+
+Blocked recordings:
+
+```text
+2_24_2026_134-0150_test(000)_SixWell
+2_24_2026_134-0150_test(001)_SixWell
+```
+
+These SixWell recordings have raw files, spike-count sidecars, spike-list
+sidecars, and metadata matches, but they are intentionally `submit=false`
+because this repo currently has 48-well and 24-well plate maps, not a confirmed
+SixWell plate map. Do not enable them until the SixWell plate geometry and well
+map are added as the single source of truth.
+
+The scale-up submission has already been run:
+
+```bash
+bash /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/submit_all_recordings.sh
+bash /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/supervise_all_recordings.sh
+```
+
+Submission provenance:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/submitted_recording_batches.tsv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/recording_batch_plan/submitted_recording_supervisors.tsv
+```
+
+Current scale-up monitoring ground truth:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_scaleup_20260706/live_status/workflow_status_latest.json
+```
 
 ## Do Not Reinvent
 
