@@ -312,6 +312,61 @@ How to interpret the result:
   variant is compatible with the current loader/export path.
 ```
 
+Goals for `2026-07-07`:
+
+```text
+1. Finish the raw-ingestion preflight readout.
+   Check all 10 submitted preflight jobs and summarize:
+     primary .raw AxisFile status
+     *_BroadbandProcessor.raw AxisFile status
+     dataset visibility
+     1 second A1 LoadData status
+
+   Ground-truth files:
+     /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/submitted_preflight_jobs.tsv
+     /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/<label>/preflight_result.json
+
+2. Decide the ingestion policy before launching more scale-up exports.
+   Do not continue blindly with *_BroadbandProcessor.raw if preflight shows that
+   those files fail AxisFile while primary .raw passes. The next scale-up
+   manifest should choose the raw variant that passes preflight and record that
+   decision per logical recording.
+
+3. Separate the two failure classes clearly.
+   Class A: raw ingestion/export-open failure:
+     AxisFile(rawFile) fails with LookupChannelID / index must not exceed 2880.
+     This blocks export before NWB, SpikeInterface, AIND, or Kilosort.
+
+   Class B: low-activity Kilosort4 failure:
+     Kilosort4 fails because n_samples/clips < n_templates.
+     This is handled by the low_activity_ks4_nt2_npcs2 fallback.
+
+4. Update the collector/supervisor logic if needed.
+   Export-open failures should be recorded as ingestion failures, not confused
+   with Kilosort failures. They should stop downstream dependencies for that
+   well/recording and produce a clear per-recording tally.
+
+5. Preserve reproducibility.
+   Every new manifest, preflight command, submitted Slurm command, and result
+   summary should live under the project folder with a copied command/env/repro
+   path. Avoid repo-root Nextflow/cache clutter.
+
+6. Only after ingestion policy is settled, prepare a fresh scale-up.
+   Candidate next run:
+     use only recordings/raw variants that pass preflight,
+     keep SixWell blocked until geometry is confirmed,
+     submit at recording level with per-well dependencies,
+     keep automatic low-activity fallback enabled.
+
+7. Update this handoff before any new large submission.
+   The handoff should state:
+     which raw variant was selected per recording,
+     why it was selected,
+     how many recordings/wells are eligible,
+     how many are blocked and why,
+     where the submitted commands and live status will be stored.
+```
+
 The submitted scale-up recordings are:
 
 ```text
