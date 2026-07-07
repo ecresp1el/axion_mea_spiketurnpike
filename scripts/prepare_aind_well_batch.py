@@ -104,6 +104,10 @@ def q(value) -> str:
     return shlex.quote(str(value))
 
 
+def truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
 def _metadata_from_selection_manifest(selection_manifest: Path | None) -> dict[str, str]:
     if selection_manifest is None:
         return {}
@@ -149,6 +153,13 @@ def source_metadata(args: argparse.Namespace) -> dict[str, str]:
 
 def resolve_plate_profile(args: argparse.Namespace) -> tuple[dict[str, str], PlateProfile]:
     metadata = source_metadata(args)
+    if truthy(metadata.get("block_vector_warning_seen")):
+        raise SystemExit(
+            "Raw metadata reported BlockVector warnings, so voltage export is blocked. "
+            "Do not submit this raw through the standard MATLAB Axion File Loader path. "
+            f"raw_file={args.raw_file.expanduser().resolve()} "
+            f"warning_ids={metadata.get('block_vector_warning_ids', '')}"
+        )
     try:
         profile = profile_from_metadata(metadata)
     except ValueError as exc:

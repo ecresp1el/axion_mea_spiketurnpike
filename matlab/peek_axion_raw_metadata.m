@@ -64,6 +64,9 @@ info = struct( ...
     "metadata_firmware_version", "", ...
     "metadata_barcode", "", ...
     "metadata_biocore_version", "", ...
+    "block_vector_warning_seen", false, ...
+    "block_vector_warning_ids", "", ...
+    "block_vector_warning_messages", "", ...
     "metadata_keys", "");
 
 magicRead = fread(fid, length(MAGIC_WORD), '*char').';
@@ -133,7 +136,12 @@ while ~terminated
                 tagEntries(end + 1) = TagEntry(entryRecord, fid); %#ok<AGROW>
 
             case EntryRecordID.CombinedBlockVectorHeader
+                lastwarn("");
                 combinedHeader = CombinedBlockVectorHeaderEntry.Deserialize(entryRecord, fid);
+                [warningMessage, warningId] = lastwarn;
+                if is_block_vector_warning(warningId, warningMessage)
+                    info = append_block_vector_warning(info, warningId, warningMessage);
+                end
                 combinedHeaders(end + 1) = combinedHeader; %#ok<AGROW>
 
             otherwise
@@ -226,6 +234,37 @@ info.metadata_firmware_version = description_suffix_setting(rawDescription, "Fir
 info.metadata_barcode = metadata_value(metadata, "Barcode");
 info.metadata_biocore_version = metadata_value(metadata, "BioCoreVersion");
 info.metadata_keys = strjoin(string(keys(metadata)), ";");
+end
+
+function tf = is_block_vector_warning(warningId, warningMessage)
+warningText = string(warningId) + " " + string(warningMessage);
+tf = contains(warningText, "BlockVectorMetaData", "IgnoreCase", true) || ...
+    contains(warningText, "BlockVectorMetadata", "IgnoreCase", true);
+end
+
+function info = append_block_vector_warning(info, warningId, warningMessage)
+info.block_vector_warning_seen = true;
+info.block_vector_warning_ids = append_unique_token(info.block_vector_warning_ids, string(warningId));
+info.block_vector_warning_messages = append_unique_token( ...
+    info.block_vector_warning_messages, sanitize_text(string(warningMessage)));
+end
+
+function value = append_unique_token(existing, newValue)
+newValue = string(newValue);
+if strlength(newValue) == 0
+    value = existing;
+    return
+end
+if strlength(existing) == 0
+    value = newValue;
+    return
+end
+tokens = split(string(existing), ";");
+if any(tokens == newValue)
+    value = existing;
+else
+    value = string(existing) + ";" + newValue;
+end
 end
 
 function [metadata, plateMapCount] = promote_tags(fid, tagEntries)

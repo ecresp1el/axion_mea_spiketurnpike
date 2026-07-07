@@ -171,6 +171,10 @@ def meta_value(meta: dict[str, str] | None, key: str) -> str:
     return meta.get(key, "")
 
 
+def truthy(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
 def dataset_description_setting(meta: dict[str, str] | None, setting_name: str) -> str:
     description = meta_value(meta, "dataset_description")
     for line in re.split(r"[\r\n]+", description):
@@ -208,6 +212,21 @@ def filter_metadata_signature(
         ("derived_lp", derived_low_pass_filter),
     ]
     return " | ".join(f"{key}={filter_value(value)}" for key, value in parts)
+
+
+def standard_export_block_reasons(
+    meta: dict[str, str] | None,
+    metadata_status: str,
+    block_vector_warning_seen: bool,
+) -> list[str]:
+    reasons: list[str] = []
+    if not meta:
+        reasons.append("raw_metadata_missing")
+    elif metadata_status and metadata_status != "ok":
+        reasons.append(f"raw_metadata_status_{metadata_status}")
+    if block_vector_warning_seen:
+        reasons.append("block_vector_warning_seen")
+    return reasons
 
 
 def add_group_value(group: dict[str, Any], key: str, value: str) -> None:
@@ -401,6 +420,11 @@ def main() -> None:
             "derived_high_pass_filters": set(),
             "derived_low_pass_filters": set(),
             "filter_metadata_signatures": set(),
+            "block_vector_warning_files": set(),
+            "block_vector_warning_ids": set(),
+            "block_vector_warning_messages": set(),
+            "standard_export_allowed_values": set(),
+            "standard_export_block_reasons": set(),
             "stim_parse_statuses": Counter(),
             "stim_parse_errors": set(),
             "stim_event_counts": set(),
@@ -476,6 +500,11 @@ def main() -> None:
             stim_summary = summarize_raw_stimulation(path)
             plate_type = meta.get("plate_type_name", "") if meta else ""
             metadata_status = meta.get("status", "") if meta else "missing"
+            block_vector_warning_seen = truthy(meta_value(meta, "block_vector_warning_seen"))
+            export_block_reasons = standard_export_block_reasons(
+                meta, metadata_status, block_vector_warning_seen
+            )
+            standard_export_allowed = not export_block_reasons
             group["raws"].append(path)
             group["raw_variants"][raw_kind] += 1
             group["plate_types"][plate_type or "metadata_missing"] += 1
@@ -490,6 +519,13 @@ def main() -> None:
             add_group_value(group, "metadata_recording_names", meta_value(meta, "metadata_recording_name"))
             add_group_value(group, "metadata_descriptions", meta_value(meta, "metadata_description"))
             add_group_value(group, "metadata_barcodes", meta_value(meta, "metadata_barcode"))
+            if block_vector_warning_seen:
+                add_group_value(group, "block_vector_warning_files", rel(path, raw_root))
+            add_group_value(group, "block_vector_warning_ids", meta_value(meta, "block_vector_warning_ids"))
+            add_group_value(group, "block_vector_warning_messages", meta_value(meta, "block_vector_warning_messages"))
+            add_group_value(group, "standard_export_allowed_values", str(standard_export_allowed).lower())
+            for reason in export_block_reasons:
+                add_group_value(group, "standard_export_block_reasons", reason)
             analog_mode_setting = dataset_description_setting(meta, "Analog Mode Setting") or meta_value(meta, "metadata_analog_mode")
             digital_high_pass_filter = dataset_description_setting(meta, "Digital High Pass Filter")
             digital_low_pass_filter = dataset_description_setting(meta, "Digital Low Pass Filter")
@@ -557,6 +593,11 @@ def main() -> None:
                 "metadata_recording_name": meta.get("metadata_recording_name", "") if meta else "",
                 "metadata_description": meta.get("metadata_description", "") if meta else "",
                 "metadata_barcode": meta.get("metadata_barcode", "") if meta else "",
+                "block_vector_warning_seen": block_vector_warning_seen,
+                "block_vector_warning_ids": meta.get("block_vector_warning_ids", "") if meta else "",
+                "block_vector_warning_messages": meta.get("block_vector_warning_messages", "") if meta else "",
+                "standard_export_allowed": standard_export_allowed,
+                "standard_export_block_reasons": ";".join(export_block_reasons),
                 "acquisition_analog_mode_setting": analog_mode_setting,
                 "acquisition_digital_high_pass_filter": digital_high_pass_filter,
                 "acquisition_digital_low_pass_filter": digital_low_pass_filter,
@@ -584,6 +625,8 @@ def main() -> None:
         issues = []
         if group["plate_types"].get("metadata_missing"):
             issues.append("raw_metadata_missing")
+        if group["block_vector_warning_files"]:
+            issues.append("block_vector_warning_seen")
         if len(group["plate_types"]) > 1:
             issues.append("mixed_or_missing_plate_metadata")
         if not sidecar_counts.get("spk") and not sidecar_counts.get("neural_event_detector_spk"):
@@ -608,6 +651,16 @@ def main() -> None:
         has_stim_events = any(value > 0 for value in stim_event_counts)
         has_led_stim = any(value > 0 for value in stim_led_event_counts)
         has_electrode_stim = any(value > 0 for value in stim_electrode_event_counts)
+        standard_export_allowed_values = group["standard_export_allowed_values"]
+        standard_export_allowed_raw_count = group["standard_export_allowed_values"].count("true") if hasattr(group["standard_export_allowed_values"], "count") else sum(
+            1 for raw in group["raws"]
+            if not standard_export_block_reasons(
+                metadata.get(str(raw)),
+                metadata.get(str(raw), {}).get("status", "") if metadata.get(str(raw)) else "missing",
+                truthy(meta_value(metadata.get(str(raw)), "block_vector_warning_seen")),
+            )
+        )
+        standard_export_blocked_raw_count = len(group["raws"]) - standard_export_allowed_raw_count
         if group["stim_parse_statuses"].get("failed"):
             issues.append("stim_parse_failed")
         if has_led_stim:
@@ -654,6 +707,14 @@ def main() -> None:
             "metadata_recording_names": joined_values(group["metadata_recording_names"]),
             "metadata_descriptions": joined_values(group["metadata_descriptions"]),
             "metadata_barcodes": joined_values(group["metadata_barcodes"]),
+            "block_vector_warning_seen": bool(group["block_vector_warning_files"]),
+            "block_vector_warning_files": joined_values(group["block_vector_warning_files"]),
+            "block_vector_warning_ids": joined_values(group["block_vector_warning_ids"]),
+            "block_vector_warning_messages": joined_values(group["block_vector_warning_messages"]),
+            "has_standard_export_allowed_raw": "true" in standard_export_allowed_values,
+            "standard_export_allowed_raw_count": standard_export_allowed_raw_count,
+            "standard_export_blocked_raw_count": standard_export_blocked_raw_count,
+            "standard_export_block_reasons": joined_values(group["standard_export_block_reasons"]),
             "acquisition_analog_mode_settings": joined_values(group["acquisition_analog_mode_settings"]),
             "acquisition_digital_high_pass_filters": joined_values(group["acquisition_digital_high_pass_filters"]),
             "acquisition_digital_low_pass_filters": joined_values(group["acquisition_digital_low_pass_filters"]),
@@ -773,6 +834,17 @@ def main() -> None:
         "raw_files_by_filter_metadata_signature": dict(
             Counter(row["filter_metadata_signature"] for row in raw_rows)
         ),
+        "raw_files_by_standard_export_allowed": dict(
+            Counter(str(row["standard_export_allowed"]).lower() for row in raw_rows)
+        ),
+        "raw_files_by_standard_export_block_reason": dict(
+            Counter(
+                reason
+                for row in raw_rows
+                for reason in str(row["standard_export_block_reasons"]).split(";")
+                if reason
+            )
+        ),
         "platemap_files_by_scope": dict(Counter(row["scope"] for row in platemap_rows)),
         "raw_files_by_stim_parse_status": dict(Counter(row["stim_parse_status"] for row in raw_rows)),
         "raw_files_with_stim_events": sum(
@@ -840,6 +912,18 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(["", "## Raw Files By Filter Metadata Signature", ""])
     if summary["raw_files_by_filter_metadata_signature"]:
         for key, value in sorted(summary["raw_files_by_filter_metadata_signature"].items()):
+            lines.append(f"- {key}: {value}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Raw Files By Standard Export Allowed", ""])
+    if summary["raw_files_by_standard_export_allowed"]:
+        for key, value in sorted(summary["raw_files_by_standard_export_allowed"].items()):
+            lines.append(f"- {key}: {value}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Raw Files By Standard Export Block Reason", ""])
+    if summary["raw_files_by_standard_export_block_reason"]:
+        for key, value in sorted(summary["raw_files_by_standard_export_block_reason"].items()):
             lines.append(f"- {key}: {value}")
     else:
         lines.append("- none")

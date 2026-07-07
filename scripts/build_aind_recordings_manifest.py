@@ -198,11 +198,20 @@ def main() -> None:
             and truthy(row.get("raw_metadata_matched", ""))
             and truthy(row.get("can_prepare_spike_sorting_inputs", ""))
         )
+        block_vector_warning_seen = truthy(row.get("block_vector_warning_seen", ""))
+        if block_vector_warning_seen:
+            status = "blocked_blockvector_metadata_warning"
+            reason = (
+                "Raw metadata reported BlockVector warnings; standard MATLAB "
+                "Axion File Loader voltage export is blocked for this file."
+            )
+            assets_ready = False
         enabled = assets_ready and status == "supported" and not args.disable_submit
         scale_status = "ready" if enabled else status
         if not assets_ready:
-            scale_status = "blocked_missing_assets_or_metadata"
-            reason = row.get("missing_assets", "") or "raw metadata did not match"
+            if not block_vector_warning_seen:
+                scale_status = "blocked_missing_assets_or_metadata"
+                reason = row.get("missing_assets", "") or "raw metadata did not match"
         manifest_row = {
             "recording_stem": scale_recording_stem(row),
             "raw_file": row["raw_file"],
@@ -227,6 +236,9 @@ def main() -> None:
             "axion_recording_stem": row.get("recording_stem", ""),
             "raw_file_kind": row.get("raw_file_kind", ""),
             "dataset_description": row.get("dataset_description", ""),
+            "block_vector_warning_seen": row.get("block_vector_warning_seen", ""),
+            "block_vector_warning_ids": row.get("block_vector_warning_ids", ""),
+            "block_vector_warning_messages": row.get("block_vector_warning_messages", ""),
             "filter_metadata_signature": filter_fields["filter_metadata_signature"],
             "acquisition_analog_mode_setting": filter_fields["acquisition_analog_mode_setting"],
             "acquisition_digital_high_pass_filter": filter_fields["acquisition_digital_high_pass_filter"],

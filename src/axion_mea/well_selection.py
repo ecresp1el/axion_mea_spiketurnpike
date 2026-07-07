@@ -45,6 +45,10 @@ def _json_ready(value: Any) -> Any:
     return value
 
 
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
 def recording_stem_from_raw_file(raw_file: Path) -> str:
     """Return the Axion recording stem shared by raw and sidecar files."""
     raw_name = raw_file.name
@@ -120,6 +124,7 @@ def _asset_status(
     plate_map_csv: Path,
     spike_counts_csv: Path,
     spike_list_csv: Path,
+    raw_metadata: dict[str, Any],
     raw_metadata_status: dict[str, Any],
 ) -> dict[str, Any]:
     plate_map_exists = plate_map_csv.exists()
@@ -140,7 +145,15 @@ def _asset_status(
     status["can_score_activity"] = plate_map_exists and spike_counts_exists
     status["can_read_well_annotations"] = spike_list_exists
     status["can_map_raw_metadata"] = bool(status.get("raw_metadata_matched"))
-    status["can_prepare_spike_sorting_inputs"] = raw_exists and plate_map_exists and spike_counts_exists
+    status["block_vector_warning_seen"] = _truthy(raw_metadata.get("block_vector_warning_seen"))
+    status["block_vector_warning_ids"] = raw_metadata.get("block_vector_warning_ids")
+    status["block_vector_warning_messages"] = raw_metadata.get("block_vector_warning_messages")
+    status["can_prepare_spike_sorting_inputs"] = (
+        raw_exists
+        and plate_map_exists
+        and spike_counts_exists
+        and not status["block_vector_warning_seen"]
+    )
     missing = []
     for key, present in [
         ("raw_file", raw_exists),
@@ -152,6 +165,8 @@ def _asset_status(
             missing.append(key)
     if status.get("raw_metadata_inventory_csv") and not status.get("raw_metadata_inventory_exists"):
         missing.append("raw_metadata_inventory_csv")
+    if status["block_vector_warning_seen"]:
+        missing.append("block_vector_warning_seen")
     status["missing_assets"] = ";".join(missing)
     return status
 
@@ -267,6 +282,7 @@ def select_wells(config: WellSelectionConfig) -> dict[str, Any]:
         plate_map_csv=plate_map_csv,
         spike_counts_csv=spike_counts_csv,
         spike_list_csv=spike_list_csv,
+        raw_metadata=raw_metadata,
         raw_metadata_status=raw_metadata_status,
     )
     well_metadata, recording_metadata = _well_metadata_map(spike_list_csv)
@@ -312,6 +328,8 @@ def select_wells(config: WellSelectionConfig) -> dict[str, Any]:
         reasons = []
         if not asset_status["raw_file_exists"]:
             reasons.append("missing_raw_file")
+        if asset_status["block_vector_warning_seen"]:
+            reasons.append("block_vector_warning_seen")
         if not asset_status["spike_counts_csv_exists"]:
             reasons.append("missing_spike_counts_csv")
         else:
@@ -347,6 +365,9 @@ def select_wells(config: WellSelectionConfig) -> dict[str, Any]:
                 "raw_file_kind": raw_metadata.get("raw_file_kind"),
                 "raw_plate_type_name": raw_metadata.get("plate_type_name"),
                 "raw_duration_s": raw_metadata.get("duration_s"),
+                "block_vector_warning_seen": asset_status["block_vector_warning_seen"],
+                "block_vector_warning_ids": asset_status["block_vector_warning_ids"],
+                "block_vector_warning_messages": asset_status["block_vector_warning_messages"],
                 "spike_counts_csv": str(spike_counts_csv) if spike_counts_csv else None,
                 "spike_list_csv": str(spike_list_csv) if spike_list_csv else None,
                 "raw_file_exists": asset_status["raw_file_exists"],
@@ -444,6 +465,7 @@ def inventory_selection_assets(
             plate_map_csv=plate_map_resolved or Path(""),
             spike_counts_csv=spike_counts_csv,
             spike_list_csv=spike_list_csv,
+            raw_metadata=raw_metadata,
             raw_metadata_status=raw_metadata_status,
         )
         if plate_map_resolved is None:
@@ -451,16 +473,21 @@ def inventory_selection_assets(
             status["plate_map_exists"] = None
             status["can_score_activity"] = status["spike_counts_csv_exists"]
             status["can_prepare_spike_sorting_inputs"] = (
-                status["raw_file_exists"] and status["spike_counts_csv_exists"]
+                status["raw_file_exists"]
+                and status["spike_counts_csv_exists"]
+                and not status["block_vector_warning_seen"]
             )
             status["missing_assets"] = ";".join(
-                asset
-                for asset, exists in [
+                [
+                    asset
+                    for asset, exists in [
                     ("raw_file", status["raw_file_exists"]),
                     ("spike_counts_csv", status["spike_counts_csv_exists"]),
                     ("spike_list_csv", status["spike_list_csv_exists"]),
                 ]
-                if not exists
+                    if not exists
+                ]
+                + (["block_vector_warning_seen"] if status["block_vector_warning_seen"] else [])
             )
         row = {
             "raw_file": str(raw_file),
@@ -486,6 +513,9 @@ def inventory_selection_assets(
             "metadata_axis_version": raw_metadata.get("metadata_axis_version"),
             "metadata_instrument": raw_metadata.get("metadata_instrument"),
             "metadata_firmware_version": raw_metadata.get("metadata_firmware_version"),
+            "block_vector_warning_seen": raw_metadata.get("block_vector_warning_seen"),
+            "block_vector_warning_ids": raw_metadata.get("block_vector_warning_ids"),
+            "block_vector_warning_messages": raw_metadata.get("block_vector_warning_messages"),
             "duration_s": raw_metadata.get("duration_s"),
             "spike_counts_csv": str(spike_counts_csv),
             "spike_list_csv": str(spike_list_csv),

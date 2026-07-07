@@ -748,8 +748,26 @@ against the official AxisFile/LoadData output.
 
 This is parked as a future bypass/investigation path. The current operational
 policy remains: classify the affected files as ingestion_open_failed under the
-current loader, avoid treating those wells as running, and avoid large
-submissions from affected recordings until a supported ingestion path is chosen.
+current loader, avoid treating those wells as running, and avoid any standard
+MATLAB Axion File Loader voltage-export submission from affected recordings
+until a supported ingestion path is chosen.
+
+Important correction from the aborted SixWell smoke attempt on 2026-07-07:
+metadata peek success is not enough. If metadata inspection sees
+BlockVectorMetaData checksum / Unexpected BlockVectorMetadata length warnings,
+that raw must be considered metadata-only readable and blocked from the
+standard voltage-export path. Do not submit it just to test geometry. The
+metadata inventory, ground-truth audit, selection inventory, scale-up manifest
+builder, and direct per-well prep now carry/consult:
+
+```text
+block_vector_warning_seen
+block_vector_warning_ids
+block_vector_warning_messages
+```
+
+Rows with `block_vector_warning_seen=true` should be treated as blocked for
+standard export until we have a validated bypass/rescue extractor.
 ```
 
 The normal MATLAB export path now also writes a structured failure artifact
@@ -3676,9 +3694,28 @@ src/axion_mea/plate_profiles.py
 ```
 
 The next step for these recordings is a small SixWell smoke run, not a large
-submission. Confirm one well exports with 64 channels, writes a 64-row channel
-mapping, prepares SpikeInterface/AIND params from the SixWell template, and
-does not reuse any Lumos 48-well geometry or channel-count settings.
+submission, but only after choosing a SixWell raw with
+`block_vector_warning_seen=false`. Confirm one well exports with 64 channels,
+writes a 64-row channel mapping, prepares SpikeInterface/AIND params from the
+SixWell template, and does not reuse any Lumos 48-well geometry or
+channel-count settings.
+
+Aborted smoke attempt:
+
+```text
+recording: sixwell_smoke_2_24_2026_134-0150_test000_primary
+raw: /nfs/turbo/umms-parent/axion_mea_files_directory/2_24_2026/134-0150/test(000).raw
+well: B3
+jobs:
+  export_B3: 53047846
+  nwb_B3: 53047847
+  spikeinterface_B3: 53047848
+  aind_B3: 53047849
+outcome: canceled by user/Codex after BlockVector warnings appeared in the
+  export log; downstream dependency jobs did not run.
+correction: do not use this raw for a standard-loader SixWell smoke unless a
+  refreshed metadata inventory proves `block_vector_warning_seen=false`.
+```
 
 The scale-up submission has already been run:
 

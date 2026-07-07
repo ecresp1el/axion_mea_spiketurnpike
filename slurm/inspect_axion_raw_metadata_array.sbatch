@@ -51,6 +51,6 @@ echo "AXION_LOADER_ROOT=${AXION_LOADER_ROOT}"
 module purge
 module load matlab/R2024b
 
-matlab -batch "addpath('${REPO_ROOT}/matlab'); T = inspect_axion_raw_metadata('${RAW_FILE}', '${OUTPUT_CSV}', '${AXION_LOADER_ROOT}'); disp(T(:, {'raw_name','raw_file_kind','status','sampling_frequency_hz','num_channels','num_plate_map_entries','plate_type_name','well_dimensions','electrode_dimensions','duration_s','metadata_analog_mode'}));"
+matlab -batch "addpath('${REPO_ROOT}/matlab'); T = inspect_axion_raw_metadata('${RAW_FILE}', '${OUTPUT_CSV}', '${AXION_LOADER_ROOT}'); disp(T(:, {'raw_name','raw_file_kind','status','sampling_frequency_hz','num_channels','num_plate_map_entries','plate_type_name','well_dimensions','electrode_dimensions','duration_s','metadata_analog_mode','block_vector_warning_seen','block_vector_warning_ids'}));"
 
 echo "Axion one-raw metadata inspection finished: $(date)"
