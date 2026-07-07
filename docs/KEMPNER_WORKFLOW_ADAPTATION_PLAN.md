@@ -142,6 +142,14 @@ standalone file ground-truth audit:
     through /home/elcrespo/miniconda3, and then runs the Python audit. This
     preserves the Great Lakes conda/anaconda convention used by the rest of the
     repo.
+  environment/container distinction:
+    The conda env and the .img/.sif container images are different layers.
+    The conda env is the host-side Great Lakes environment for repo wrappers,
+    audits, manifest builders, and preparation utilities. The .img/.sif files
+    are Singularity/Apptainer runtime images used by Nextflow/AIND/Kempner
+    tasks. Do not treat the audit wrapper environment as the same thing as the
+    Nextflow container runtime; they exchange reviewed manifests/configs and
+    mounted paths, but they are not the same environment.
   report root:
     durable snapshot:
       /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_103911
@@ -173,6 +181,37 @@ standalone file ground-truth audit:
   important caveat:
     rsync was still moving during this audit; rerun the audit after upload
     completion before treating counts as final.
+  latest moving check:
+    Current check rerun at 2026-07-07T11:23:37 using
+    scripts/audit_axion_file_ground_truth.sh. Counts at that moment:
+      visible .raw files: 87
+      logical raw groups: 41
+      incoming/new_upload .raw files: 73
+      incoming/new_upload logical groups: 34
+      platemap files: 10
+      platemap files with candidate biology labels: 10
+      upload temp fragments: 1
+    One final-looking file was still in flight as a hidden rsync partial:
+      incoming/manny4tbum_20260706/scn8a_sosrs_dorsal_vs_ventrals/133-1555/.(000).raw.j3XgJz
+    It was still growing when sampled at 2026-07-07T11:23:46-11:23:51, so
+    rerun the audit after that partial is renamed to `(000).raw` before
+    freezing a final manifest.
+  latest post-upload-ish check:
+    Current check rerun at 2026-07-07T11:27:40 using
+    scripts/audit_axion_file_ground_truth.sh. Counts at that moment:
+      visible .raw files: 88
+      logical raw groups: 42
+      incoming/new_upload .raw files: 74
+      incoming/new_upload logical groups: 35
+      upload temp fragments: 0
+      platemap files: 10
+      raw files with stimulation events: 35
+      logical groups with stimulation events: 13
+      logical groups with LED stimulation: 13
+      logical groups with electrode stimulation: 0
+      raw stim parse status: {"ok": 88}
+    This suggests the last hidden partial had landed by this audit, but a final
+    source-side rsync dry-run should still be used before freezing a manifest.
   schema update:
     raw_files.csv now carries Axion metadata timing fields when metadata is
     available:
@@ -195,6 +234,123 @@ standalone file ground-truth audit:
       num_channels_values
     These are recording/file metadata times, distinct from filesystem
     modified_time, which mostly reflects upload/copy state.
+  platemap/biology sidecar update:
+    The audit now inventories Axion `.platemap` sidecars and writes:
+      platemap_files.csv
+    The `.platemap` files are binary AxionBio files, but readable biology labels
+    are embedded as strings. Current incoming examples include:
+      H1 ventral sosr
+      H1 with virus
+      no activity so will not use
+      CL 23 PV Ventral SOSR
+      CL 23 PV Dorsal SOSR
+      CL 32 PV Ventral SOSR
+      CL 32 PV Dorsal SOSR
+      H1 Ventral SOSR
+      H1 Dorsal SOSR
+      Ventral - no as active
+      no opsin
+      opsin
+      Dorsal iCtrl SCN8A
+      Dorsal SCN8A mutant
+      Ventral mut SCN8A
+      Ventral iCtrl SCN8A
+    logical_recording_groups.csv now includes:
+      metadata_recording_names
+      metadata_descriptions
+      metadata_barcodes
+      candidate_platemap_count
+      candidate_platemap_files
+      candidate_platemap_label_candidates
+    Groups with no candidate `.platemap` match are flagged in issues.csv and
+    logical_recording_groups.csv as:
+      missing_candidate_platemap
+    Current moving check at 2026-07-07T11:19:11 flagged 9 groups: 7
+    older_or_existing groups and 2 new_upload groups. The new_upload missing
+    groups are:
+      incoming/manny4tbum_20260706/134-0150/(000)
+      incoming/manny4tbum_20260706/134-0150/(001)
+    The earlier CL23 PV `5_25_26_pvreporter/133-1555` group now matches the
+    parent `pv_reporter_cl23_dorsal_and_ventral_exp17.platemap` after stem
+    normalization, so it should not be treated as missing a platemap.
+    Current interpretation: `.raw` metadata can provide recording-level notes
+    such as RecordingName, Description, Barcode, plate dimensions, timing, and
+    num_plate_map_entries. It does not yet provide trusted well-level biology
+    labels in our extracted metadata. The `.platemap` sidecars are currently
+    the clearest reviewable source for treatment/group biology. Do not let
+    these labels automatically drive Nextflow yet; use them as ground-truth
+    review/candidate-manifest context until we implement and validate an exact
+    well-level Axion platemap decoder.
+    Note: recordings with `raw_metadata_missing` can still have candidate
+    `.platemap` labels, but their `.raw` recording description/barcode fields
+    will remain blank in the audit until the MATLAB raw metadata inventory is
+    rerun and matched.
+  stimulation/opto update:
+    The audit now uses the existing repo stimulation parser
+    (`src/axion_mea/io/raw_stim_parser.py`) to inspect `.raw` stimulation tags
+    without loading voltage data. This is not inferred from file names or
+    platemap labels. raw_files.csv now includes:
+      stim_parse_status
+      stim_parse_error
+      stim_event_count
+      stim_led_event_count
+      stim_electrode_event_count
+      stim_unlinked_event_count
+      stim_source_kinds
+      stimulated_wells
+      stim_first_event_time_s
+      stim_last_event_time_s
+      stim_event_time_s_values
+      stim_event_descriptions
+      opto_on_interval_count
+    logical_recording_groups.csv now rolls those into:
+      stim_parse_status_counts
+      stim_parse_errors
+      has_stim_events
+      has_led_stimulation
+      has_electrode_stimulation
+      stim_event_count_values
+      stim_event_count_max
+      stim_led_event_count_values
+      stim_led_event_count_max
+      stim_electrode_event_count_values
+      stim_electrode_event_count_max
+      stim_unlinked_event_count_values
+      stim_source_kinds
+      stimulated_wells
+      stim_first_event_time_s
+      stim_last_event_time_s
+      stim_event_time_s_values
+      stim_event_descriptions
+      opto_on_interval_count_values
+    Current check at 2026-07-07T11:27:40 found 13 logical groups with LED
+    stimulation. New-upload LED-stim groups were:
+      6_18_2026_plate2/129-8445/ventral_sosrs_2(000):
+        50 events, 302.22664-400.22736 s, wells B4;B5;D2;E2;E5
+      6_18_2026_plate2/129-8445/129-8445/ventral_sosrs_2_opsin(000):
+        50 events, 301.49272-399.49344 s, wells B2;B4;B5;C6;D2;D6;E2;E5
+      6_18_2026_plate2/129-8445/129-8445/ventral_sosrs_2_opsin(001):
+        50 events, 302.11552-400.11624 s, wells B2;B4;B5;C6;D2;D6;E2;E5
+      6_22_2026/129-8445/ventral_sosrs_opsin_day3(000-005):
+        each has 50 LED events, wells A3;B4;B5;C3;C5;C6;D2;D6;E5,
+        with first/last event times around 300-400 s.
+    Older LED-stim groups were the 2_12 opto_test files and 2_20 test(000).
+    This can determine whether the recording had opto/LED stimulation and which
+    wells were targeted according to raw stimulation tags. It should still be
+    treated as ground-truth/preflight context; do not use it to silently drive
+    Nextflow until a reviewed manifest explicitly selects how stimulation
+    status should affect processing.
+  known-usability rule:
+    If Axion metadata duration_s is below 120 seconds, the audit marks the
+    logical recording group with:
+      duration_under_2min_unusable
+    This is a ground-truth review flag: recordings shorter than 2 minutes are
+    considered definitely not usable, even if the raw file imports cleanly.
+    Current moving check at 2026-07-07T11:03:11 flagged 4 groups:
+      older_or_existing/2_24_2026/134-0150/test(001): 1 s
+      new_upload/5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(001): 12.75 s
+      new_upload/5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(002): 12.5 s
+      new_upload/5_28_26_h1/134-0150/h1_dorsal_and_ventral_exp17_2(000): 5.25 s
   current flagged naming/folder issue:
     h1_exp17(000) appears in both:
       incoming/manny4tbum_20260706/5_25_2026/134-0150

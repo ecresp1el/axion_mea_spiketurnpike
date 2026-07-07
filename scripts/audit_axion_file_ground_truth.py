@@ -14,10 +14,18 @@ import csv
 import io
 import json
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from axion_mea.io import AxionStimFile
 
 
 RAW_SUFFIXES = (
@@ -33,8 +41,26 @@ SIDECAR_SUFFIXES = (
     ("_lfp_event_list.csv", "lfp_event_list"),
     ("_environmental_data.csv", "environmental_data"),
     ("_NeuralEventDetector.spk", "neural_event_detector_spk"),
+    (".platemap", "platemap"),
     (".spk", "spk"),
     (".csv", "csv"),
+)
+
+PLATEMAP_LABEL_KEYWORDS = (
+    "activity",
+    "cl ",
+    "ctrl",
+    "dorsal",
+    "h1",
+    "ictrl",
+    "mut",
+    "mutant",
+    "opsin",
+    "pv",
+    "scn8",
+    "sosr",
+    "ventral",
+    "virus",
 )
 
 
@@ -160,8 +186,149 @@ def numeric_values(values: set[str]) -> list[float]:
     return sorted(out)
 
 
+def has_duration_below(values: set[str], threshold_s: float) -> bool:
+    durations = numeric_values(values)
+    return bool(durations) and min(durations) < threshold_s
+
+
 def joined_values(values: set[str]) -> str:
     return ";".join(sorted(value for value in values if value))
+
+
+def joined_numeric_values(values: set[str]) -> str:
+    numeric = numeric_values(values)
+    return ";".join(f"{value:.9g}" for value in numeric)
+
+
+def printable_strings(path: Path) -> list[str]:
+    data = path.read_bytes()
+    strings = []
+    for match in re.finditer(rb"[\x20-\x7e]{4,}", data):
+        value = match.group(0).decode("ascii", errors="ignore").strip()
+        if value:
+            strings.append(value)
+    return strings
+
+
+def likely_platemap_label(value: str) -> bool:
+    normalized = " ".join(value.strip().split())
+    lower = normalized.lower()
+    if not normalized or lower == "axionbio":
+        return False
+    return any(keyword in lower for keyword in PLATEMAP_LABEL_KEYWORDS)
+
+
+def extract_platemap_strings(path: Path) -> tuple[list[str], list[str]]:
+    values = printable_strings(path)
+    unique_values = list(dict.fromkeys(values))
+    labels = [value for value in unique_values if likely_platemap_label(value)]
+    return unique_values, labels
+
+
+def normalize_stem_for_match(value: str) -> str:
+    normalized = value.lower()
+    normalized = re.sub(r"\(\d+\)$", "", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    return normalized
+
+
+def stem_related(recording_stem: str, platemap_stem: str) -> bool:
+    recording = normalize_stem_for_match(recording_stem)
+    platemap = normalize_stem_for_match(platemap_stem)
+    return (
+        recording == platemap
+        or recording.startswith(platemap)
+        or platemap.startswith(recording)
+    )
+
+
+def ancestor_folders(folder: Path, stop: Path) -> list[Path]:
+    folders = []
+    current = folder
+    while True:
+        folders.append(current)
+        if current == stop or current.parent == current:
+            return folders
+        try:
+            current.parent.relative_to(stop)
+        except ValueError:
+            return folders
+        current = current.parent
+
+
+def candidate_platemaps_for_group(
+    folder: Path,
+    recording_stem: str,
+    raw_root: Path,
+    new_root: Path | None,
+    platemaps_by_folder: dict[Path, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    stop = new_root if new_root and folder.is_relative_to(new_root) else raw_root
+    selected: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for candidate_folder in ancestor_folders(folder, stop):
+        candidates = platemaps_by_folder.get(candidate_folder, [])
+        if not candidates:
+            continue
+        related = [
+            row for row in candidates
+            if stem_related(recording_stem, str(row["platemap_stem"]))
+        ]
+        folder_selected = related
+        if not folder_selected and len(candidates) == 1:
+            folder_selected = candidates
+        if not folder_selected and candidate_folder == folder:
+            folder_selected = candidates
+        for row in folder_selected:
+            path = Path(str(row["platemap_file"]))
+            if path not in seen:
+                selected.append(row)
+                seen.add(path)
+    return selected
+
+
+def summarize_raw_stimulation(path: Path) -> dict[str, Any]:
+    try:
+        stim_file = AxionStimFile(path)
+        stim_file.parse()
+        events = stim_file.summarize_stimulation_events()
+        event_times = [event.event_time_s for event in events]
+        source_kinds = sorted({event.source_kind for event in events})
+        stimulated_wells = sorted({well for event in events for well in event.stimulated_wells})
+        event_descriptions = sorted({
+            event.event_description for event in events if event.event_description
+        })
+        return {
+            "stim_parse_status": "ok",
+            "stim_parse_error": "",
+            "stim_event_count": len(events),
+            "stim_led_event_count": sum(event.source_kind == "led" for event in events),
+            "stim_electrode_event_count": sum(event.source_kind == "electrode" for event in events),
+            "stim_unlinked_event_count": sum(event.source_kind == "unlinked" for event in events),
+            "stim_source_kinds": ";".join(source_kinds),
+            "stimulated_wells": ";".join(stimulated_wells),
+            "stim_first_event_time_s": min(event_times) if event_times else "",
+            "stim_last_event_time_s": max(event_times) if event_times else "",
+            "stim_event_time_s_values": ";".join(f"{value:.9g}" for value in event_times),
+            "stim_event_descriptions": ";".join(event_descriptions),
+            "opto_on_interval_count": len(stim_file.opto_on_intervals_ms()),
+        }
+    except Exception as exc:
+        return {
+            "stim_parse_status": "failed",
+            "stim_parse_error": f"{type(exc).__name__}: {exc}",
+            "stim_event_count": "",
+            "stim_led_event_count": "",
+            "stim_electrode_event_count": "",
+            "stim_unlinked_event_count": "",
+            "stim_source_kinds": "",
+            "stimulated_wells": "",
+            "stim_first_event_time_s": "",
+            "stim_last_event_time_s": "",
+            "stim_event_time_s_values": "",
+            "stim_event_descriptions": "",
+            "opto_on_interval_count": "",
+        }
 
 
 def main() -> None:
@@ -186,17 +353,55 @@ def main() -> None:
             "duration_s_values": set(),
             "sampling_frequency_hz_values": set(),
             "num_channels_values": set(),
+            "metadata_recording_names": set(),
+            "metadata_descriptions": set(),
+            "metadata_barcodes": set(),
+            "stim_parse_statuses": Counter(),
+            "stim_parse_errors": set(),
+            "stim_event_counts": set(),
+            "stim_led_event_counts": set(),
+            "stim_electrode_event_counts": set(),
+            "stim_unlinked_event_counts": set(),
+            "stim_source_kinds": set(),
+            "stimulated_wells": set(),
+            "stim_first_event_times": set(),
+            "stim_last_event_times": set(),
+            "stim_event_time_values": set(),
+            "stim_event_descriptions": set(),
+            "opto_on_interval_counts": set(),
         }
     )
     raw_rows: list[dict[str, Any]] = []
     temp_rows: list[dict[str, Any]] = []
+    platemap_rows: list[dict[str, Any]] = []
+    platemaps_by_folder: dict[Path, list[dict[str, Any]]] = defaultdict(list)
+
+    platemap_files = sorted(path.resolve() for path in raw_root.rglob("*.platemap") if path.is_file())
+    for path in platemap_files:
+        stat = path.stat()
+        printable, labels = extract_platemap_strings(path)
+        row = {
+            "scope": scope_for(path, new_root),
+            "platemap_file": str(path),
+            "platemap_file_relative": rel(path, raw_root),
+            "platemap_folder": str(path.parent),
+            "platemap_folder_relative": rel(path.parent, raw_root),
+            "platemap_stem": path.stem,
+            "size_bytes": stat.st_size,
+            "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+            "printable_strings": ";".join(printable),
+            "biology_label_candidates": ";".join(labels),
+            "biology_label_candidate_count": len(labels),
+        }
+        platemap_rows.append(row)
+        platemaps_by_folder[path.parent].append(row)
 
     candidates = [
         path
         for path in raw_root.rglob("*")
         if path.is_file()
         and (
-            path.suffix.lower() in {".raw", ".csv", ".spk"}
+            path.suffix.lower() in {".raw", ".csv", ".spk", ".platemap"}
             or is_upload_temp(path)
         )
     ]
@@ -223,6 +428,7 @@ def main() -> None:
         _, raw_kind = classify_raw_name(path.name)
         if raw_kind:
             meta = metadata.get(str(path))
+            stim_summary = summarize_raw_stimulation(path)
             plate_type = meta.get("plate_type_name", "") if meta else ""
             metadata_status = meta.get("status", "") if meta else "missing"
             group["raws"].append(path)
@@ -236,38 +442,61 @@ def main() -> None:
             add_group_value(group, "duration_s_values", meta_value(meta, "duration_s"))
             add_group_value(group, "sampling_frequency_hz_values", meta_value(meta, "sampling_frequency_hz"))
             add_group_value(group, "num_channels_values", meta_value(meta, "num_channels"))
+            add_group_value(group, "metadata_recording_names", meta_value(meta, "metadata_recording_name"))
+            add_group_value(group, "metadata_descriptions", meta_value(meta, "metadata_description"))
+            add_group_value(group, "metadata_barcodes", meta_value(meta, "metadata_barcode"))
+            group["stim_parse_statuses"][str(stim_summary["stim_parse_status"])] += 1
+            add_group_value(group, "stim_parse_errors", str(stim_summary["stim_parse_error"]))
+            add_group_value(group, "stim_event_counts", str(stim_summary["stim_event_count"]))
+            add_group_value(group, "stim_led_event_counts", str(stim_summary["stim_led_event_count"]))
+            add_group_value(group, "stim_electrode_event_counts", str(stim_summary["stim_electrode_event_count"]))
+            add_group_value(group, "stim_unlinked_event_counts", str(stim_summary["stim_unlinked_event_count"]))
+            for source_kind in str(stim_summary["stim_source_kinds"]).split(";"):
+                add_group_value(group, "stim_source_kinds", source_kind)
+            for well in str(stim_summary["stimulated_wells"]).split(";"):
+                add_group_value(group, "stimulated_wells", well)
+            add_group_value(group, "stim_first_event_times", str(stim_summary["stim_first_event_time_s"]))
+            add_group_value(group, "stim_last_event_times", str(stim_summary["stim_last_event_time_s"]))
+            for event_time in str(stim_summary["stim_event_time_s_values"]).split(";"):
+                add_group_value(group, "stim_event_time_values", event_time)
+            for description in str(stim_summary["stim_event_descriptions"]).split(";"):
+                add_group_value(group, "stim_event_descriptions", description)
+            add_group_value(group, "opto_on_interval_counts", str(stim_summary["opto_on_interval_count"]))
             stat = path.stat()
-            raw_rows.append(
-                {
-                    "scope": scope_for(path, new_root),
-                    "logical_folder": str(path.parent),
-                    "logical_folder_relative": rel(path.parent, raw_root),
-                    "logical_recording_stem": base,
-                    "raw_variant": raw_kind,
-                    "raw_file": str(path),
-                    "raw_file_relative": rel(path, raw_root),
-                    "raw_name": path.name,
-                    "size_bytes": stat.st_size,
-                    "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
-                    "metadata_matched": bool(meta),
-                    "metadata_status": metadata_status,
-                    "plate_type_name": plate_type,
-                    "well_dimensions": meta.get("well_dimensions", "") if meta else "",
-                    "electrode_dimensions": meta.get("electrode_dimensions", "") if meta else "",
-                    "num_channels": meta.get("num_channels", "") if meta else "",
-                    "sampling_frequency_hz": meta.get("sampling_frequency_hz", "") if meta else "",
-                    "block_vector_start_time": meta.get("block_vector_start_time", "") if meta else "",
-                    "experiment_start_time": meta.get("experiment_start_time", "") if meta else "",
-                    "added_date": meta.get("added_date", "") if meta else "",
-                    "metadata_modified_date": meta.get("modified_date", "") if meta else "",
-                    "duration_s": meta.get("duration_s", "") if meta else "",
-                    "metadata_analog_mode": meta.get("metadata_analog_mode", "") if meta else "",
-                    "metadata_high_pass_filter": meta.get("metadata_high_pass_filter", "") if meta else "",
-                    "metadata_high_pass_cutoff": meta.get("metadata_high_pass_cutoff", "") if meta else "",
-                    "metadata_low_pass_filter": meta.get("metadata_low_pass_filter", "") if meta else "",
-                    "metadata_low_pass_cutoff": meta.get("metadata_low_pass_cutoff", "") if meta else "",
-                }
-            )
+            raw_row = {
+                "scope": scope_for(path, new_root),
+                "logical_folder": str(path.parent),
+                "logical_folder_relative": rel(path.parent, raw_root),
+                "logical_recording_stem": base,
+                "raw_variant": raw_kind,
+                "raw_file": str(path),
+                "raw_file_relative": rel(path, raw_root),
+                "raw_name": path.name,
+                "size_bytes": stat.st_size,
+                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                "metadata_matched": bool(meta),
+                "metadata_status": metadata_status,
+                "plate_type_name": plate_type,
+                "well_dimensions": meta.get("well_dimensions", "") if meta else "",
+                "electrode_dimensions": meta.get("electrode_dimensions", "") if meta else "",
+                "num_channels": meta.get("num_channels", "") if meta else "",
+                "sampling_frequency_hz": meta.get("sampling_frequency_hz", "") if meta else "",
+                "block_vector_start_time": meta.get("block_vector_start_time", "") if meta else "",
+                "experiment_start_time": meta.get("experiment_start_time", "") if meta else "",
+                "added_date": meta.get("added_date", "") if meta else "",
+                "metadata_modified_date": meta.get("modified_date", "") if meta else "",
+                "duration_s": meta.get("duration_s", "") if meta else "",
+                "metadata_analog_mode": meta.get("metadata_analog_mode", "") if meta else "",
+                "metadata_high_pass_filter": meta.get("metadata_high_pass_filter", "") if meta else "",
+                "metadata_high_pass_cutoff": meta.get("metadata_high_pass_cutoff", "") if meta else "",
+                "metadata_low_pass_filter": meta.get("metadata_low_pass_filter", "") if meta else "",
+                "metadata_low_pass_cutoff": meta.get("metadata_low_pass_cutoff", "") if meta else "",
+                "metadata_recording_name": meta.get("metadata_recording_name", "") if meta else "",
+                "metadata_description": meta.get("metadata_description", "") if meta else "",
+                "metadata_barcode": meta.get("metadata_barcode", "") if meta else "",
+            }
+            raw_row.update(stim_summary)
+            raw_rows.append(raw_row)
 
     stem_locations: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     for (folder, base), group in groups.items():
@@ -300,6 +529,38 @@ def main() -> None:
         durations = numeric_values(group["duration_s_values"])
         duration_min_s = min(durations) if durations else ""
         duration_max_s = max(durations) if durations else ""
+        if has_duration_below(group["duration_s_values"], 120.0):
+            issues.append("duration_under_2min_unusable")
+        stim_event_counts = numeric_values(group["stim_event_counts"])
+        stim_led_event_counts = numeric_values(group["stim_led_event_counts"])
+        stim_electrode_event_counts = numeric_values(group["stim_electrode_event_counts"])
+        stim_first_event_times = numeric_values(group["stim_first_event_times"])
+        stim_last_event_times = numeric_values(group["stim_last_event_times"])
+        has_stim_events = any(value > 0 for value in stim_event_counts)
+        has_led_stim = any(value > 0 for value in stim_led_event_counts)
+        has_electrode_stim = any(value > 0 for value in stim_electrode_event_counts)
+        if group["stim_parse_statuses"].get("failed"):
+            issues.append("stim_parse_failed")
+        if has_led_stim:
+            issues.append("has_led_stimulation")
+        elif has_electrode_stim:
+            issues.append("has_electrode_stimulation")
+        elif has_stim_events:
+            issues.append("has_unresolved_stimulation")
+        candidate_platemaps = candidate_platemaps_for_group(
+            folder, base, raw_root, new_root, platemaps_by_folder
+        )
+        if not candidate_platemaps:
+            issues.append("missing_candidate_platemap")
+        candidate_platemap_files = [
+            rel(Path(str(row["platemap_file"])), raw_root) for row in candidate_platemaps
+        ]
+        candidate_platemap_labels = sorted({
+            label
+            for row in candidate_platemaps
+            for label in str(row["biology_label_candidates"]).split(";")
+            if label
+        })
 
         row = {
             "scope": scope_for(folder, new_root),
@@ -321,6 +582,31 @@ def main() -> None:
             "duration_max_min": round(duration_max_s / 60, 3) if duration_max_s != "" else "",
             "sampling_frequency_hz_values": joined_values(group["sampling_frequency_hz_values"]),
             "num_channels_values": joined_values(group["num_channels_values"]),
+            "metadata_recording_names": joined_values(group["metadata_recording_names"]),
+            "metadata_descriptions": joined_values(group["metadata_descriptions"]),
+            "metadata_barcodes": joined_values(group["metadata_barcodes"]),
+            "stim_parse_status_counts": json.dumps(dict(group["stim_parse_statuses"]), sort_keys=True),
+            "stim_parse_errors": joined_values(group["stim_parse_errors"]),
+            "has_stim_events": has_stim_events,
+            "has_led_stimulation": has_led_stim,
+            "has_electrode_stimulation": has_electrode_stim,
+            "stim_event_count_values": joined_numeric_values(group["stim_event_counts"]),
+            "stim_event_count_max": max(stim_event_counts) if stim_event_counts else "",
+            "stim_led_event_count_values": joined_numeric_values(group["stim_led_event_counts"]),
+            "stim_led_event_count_max": max(stim_led_event_counts) if stim_led_event_counts else "",
+            "stim_electrode_event_count_values": joined_numeric_values(group["stim_electrode_event_counts"]),
+            "stim_electrode_event_count_max": max(stim_electrode_event_counts) if stim_electrode_event_counts else "",
+            "stim_unlinked_event_count_values": joined_numeric_values(group["stim_unlinked_event_counts"]),
+            "stim_source_kinds": joined_values(group["stim_source_kinds"]),
+            "stimulated_wells": joined_values(group["stimulated_wells"]),
+            "stim_first_event_time_s": min(stim_first_event_times) if stim_first_event_times else "",
+            "stim_last_event_time_s": max(stim_last_event_times) if stim_last_event_times else "",
+            "stim_event_time_s_values": joined_numeric_values(group["stim_event_time_values"]),
+            "stim_event_descriptions": joined_values(group["stim_event_descriptions"]),
+            "opto_on_interval_count_values": joined_numeric_values(group["opto_on_interval_counts"]),
+            "candidate_platemap_count": len(candidate_platemaps),
+            "candidate_platemap_files": ";".join(candidate_platemap_files),
+            "candidate_platemap_label_candidates": ";".join(candidate_platemap_labels),
             "sidecar_counts": json.dumps(dict(sidecar_counts), sort_keys=True),
             "has_primary_raw": "primary_raw" in raw_variants,
             "has_broadband_processor_raw": "broadband_processor_raw" in raw_variants,
@@ -352,11 +638,25 @@ def main() -> None:
         "metadata_inventory": str(args.metadata_inventory.expanduser().resolve()) if args.metadata_inventory else "",
         "visible_raw_files": len(raw_rows),
         "logical_raw_groups": len(group_rows),
+        "platemap_files": len(platemap_rows),
+        "platemap_files_with_label_candidates": sum(
+            bool(row["biology_label_candidates"]) for row in platemap_rows
+        ),
         "upload_temp_fragments": len(temp_rows),
         "raw_files_by_scope": dict(Counter(row["scope"] for row in raw_rows)),
         "logical_groups_by_scope": dict(Counter(row["scope"] for row in group_rows)),
         "raw_files_by_plate_type": dict(Counter(row["plate_type_name"] or "metadata_missing" for row in raw_rows)),
         "raw_files_by_variant": dict(Counter(row["raw_variant"] for row in raw_rows)),
+        "platemap_files_by_scope": dict(Counter(row["scope"] for row in platemap_rows)),
+        "raw_files_by_stim_parse_status": dict(Counter(row["stim_parse_status"] for row in raw_rows)),
+        "raw_files_with_stim_events": sum(
+            int(row["stim_event_count"] or 0) > 0 for row in raw_rows
+        ),
+        "logical_groups_with_stim_events": sum(row["has_stim_events"] for row in group_rows),
+        "logical_groups_with_led_stimulation": sum(row["has_led_stimulation"] for row in group_rows),
+        "logical_groups_with_electrode_stimulation": sum(
+            row["has_electrode_stimulation"] for row in group_rows
+        ),
         "logical_group_variant_shapes": dict(
             Counter(row["raw_variants"] for row in group_rows)
         ),
@@ -366,6 +666,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(output_dir / "raw_files.csv", raw_rows)
     write_csv(output_dir / "logical_recording_groups.csv", group_rows)
+    write_csv(output_dir / "platemap_files.csv", platemap_rows)
     write_csv(output_dir / "issues.csv", issue_rows)
     write_csv(output_dir / "upload_temp_fragments.csv", temp_rows)
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -386,7 +687,13 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- Visible `.raw` files: {summary['visible_raw_files']}",
         f"- Logical raw groups: {summary['logical_raw_groups']}",
+        f"- `.platemap` files: {summary['platemap_files']}",
+        f"- `.platemap` files with candidate biology labels: {summary['platemap_files_with_label_candidates']}",
         f"- Upload temp fragments: {summary['upload_temp_fragments']}",
+        f"- Raw files with stimulation events: {summary['raw_files_with_stim_events']}",
+        f"- Logical groups with stimulation events: {summary['logical_groups_with_stim_events']}",
+        f"- Logical groups with LED stimulation: {summary['logical_groups_with_led_stimulation']}",
+        f"- Logical groups with electrode stimulation: {summary['logical_groups_with_electrode_stimulation']}",
         "",
         "## Raw Files By Scope",
         "",
@@ -399,6 +706,18 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(["", "## Raw Files By Variant", ""])
     for key, value in sorted(summary["raw_files_by_variant"].items()):
         lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Raw Files By Stim Parse Status", ""])
+    if summary["raw_files_by_stim_parse_status"]:
+        for key, value in sorted(summary["raw_files_by_stim_parse_status"].items()):
+            lines.append(f"- {key}: {value}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Platemap Files By Scope", ""])
+    if summary["platemap_files_by_scope"]:
+        for key, value in sorted(summary["platemap_files_by_scope"].items()):
+            lines.append(f"- {key}: {value}")
+    else:
+        lines.append("- none")
     lines.extend(["", "## Logical Group Variant Shapes", ""])
     for key, value in sorted(summary["logical_group_variant_shapes"].items()):
         lines.append(f"- {key or 'none'}: {value}")
@@ -415,6 +734,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "- `raw_files.csv`: one row per visible `.raw` file.",
             "- `logical_recording_groups.csv`: one row per folder/stem group.",
+            "- `platemap_files.csv`: one row per `.platemap` file, with extracted candidate biology labels.",
             "- `issues.csv`: one row per flagged issue.",
             "- `upload_temp_fragments.csv`: rsync/temp raw fragments excluded from visible raw counts.",
         ]
