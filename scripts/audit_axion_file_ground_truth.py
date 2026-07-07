@@ -139,6 +139,31 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def meta_value(meta: dict[str, str] | None, key: str) -> str:
+    if not meta:
+        return ""
+    return meta.get(key, "")
+
+
+def add_group_value(group: dict[str, Any], key: str, value: str) -> None:
+    if value:
+        group[key].add(value)
+
+
+def numeric_values(values: set[str]) -> list[float]:
+    out: list[float] = []
+    for value in values:
+        try:
+            out.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return sorted(out)
+
+
+def joined_values(values: set[str]) -> str:
+    return ";".join(sorted(value for value in values if value))
+
+
 def main() -> None:
     args = parse_args()
     raw_root = args.raw_root.expanduser().resolve()
@@ -154,6 +179,13 @@ def main() -> None:
             "raw_variants": Counter(),
             "plate_types": Counter(),
             "metadata_statuses": Counter(),
+            "block_vector_start_times": set(),
+            "experiment_start_times": set(),
+            "added_dates": set(),
+            "modified_dates": set(),
+            "duration_s_values": set(),
+            "sampling_frequency_hz_values": set(),
+            "num_channels_values": set(),
         }
     )
     raw_rows: list[dict[str, Any]] = []
@@ -197,6 +229,13 @@ def main() -> None:
             group["raw_variants"][raw_kind] += 1
             group["plate_types"][plate_type or "metadata_missing"] += 1
             group["metadata_statuses"][metadata_status or "ok"] += 1
+            add_group_value(group, "block_vector_start_times", meta_value(meta, "block_vector_start_time"))
+            add_group_value(group, "experiment_start_times", meta_value(meta, "experiment_start_time"))
+            add_group_value(group, "added_dates", meta_value(meta, "added_date"))
+            add_group_value(group, "modified_dates", meta_value(meta, "modified_date"))
+            add_group_value(group, "duration_s_values", meta_value(meta, "duration_s"))
+            add_group_value(group, "sampling_frequency_hz_values", meta_value(meta, "sampling_frequency_hz"))
+            add_group_value(group, "num_channels_values", meta_value(meta, "num_channels"))
             stat = path.stat()
             raw_rows.append(
                 {
@@ -216,6 +255,11 @@ def main() -> None:
                     "well_dimensions": meta.get("well_dimensions", "") if meta else "",
                     "electrode_dimensions": meta.get("electrode_dimensions", "") if meta else "",
                     "num_channels": meta.get("num_channels", "") if meta else "",
+                    "sampling_frequency_hz": meta.get("sampling_frequency_hz", "") if meta else "",
+                    "block_vector_start_time": meta.get("block_vector_start_time", "") if meta else "",
+                    "experiment_start_time": meta.get("experiment_start_time", "") if meta else "",
+                    "added_date": meta.get("added_date", "") if meta else "",
+                    "metadata_modified_date": meta.get("modified_date", "") if meta else "",
                     "duration_s": meta.get("duration_s", "") if meta else "",
                     "metadata_analog_mode": meta.get("metadata_analog_mode", "") if meta else "",
                     "metadata_high_pass_filter": meta.get("metadata_high_pass_filter", "") if meta else "",
@@ -253,6 +297,9 @@ def main() -> None:
         duplicate_key = (scope_for(folder, new_root), context_key(folder, raw_root, new_root), base)
         if len(stem_locations[duplicate_key]) > 1:
             issues.append("same_stem_in_multiple_folders_same_context")
+        durations = numeric_values(group["duration_s_values"])
+        duration_min_s = min(durations) if durations else ""
+        duration_max_s = max(durations) if durations else ""
 
         row = {
             "scope": scope_for(folder, new_root),
@@ -264,6 +311,16 @@ def main() -> None:
             "raw_variants": ";".join(raw_variants),
             "plate_type_counts": json.dumps(dict(group["plate_types"]), sort_keys=True),
             "metadata_status_counts": json.dumps(dict(group["metadata_statuses"]), sort_keys=True),
+            "block_vector_start_times": joined_values(group["block_vector_start_times"]),
+            "experiment_start_times": joined_values(group["experiment_start_times"]),
+            "added_dates": joined_values(group["added_dates"]),
+            "metadata_modified_dates": joined_values(group["modified_dates"]),
+            "duration_s_values": joined_values(group["duration_s_values"]),
+            "duration_min_s": duration_min_s,
+            "duration_max_s": duration_max_s,
+            "duration_max_min": round(duration_max_s / 60, 3) if duration_max_s != "" else "",
+            "sampling_frequency_hz_values": joined_values(group["sampling_frequency_hz_values"]),
+            "num_channels_values": joined_values(group["num_channels_values"]),
             "sidecar_counts": json.dumps(dict(sidecar_counts), sort_keys=True),
             "has_primary_raw": "primary_raw" in raw_variants,
             "has_broadband_processor_raw": "broadband_processor_raw" in raw_variants,

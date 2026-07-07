@@ -133,9 +133,20 @@ dry metadata-routing check:
         AIND smoke run.
 
 standalone file ground-truth audit:
-  script: scripts/audit_axion_file_ground_truth.py
+  wrapper: scripts/audit_axion_file_ground_truth.sh
+  implementation: scripts/audit_axion_file_ground_truth.py
+  environment rule:
+    invoke the wrapper, not bare python. The wrapper sources
+    config/greatlakes_project.env, activates
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort
+    through /home/elcrespo/miniconda3, and then runs the Python audit. This
+    preserves the Great Lakes conda/anaconda convention used by the rest of the
+    repo.
   report root:
-    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_103911
+    durable snapshot:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_103911
+    current moving check:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_current_check
   report files:
     ground_truth_report.md
     summary.json
@@ -162,6 +173,28 @@ standalone file ground-truth audit:
   important caveat:
     rsync was still moving during this audit; rerun the audit after upload
     completion before treating counts as final.
+  schema update:
+    raw_files.csv now carries Axion metadata timing fields when metadata is
+    available:
+      block_vector_start_time
+      experiment_start_time
+      added_date
+      metadata_modified_date
+      duration_s
+      sampling_frequency_hz
+    logical_recording_groups.csv also rolls these up as per-group values:
+      block_vector_start_times
+      experiment_start_times
+      added_dates
+      metadata_modified_dates
+      duration_s_values
+      duration_min_s
+      duration_max_s
+      duration_max_min
+      sampling_frequency_hz_values
+      num_channels_values
+    These are recording/file metadata times, distinct from filesystem
+    modified_time, which mostly reflects upload/copy state.
   current flagged naming/folder issue:
     h1_exp17(000) appears in both:
       incoming/manny4tbum_20260706/5_25_2026/134-0150
