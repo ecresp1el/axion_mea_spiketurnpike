@@ -111,6 +111,46 @@ def raw_variant_label(row: dict[str, str]) -> str:
     return "_".join(piece for piece in ["primary_raw", analog] if piece)
 
 
+def dataset_description_setting(row: dict[str, str], setting_name: str) -> str:
+    description = row.get("dataset_description", "")
+    for line in re.split(r"[\r\n]+", description):
+        parts = [part.strip() for part in line.split(",")]
+        if parts and parts[0].lower() == setting_name.lower():
+            return ",".join(parts[1:]).strip()
+    return ""
+
+
+def filter_value(value: str) -> str:
+    return value.strip() if value and value.strip() else "<blank>"
+
+
+def filter_metadata_fields(row: dict[str, str]) -> dict[str, str]:
+    values = {
+        "acquisition_analog_mode_setting": (
+            dataset_description_setting(row, "Analog Mode Setting")
+            or row.get("metadata_analog_mode", "")
+        ),
+        "acquisition_digital_high_pass_filter": dataset_description_setting(
+            row, "Digital High Pass Filter"
+        ),
+        "acquisition_digital_low_pass_filter": dataset_description_setting(
+            row, "Digital Low Pass Filter"
+        ),
+        "derived_high_pass_filter": dataset_description_setting(row, "High Pass Filter"),
+        "derived_low_pass_filter": dataset_description_setting(row, "Low Pass Filter"),
+    }
+    values["filter_metadata_signature"] = " | ".join(
+        [
+            f"analog={filter_value(values['acquisition_analog_mode_setting'])}",
+            f"acquisition_hp={filter_value(values['acquisition_digital_high_pass_filter'])}",
+            f"acquisition_lp={filter_value(values['acquisition_digital_low_pass_filter'])}",
+            f"derived_hp={filter_value(values['derived_high_pass_filter'])}",
+            f"derived_lp={filter_value(values['derived_low_pass_filter'])}",
+        ]
+    )
+    return values
+
+
 def loader_dataset_for_variant(row: dict[str, str]) -> str:
     raw_name = row.get("raw_name", "")
     kind = row.get("raw_file_kind", "")
@@ -143,6 +183,7 @@ def main() -> None:
     summary = Counter()
 
     for row in chosen_rows:
+        filter_fields = filter_metadata_fields(row)
         try:
             profile = profile_from_metadata(row)
             status = "supported"
@@ -186,6 +227,12 @@ def main() -> None:
             "axion_recording_stem": row.get("recording_stem", ""),
             "raw_file_kind": row.get("raw_file_kind", ""),
             "dataset_description": row.get("dataset_description", ""),
+            "filter_metadata_signature": filter_fields["filter_metadata_signature"],
+            "acquisition_analog_mode_setting": filter_fields["acquisition_analog_mode_setting"],
+            "acquisition_digital_high_pass_filter": filter_fields["acquisition_digital_high_pass_filter"],
+            "acquisition_digital_low_pass_filter": filter_fields["acquisition_digital_low_pass_filter"],
+            "derived_high_pass_filter": filter_fields["derived_high_pass_filter"],
+            "derived_low_pass_filter": filter_fields["derived_low_pass_filter"],
             "metadata_analog_mode": row.get("metadata_analog_mode", ""),
             "metadata_high_pass_filter": row.get("metadata_high_pass_filter", ""),
             "metadata_high_pass_cutoff": row.get("metadata_high_pass_cutoff", ""),

@@ -180,6 +180,36 @@ def dataset_description_setting(meta: dict[str, str] | None, setting_name: str) 
     return ""
 
 
+FILTER_METADATA_FIELDS = (
+    "acquisition_analog_mode_setting",
+    "acquisition_digital_high_pass_filter",
+    "acquisition_digital_low_pass_filter",
+    "derived_high_pass_filter",
+    "derived_low_pass_filter",
+)
+
+
+def filter_value(value: str) -> str:
+    return value.strip() if value and value.strip() else "<blank>"
+
+
+def filter_metadata_signature(
+    analog_mode_setting: str,
+    digital_high_pass_filter: str,
+    digital_low_pass_filter: str,
+    derived_high_pass_filter: str,
+    derived_low_pass_filter: str,
+) -> str:
+    parts = [
+        ("analog", analog_mode_setting),
+        ("acquisition_hp", digital_high_pass_filter),
+        ("acquisition_lp", digital_low_pass_filter),
+        ("derived_hp", derived_high_pass_filter),
+        ("derived_lp", derived_low_pass_filter),
+    ]
+    return " | ".join(f"{key}={filter_value(value)}" for key, value in parts)
+
+
 def add_group_value(group: dict[str, Any], key: str, value: str) -> None:
     if value:
         group[key].add(value)
@@ -370,6 +400,7 @@ def main() -> None:
             "acquisition_digital_low_pass_filters": set(),
             "derived_high_pass_filters": set(),
             "derived_low_pass_filters": set(),
+            "filter_metadata_signatures": set(),
             "stim_parse_statuses": Counter(),
             "stim_parse_errors": set(),
             "stim_event_counts": set(),
@@ -464,11 +495,19 @@ def main() -> None:
             digital_low_pass_filter = dataset_description_setting(meta, "Digital Low Pass Filter")
             derived_high_pass_filter = dataset_description_setting(meta, "High Pass Filter")
             derived_low_pass_filter = dataset_description_setting(meta, "Low Pass Filter")
+            filter_signature = filter_metadata_signature(
+                analog_mode_setting,
+                digital_high_pass_filter,
+                digital_low_pass_filter,
+                derived_high_pass_filter,
+                derived_low_pass_filter,
+            )
             add_group_value(group, "acquisition_analog_mode_settings", analog_mode_setting)
             add_group_value(group, "acquisition_digital_high_pass_filters", digital_high_pass_filter)
             add_group_value(group, "acquisition_digital_low_pass_filters", digital_low_pass_filter)
             add_group_value(group, "derived_high_pass_filters", derived_high_pass_filter)
             add_group_value(group, "derived_low_pass_filters", derived_low_pass_filter)
+            add_group_value(group, "filter_metadata_signatures", filter_signature)
             group["stim_parse_statuses"][str(stim_summary["stim_parse_status"])] += 1
             add_group_value(group, "stim_parse_errors", str(stim_summary["stim_parse_error"]))
             add_group_value(group, "stim_event_counts", str(stim_summary["stim_event_count"]))
@@ -523,6 +562,7 @@ def main() -> None:
                 "acquisition_digital_low_pass_filter": digital_low_pass_filter,
                 "derived_high_pass_filter": derived_high_pass_filter,
                 "derived_low_pass_filter": derived_low_pass_filter,
+                "filter_metadata_signature": filter_signature,
             }
             raw_row.update(stim_summary)
             raw_rows.append(raw_row)
@@ -619,6 +659,7 @@ def main() -> None:
             "acquisition_digital_low_pass_filters": joined_values(group["acquisition_digital_low_pass_filters"]),
             "derived_high_pass_filters": joined_values(group["derived_high_pass_filters"]),
             "derived_low_pass_filters": joined_values(group["derived_low_pass_filters"]),
+            "filter_metadata_signatures": joined_values(group["filter_metadata_signatures"]),
             "stim_parse_status_counts": json.dumps(dict(group["stim_parse_statuses"]), sort_keys=True),
             "stim_parse_errors": joined_values(group["stim_parse_errors"]),
             "has_stim_events": has_stim_events,
@@ -664,6 +705,54 @@ def main() -> None:
                 }
             )
 
+    filter_metadata_signature_rows: list[dict[str, Any]] = []
+    signatures = sorted({row["filter_metadata_signature"] for row in raw_rows})
+    for signature in signatures:
+        rows = [row for row in raw_rows if row["filter_metadata_signature"] == signature]
+        groups_with_signature = {
+            (row["logical_folder_relative"], row["logical_recording_stem"]) for row in rows
+        }
+        first = rows[0]
+        filter_metadata_signature_rows.append(
+            {
+                "filter_metadata_signature": signature,
+                "raw_file_count": len(rows),
+                "logical_group_count": len(groups_with_signature),
+                "raw_variants": ";".join(sorted({row["raw_variant"] for row in rows})),
+                "scopes": ";".join(sorted({row["scope"] for row in rows})),
+                "plate_type_names": ";".join(
+                    sorted({row["plate_type_name"] for row in rows if row["plate_type_name"]})
+                ),
+                "acquisition_analog_mode_setting": first["acquisition_analog_mode_setting"],
+                "acquisition_digital_high_pass_filter": first["acquisition_digital_high_pass_filter"],
+                "acquisition_digital_low_pass_filter": first["acquisition_digital_low_pass_filter"],
+                "derived_high_pass_filter": first["derived_high_pass_filter"],
+                "derived_low_pass_filter": first["derived_low_pass_filter"],
+            }
+        )
+
+    filter_metadata_value_rows: list[dict[str, Any]] = []
+    for field in FILTER_METADATA_FIELDS:
+        values = sorted({filter_value(str(row.get(field, ""))) for row in raw_rows})
+        for value in values:
+            rows = [row for row in raw_rows if filter_value(str(row.get(field, ""))) == value]
+            groups_with_value = {
+                (row["logical_folder_relative"], row["logical_recording_stem"]) for row in rows
+            }
+            filter_metadata_value_rows.append(
+                {
+                    "field": field,
+                    "value": value,
+                    "raw_file_count": len(rows),
+                    "logical_group_count": len(groups_with_value),
+                    "raw_variants": ";".join(sorted({row["raw_variant"] for row in rows})),
+                    "scopes": ";".join(sorted({row["scope"] for row in rows})),
+                    "plate_type_names": ";".join(
+                        sorted({row["plate_type_name"] for row in rows if row["plate_type_name"]})
+                    ),
+                }
+            )
+
     summary = {
         "analysis_kind": "axion_file_ground_truth_audit",
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -681,6 +770,9 @@ def main() -> None:
         "logical_groups_by_scope": dict(Counter(row["scope"] for row in group_rows)),
         "raw_files_by_plate_type": dict(Counter(row["plate_type_name"] or "metadata_missing" for row in raw_rows)),
         "raw_files_by_variant": dict(Counter(row["raw_variant"] for row in raw_rows)),
+        "raw_files_by_filter_metadata_signature": dict(
+            Counter(row["filter_metadata_signature"] for row in raw_rows)
+        ),
         "platemap_files_by_scope": dict(Counter(row["scope"] for row in platemap_rows)),
         "raw_files_by_stim_parse_status": dict(Counter(row["stim_parse_status"] for row in raw_rows)),
         "raw_files_with_stim_events": sum(
@@ -694,12 +786,17 @@ def main() -> None:
         "logical_group_variant_shapes": dict(
             Counter(row["raw_variants"] for row in group_rows)
         ),
+        "logical_group_filter_metadata_shapes": dict(
+            Counter(row["filter_metadata_signatures"] for row in group_rows)
+        ),
         "issues_by_type": dict(Counter(row["issue"] for row in issue_rows)),
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(output_dir / "raw_files.csv", raw_rows)
     write_csv(output_dir / "logical_recording_groups.csv", group_rows)
+    write_csv(output_dir / "filter_metadata_signatures.csv", filter_metadata_signature_rows)
+    write_csv(output_dir / "filter_metadata_value_counts.csv", filter_metadata_value_rows)
     write_csv(output_dir / "platemap_files.csv", platemap_rows)
     write_csv(output_dir / "issues.csv", issue_rows)
     write_csv(output_dir / "upload_temp_fragments.csv", temp_rows)
@@ -740,6 +837,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(["", "## Raw Files By Variant", ""])
     for key, value in sorted(summary["raw_files_by_variant"].items()):
         lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Raw Files By Filter Metadata Signature", ""])
+    if summary["raw_files_by_filter_metadata_signature"]:
+        for key, value in sorted(summary["raw_files_by_filter_metadata_signature"].items()):
+            lines.append(f"- {key}: {value}")
+    else:
+        lines.append("- none")
     lines.extend(["", "## Raw Files By Stim Parse Status", ""])
     if summary["raw_files_by_stim_parse_status"]:
         for key, value in sorted(summary["raw_files_by_stim_parse_status"].items()):
@@ -755,6 +858,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(["", "## Logical Group Variant Shapes", ""])
     for key, value in sorted(summary["logical_group_variant_shapes"].items()):
         lines.append(f"- {key or 'none'}: {value}")
+    lines.extend(["", "## Logical Group Filter Metadata Shapes", ""])
+    for key, value in sorted(summary["logical_group_filter_metadata_shapes"].items()):
+        lines.append(f"- {key or 'none'}: {value}")
     lines.extend(["", "## Issues By Type", ""])
     if summary["issues_by_type"]:
         for key, value in sorted(summary["issues_by_type"].items()):
@@ -768,6 +874,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "- `raw_files.csv`: one row per visible `.raw` file.",
             "- `logical_recording_groups.csv`: one row per folder/stem group.",
+            "- `filter_metadata_signatures.csv`: one row per distinct combined filter metadata signature.",
+            "- `filter_metadata_value_counts.csv`: one row per observed value for each filter metadata field.",
             "- `platemap_files.csv`: one row per `.platemap` file, with extracted candidate biology labels.",
             "- `issues.csv`: one row per flagged issue.",
             "- `upload_temp_fragments.csv`: rsync/temp raw fragments excluded from visible raw counts.",

@@ -243,6 +243,18 @@ standalone file ground-truth audit:
       /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_metadata_final_20260707_1134_parallel/raw_metadata_inventory.csv
     The refreshed ground-truth audit using that inventory is:
       /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1134_final_refreshed_metadata
+    Manual curation annotations in that audit:
+      manual_logical_group_annotations.csv
+      logical_recording_groups_annotated.csv
+    The following five groups are manually labeled `stability_recording` with
+    note "Proving stability recordings for later.":
+      Testing_mea_transient_plateing/134-0150/My Experiment(000)
+      Testing_mea_transient_plateing/134-0150/My Experiment(001)
+      Testing_mea_transient_plateing/134-0150/My Experiment(002)
+      Testing_mea_transient_plateing/134-0150/My Experiment(003)
+      Testing_mea_transient_plateing/134-0150/My Experiment(004)
+    This label is human-curated provenance, not inferred from `.raw` metadata
+    or `.platemap` contents.
     Counts from refreshed audit at 2026-07-07T12:02:17:
       visible .raw files: 88
       logical raw groups: 42
@@ -301,6 +313,116 @@ standalone file ground-truth audit:
       `_BroadbandProcessor`, but the primary `.raw` filter must be interpreted
       from metadata. The refreshed inventory now resolves the earlier
       metadata_missing caveat for the finalized upload set.
+      Going forward, filter review and downstream manifests should use the
+      metadata filter values as the primary filter identity, not only the
+      filename variant labels. The filename variant should remain provenance,
+      while the following columns define the filter state:
+        acquisition_analog_mode_setting
+        acquisition_digital_high_pass_filter
+        acquisition_digital_low_pass_filter
+        derived_high_pass_filter
+        derived_low_pass_filter
+        filter_metadata_signature
+      The refreshed audit now writes:
+        filter_metadata_signatures.csv
+        filter_metadata_value_counts.csv
+      Current distinct filter metadata signatures:
+        23 raw files:
+          analog=Neural Broadband
+          acquisition_hp=0.1 Hz IIR
+          acquisition_lp=None
+          derived_hp=<blank>
+          derived_lp=<blank>
+        40 raw files:
+          analog=Neural Broadband
+          acquisition_hp=0.1 Hz IIR
+          acquisition_lp=None
+          derived_hp=Butterworth
+          derived_lp=Butterworth
+        3 raw files:
+          analog=Neural Broadband
+          acquisition_hp=200 Hz IIR
+          acquisition_lp=None
+          derived_hp=<blank>
+          derived_lp=<blank>
+        6 raw files:
+          analog=Neural Broadband
+          acquisition_hp=200 Hz IIR
+          acquisition_lp=None
+          derived_hp=Butterworth
+          derived_lp=Butterworth
+        14 raw files:
+          analog=Neural Spikes
+          acquisition_hp=200 Hz IIR
+          acquisition_lp=3 kHz Kaiser Window
+          derived_hp=<blank>
+          derived_lp=<blank>
+        2 raw files:
+          analog=Neural Spikes
+          acquisition_hp=200 Hz IIR
+          acquisition_lp=None
+          derived_hp=<blank>
+          derived_lp=<blank>
+      Current observed value ranges across the 88 raw files:
+        acquisition_analog_mode_setting:
+          Neural Broadband: 72 raw files, 26 logical groups
+          Neural Spikes: 16 raw files, 16 logical groups
+        acquisition_digital_high_pass_filter:
+          0.1 Hz IIR: 63 raw files, 23 logical groups
+          200 Hz IIR: 25 raw files, 19 logical groups
+        acquisition_digital_low_pass_filter:
+          None: 74 raw files, 28 logical groups
+          3 kHz Kaiser Window: 14 raw files, 14 logical groups
+        derived_high_pass_filter:
+          <blank>: 42 raw files, 42 logical groups
+          Butterworth: 46 raw files, 26 logical groups
+        derived_low_pass_filter:
+          <blank>: 42 raw files, 42 logical groups
+          Butterworth: 46 raw files, 26 logical groups
+      `scripts/build_aind_recordings_manifest.py` and
+      `scripts/prepare_aind_recording_batches.py` now pass through the filter
+      metadata signature and component fields so downstream batch manifests can
+      be grouped or audited by true metadata filter state.
+    Broadband dorsal/ventral review from the same frozen audit:
+      summary:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1134_final_refreshed_metadata/broadband_dorsal_ventral_summary.json
+      logical groups:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1134_final_refreshed_metadata/broadband_dorsal_ventral_logical_groups.csv
+      well-label candidates:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1134_final_refreshed_metadata/platemap_well_label_candidates_dorsal_ventral.csv
+      If "broadband filter" means metadata Analog Mode Setting = Neural
+      Broadband, then the frozen audit has:
+        Neural Broadband logical groups: 26
+        Neural Broadband groups with dorsal or ventral labels: 19
+        Neural Broadband groups with both dorsal and ventral labels: 8
+        raw files inside those dorsal+ventral Neural Broadband groups: 25
+      If "broadband" means the explicit Axion-derived
+      `_BroadbandProcessor.raw` variant, then only one dorsal+ventral logical
+      group currently has that explicit file:
+        5_28_26_pvreporter/134-0150/pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)
+      That explicit `_BroadbandProcessor.raw` dorsal+ventral count is:
+        logical groups: 1
+        raw files: 1
+      The eight Neural Broadband dorsal+ventral logical groups are:
+        5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(000)
+        5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(001)
+        5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(002)
+        5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(003)
+        5_28_26_h1/134-0150/h1_dorsal_and_ventral_exp17_2(000)
+        5_28_26_h1/134-0150/h1_dorsal_and_ventral_exp17_2(001)
+        5_28_26_pvreporter/134-0150/pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)
+        5_28_26_pvreporter/134-0150/pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)
+      Candidate well-level dorsal/ventral calls decoded from the matched
+      `.platemap` sidecars are:
+        H1 5_28 platemap:
+          A1, A2, A3 = H1 Ventral SOSR
+          B1, B2, B3 = H1 Dorsal SOSR
+        CL23 PV 5_28 platemap:
+          A1, A2, A3 = CL 23 PV Ventral SOSR
+          B1, B2, B3 = CL 23 PV Dorsal SOSR
+      Treat these as candidate well-level biology labels from decoded Axion
+      platemap bytes until reviewed, but they are stronger evidence than
+      filename-only dorsal/ventral inference.
   schema update:
     raw_files.csv now carries Axion metadata timing fields when metadata is
     available:
@@ -412,6 +534,18 @@ standalone file ground-truth audit:
       stim_event_time_s_values
       stim_event_descriptions
       opto_on_interval_count_values
+    Refreshed final audit counts:
+      raw files with any stimulation events: 35/88
+      raw files with LED stimulation events: 35/88
+      raw files with electrode stimulation events: 0/88
+      logical groups with any stimulation events: 13/42
+      logical groups with LED stimulation: 13/42
+      logical groups with electrode stimulation: 0/42
+      LED-positive raw files by variant:
+        primary_raw: 13
+        broadband_processor_raw: 4
+        filter_1Hz-200Hz: 9
+        filter_200Hz-3kHz: 9
     Current check at 2026-07-07T11:27:40 found 13 logical groups with LED
     stimulation. New-upload LED-stim groups were:
       6_18_2026_plate2/129-8445/ventral_sosrs_2(000):
@@ -435,27 +569,23 @@ standalone file ground-truth audit:
       duration_under_2min_unusable
     This is a ground-truth review flag: recordings shorter than 2 minutes are
     considered definitely not usable, even if the raw file imports cleanly.
-    Current moving check at 2026-07-07T11:03:11 flagged 4 groups:
+    Current refreshed check at 2026-07-07T12:02:17 flagged 5 groups:
       older_or_existing/2_24_2026/134-0150/test(001): 1 s
       new_upload/5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(001): 12.75 s
       new_upload/5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(002): 12.5 s
       new_upload/5_28_26_h1/134-0150/h1_dorsal_and_ventral_exp17_2(000): 5.25 s
+      new_upload/Testing_mea_transient_plateing/134-0150/My Experiment(001): 8.5 s
   current flagged naming/folder issue:
     h1_exp17(000) appears in both:
       incoming/manny4tbum_20260706/5_25_2026/134-0150
       incoming/manny4tbum_20260706/5_25_2026/134-0150/134-0150
     This is likely a duplicate/nesting issue to resolve manually.
-  current metadata-missing groups:
-    pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)
-    ventral_sosrs(000)
-    ventral_sosrs(001)
-    ventral_sosrs_2(000)
-    ventral_sosrs_2_opsin(000)
-    ventral_sosrs_2_opsin(001)
-    ventral_sosrs_opsin_day3(000)
-    ventral_sosrs_opsin_day3(001)
-    These may be real gaps only if the metadata inventory remains missing after
-    rsync completes and metadata inspection is rerun.
+  superseded metadata-missing note:
+    Earlier moving checks listed metadata-missing new-upload groups while rsync
+    and metadata inspection were still in progress. That note is superseded by
+    the refreshed `20260707_1134_parallel` metadata inventory and refreshed
+    ground-truth audit: 88/88 raw files now have metadata status `ok`, and
+    `raw_metadata_missing` is currently 0 for the finalized upload set.
   intended use:
     This audit should be treated as a ground-truth reconciliation layer, not as
     an automatic pipeline driver yet. It is useful for:
