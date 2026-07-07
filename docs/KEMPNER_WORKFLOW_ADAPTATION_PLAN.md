@@ -293,8 +293,10 @@ Submission ledger:
 Per-job result location:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/<label>/preflight_result.json
 
-Slurm state at submission check:
-  all 10 preflight jobs were PENDING, mostly due to Priority.
+Slurm state at follow-up check:
+  53025406, the 2_12_000_primary RawVoltageData preflight, was RUNNING.
+  The other 9 preflight jobs were PENDING due to Priority/Resources.
+  No preflight_result.json files had landed yet.
 
 How to interpret the result:
   If primary .raw passes while BroadbandProcessor fails, the scale-up ingestion
