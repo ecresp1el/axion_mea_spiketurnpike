@@ -4100,6 +4100,270 @@ return-later checkpoint at 2026-07-07 13:58 EDT:
        pending into running/completed,
     4. regenerate a new clear-slate snapshot rather than relying only on raw
        `squeue` totals.
+return-later checkpoint at 2026-07-07 14:25 EDT:
+  Progress:
+    Kilosort4 completed: 16 well pipelines
+    postprocessing completed: 15 well pipelines
+    results_collector completed: 12 well pipelines
+    quality_control completed: 12 well pipelines
+    quality_control_collector completed: 11 well pipelines
+    nwb_units completed: 12 well pipelines
+  First confirmed current-batch wells through `nwb_units`:
+    6_22_2026_129-8445_ventral_sosrs_opsin_day3(000): B4, B5, C3, E5
+    6_22_2026_129-8445_ventral_sosrs_opsin_day3(001): B5, C3, C5, C6, D2, D6, E5
+    sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw: A1
+  Live Kilosort4 scheduler state:
+    completed today: 16
+    running: 4
+    pending: 111
+    failed observed at this checkpoint: 0
+  New issue:
+    The 37 AIND parent reruns submitted as 53055454..53055490 all failed after
+    reaching Nextflow `job_dispatch`, not with the old 1-second shared-shim
+    failure. The observed error is:
+      /var/spool/slurmd.spool/job<child>/slurm_script: line 317:
+      syntax error near unexpected token `('
+    The failing command contains unescaped paths/session names with parentheses
+    such as `ventral_sosrs_opsin_day3(000)` and
+    `sixwell_manual_primary_scn8a_sosrs_dorsal_vs_ventrals_133-1555_(000)`.
+    Treat this as a generated Nextflow/Slurm script quoting issue for rerun
+    paths, not a raw export/NWB/SpikeInterface/Kilosort failure.
+  Operational interpretation:
+    Original AIND jobs are producing valid end-to-end outputs through
+    `nwb_units`; the pipeline itself is working. The rerun recovery path still
+    needs a quoting fix before rerunning those 37 failed AIND parents again.
+return-later checkpoint at 2026-07-07 14:46 EDT:
+  Main pipeline progress:
+    Kilosort4 completed: 28 well pipelines
+    Kilosort4 failed observed: 0
+    postprocessing completed: 28 well pipelines
+    results_collector completed: 27 well pipelines
+    quality_control completed: 23 well pipelines
+    quality_control_collector completed: 18 well pipelines
+    nwb_units completed: 18 well pipelines
+  Rerun recovery status:
+    The 37 failed AIND parent reruns did need to be rerun, but not from raw
+    export/NWB/SpikeInterface. Only the AIND parent layer needed another
+    recovery submission.
+    Root:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_rerun_after_runoptions_quote_fix_20260707_1445
+    Manifest:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_rerun_after_runoptions_quote_fix_20260707_1445/quote_fix_rerun_manifest.csv
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_rerun_after_runoptions_quote_fix_20260707_1445/quote_fix_rerun_manifest.json
+    Fix applied:
+      `config/aind_nextflow_slurm_greatlakes.config` now quotes the
+      Singularity/Apptainer `-B <python_shim>/python:/usr/local/bin/python`
+      bind and the `--env PATH/HOME/XDG_CACHE_HOME/MPLCONFIGDIR` values. This
+      prevents generated Nextflow child scripts from choking on parentheses in
+      per-well work paths.
+    Canary:
+      old AIND parent: 53052522
+      failed rerun parent: 53055454
+      quote-fix rerun parent: 53060114
+      status: RUNNING at checkpoint; child `job_dispatch` 53060117 completed
+      exit 0 and `preprocessing` 53060184 completed exit 0. This proves the
+      parenthesis quoting bug was fixed for at least the canary.
+    Remaining 36 quote-fix reruns:
+      submitted as 53060261..53060296
+      status at checkpoint: all 36 RUNNING, no immediate quote failure observed.
+    Operational interpretation:
+      Do not rerun the whole pipeline. The 37 affected wells are now represented
+      by quote-fix AIND parent jobs 53060114 and 53060261..53060296. Continue
+      monitoring these new AIND parents and their child `job_dispatch` traces.
+return-later checkpoint at 2026-07-07 14:53 EDT:
+  Main pipeline progress:
+    Kilosort4 completed: 33 well pipelines
+    Kilosort4 failed observed: 0
+    postprocessing completed: 30 well pipelines
+    results_collector completed: 28 well pipelines
+    quality_control completed: 28 well pipelines
+    quality_control_collector completed: 28 well pipelines
+    nwb_units completed: 28 well pipelines
+  Rerun recovery status:
+    The quote-fix recovery jobs are now fully submitted:
+      canary: 53060114
+      remaining 36: 53060261..53060296
+    At this checkpoint all 37 quote-fix AIND parent jobs are RUNNING and none
+    have failed. The canary already proved `job_dispatch` and preprocessing
+    after the quoting fix.
+  Live scheduler interpretation:
+    Five Kilosort4 children are running on GPU nodes, and the remaining
+    Kilosort4 children are queued. Pending Kilosort4 reason includes
+    `AssocGrpGRES`, so the remaining throughput is GPU/account scheduling, not
+    a missing submission step.
+  Operational interpretation:
+    No full raw/NWB/SpikeInterface rerun is needed. The missing affected wells
+    have active corrected AIND-parent jobs, and the rest of the run should
+    continue through AIND/Nextflow as scheduler resources release.
+return-later checkpoint at 2026-07-07 15:08 EDT:
+  Unified status logic:
+    `scripts/summarize_aind_current_well_ledger.py` is now the single current
+    status ledger for this submission. It starts from the expected well rows in
+    the submitted batch manifests, joins old failed AIND parents to their
+    quote-fix rerun parents, then reads each per-well Nextflow `trace.txt`.
+    Do not use raw `squeue` alone as truth because it mixes parent wrappers and
+    internal Nextflow child jobs.
+  Current ledger outputs:
+    latest symlink:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest
+    snapshot:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260707_150831
+    files:
+      unified_well_status.csv
+      unified_recording_status.csv
+      unified_status_summary.txt
+      unified_status_summary.json
+  Definitions:
+    Unit of account: one recording plus one well.
+    Passed Kilosort: `spikesort_kilosort4` is `COMPLETED` in that well's
+    Nextflow trace.
+    Fully done: `nwb_units` is `COMPLETED` in that well's Nextflow trace.
+    Effective AIND parent: quote-fix rerun job when one exists, otherwise the
+    originally submitted AIND parent job.
+  Current unified status at 2026-07-07 15:08:31 EDT:
+    expected well pipelines: 168
+    expected recordings: 26
+    plate-family wells: 54 FortyEightWellLumos, 114 SixWell
+    lane wells: 54 48well_auto, 113 sixwell_manual_primary, 1 sixwell_smoke
+    Kilosort4 completed: 44 well pipelines
+    Kilosort4 failed: 3 well pipelines
+    Kilosort4 not entered yet: 121 well pipelines
+    nwb_units fully completed: 36 well pipelines
+    live Slurm Kilosort4 children: 4 RUNNING, 116 PENDING
+    live AIND parent jobs: 131 RUNNING
+  Current real Kilosort failures:
+    sixwell_manual_primary_134-0150_(001) B2:
+      ValueError: Found array with 0 sample(s) (shape=(0, 31)) while a minimum
+      of 1 is required by TruncatedSVD.
+    sixwell_manual_primary_134-0150_(001) B3:
+      ValueError: n_samples=4 should be >= n_clusters=6.
+    sixwell_manual_primary_5_25_2026_134-0150_134-0150_h1_exp17(001) A3:
+      ValueError: n_samples=2 should be >= n_clusters=6.
+    These are low-activity/sparse Kilosort failures, not export/NWB,
+    SpikeInterface-prep, quote-path, or raw-ingestion failures.
+  Practical interpretation:
+    There is now one slate: `unified_well_status.csv`. Counts should be quoted
+    from that file. A recording can have some wells fully done while other wells
+    are pending Kilosort or have failed Kilosort; therefore "recording done"
+    means all expected wells for that recording have `nwb_units COMPLETED`.
+return-later checkpoint at 2026-07-07 15:20 EDT:
+  Refreshed unified ledger:
+    latest symlink:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest
+    snapshot:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260707_152015
+  Current unified status at 2026-07-07 15:20:16 EDT:
+    expected well pipelines: 168
+    expected recordings: 26
+    Kilosort4 completed: 54 well pipelines
+    Kilosort4 failed: 16 well pipelines
+    Kilosort4 not entered yet: 98 well pipelines
+    nwb_units fully completed: 47 well pipelines
+    live Slurm Kilosort4 children: 5 RUNNING, 92 PENDING
+    live AIND parent jobs: 105 RUNNING
+  Recording-level status:
+    complete_all_wells: 3 recordings
+      - 6_22_2026_129-8445_ventral_sosrs_opsin_day3(004), 9/9 wells
+      - 6_22_2026_129-8445_ventral_sosrs_opsin_day3(005), 9/9 wells
+      - sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw,
+        1/1 well
+    partially_through_kilosort: 6 recordings
+    needs_attention: 6 recordings
+    in_progress_before_or_waiting_kilosort: 11 recordings
+  Failure interpretation:
+    Most current failures are the known sparse/low-activity Kilosort class
+    (`n_samples < n_clusters` or zero samples for TruncatedSVD). One current
+    SixWell Kilosort failure reports `CUDA error: device-side assert triggered`
+    and should be inspected separately before deciding whether it belongs to the
+    same sparse-sortability bucket or needs a rerun.
+return-later checkpoint at 2026-07-07 15:46 EDT:
+  Refreshed unified ledger:
+    latest symlink:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest
+    snapshot:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260707_154654
+  Current unified status at 2026-07-07 15:46:56 EDT:
+    expected well pipelines: 168
+    expected recordings: 26
+    Kilosort4 completed: 79 well pipelines
+    Kilosort4 failed: 26 well pipelines
+    Kilosort4 not entered yet: 63 well pipelines
+    nwb_units fully completed: 71 well pipelines
+    live Slurm Kilosort4 children: 5 RUNNING, 58 PENDING
+    live AIND parent jobs: 72 RUNNING
+  Recording-level status:
+    complete_all_wells: 3 recordings
+      - 6_22_2026_129-8445_ventral_sosrs_opsin_day3(004), 9/9 wells
+      - 6_22_2026_129-8445_ventral_sosrs_opsin_day3(005), 9/9 wells
+      - sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw,
+        1/1 well
+    all_wells_passed_kilosort_downstream_active: 1 recording
+    partially_through_kilosort: 9 recordings
+    needs_attention: 10 recordings
+    in_progress_before_or_waiting_kilosort: 3 recordings
+  Practical interpretation:
+    The run is still actively advancing. The 48-well Lumos recordings remain
+    successful so far, with two fully done and the remaining four partially or
+    fully through Kilosort. Most newly observed failures are in SixWell primary
+    recordings and should be triaged as sparse/low-activity Kilosort failures
+    unless their per-well `failure_summary` says otherwise.
+  Low-activity fallback clarification:
+    We already proved an isolated fallback route for sparse Kilosort failures:
+    `low_activity_ks4_nt2_npcs2`. That route changes `n_templates`,
+    `nearest_templates`, and `n_pcs` together to 2. The current 26 Kilosort
+    failures are standard-route failures; they have not yet been promoted
+    through the fallback route in this bulk SixWell submission.
+    Eligibility distinction:
+      - `n_samples >= 2` with `n_samples < n_clusters=6` should be eligible for
+        the `low_activity_ks4_nt2_npcs2` fallback.
+      - `n_samples=1` is still below `n_clusters=2`, so the existing nt2 fallback
+        is not expected to rescue it.
+      - zero-sample TruncatedSVD failures are no-sortability failures for this
+        fallback unless we create a separate no-spikes/no-units terminal route.
+      - CUDA device-side assert is separate until inspected.
+    Approximate current split from the 26 failures:
+      19 likely eligible for `low_activity_ks4_nt2_npcs2`.
+      4 have `n_samples=1` and need a different policy.
+      2 have zero samples/TruncatedSVD and need a no-sortability policy.
+      1 has CUDA device-side assert and needs separate inspection.
+return-later checkpoint at 2026-07-07 15:59 EDT:
+  Unit-metrics sheet update:
+    `scripts/summarize_aind_current_well_ledger.py` now appends per-well unit
+    metrics into `unified_well_status.csv` and also writes a compact sheet:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest/unit_metrics_by_well.csv
+    Current backing snapshot:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260707_155848
+  Unit metric definitions:
+    Unit metrics are read from each well's curated SpikeInterface output:
+      results/aind/<recording>/<well>/curated/block0_None_recording1/
+    `unit_count_total` is the number of curated unit IDs.
+    `unit_count_sua` maps `KSLabel=good`.
+    `unit_count_mua` maps `KSLabel=mua`.
+    `unit_count_noise` maps `KSLabel=noise` only if that label is present.
+    Important: these are Kilosort/Phy `KSLabel` values propagated through AIND
+    postprocessing/curation, not an independent AIND unit-classifier noise call.
+    Current observed labels are `good` and `mua`; therefore `unit_count_noise=0`
+    means the selected label source did not emit `noise`, not that no unit is
+    biologically/noise-like.
+    `spike_count_range_per_unit` is min-max spike count across units from
+    `curated/block0_None_recording1/spikes.npy`.
+  Corrected unit metric totals at 2026-07-07 16:03:27 EDT:
+    wells with unit metrics: 87
+    units total: 6563
+    SUA/good-by-KSLabel total: 853
+    MUA-by-KSLabel total: 5710
+    noise-by-KSLabel total: 0
+    total sorted spikes across metric-populated wells: 732663022
+  Correction made after review:
+    The compact sheet now includes `unit_labels_observed`, `unit_label_source`,
+    and `unit_label_warning` columns. This was added because the earlier summary
+    could be misread as "noise was measured and found to be zero." The actual
+    source is `curated/block0_None_recording1/properties/KSLabel.npy`, and no
+    separate unit-classifier noise labels were found in the current AIND outputs.
+  Practical caveat:
+    `unit_metrics_status=missing_curated_sorting` means the well has not yet
+    produced curated sorting output or failed before that stage. Re-run the
+    unified ledger later to populate more rows as the active jobs finish.
 reproducibility rule going forward:
   Treat every launcher/environment fix as a new provenance event. Preserve:
     - original batch manifests,
