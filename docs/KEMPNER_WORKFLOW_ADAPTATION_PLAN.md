@@ -132,6 +132,74 @@ dry metadata-routing check:
   note: this validates config generation only. It is not yet a production
         AIND smoke run.
 
+standalone file ground-truth audit:
+  script: scripts/audit_axion_file_ground_truth.py
+  report root:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_103911
+  report files:
+    ground_truth_report.md
+    summary.json
+    raw_files.csv
+    logical_recording_groups.csv
+    issues.csv
+    upload_temp_fragments.csv
+  snapshot time: 2026-07-07T10:39:12
+  visible .raw files: 65
+  logical raw groups: 29
+  upload temp fragments: 1
+  by scope:
+    older_or_existing raw files: 14
+    new_upload raw files: 51
+  by plate metadata:
+    FortyEightWellLumos: 10
+    SixWell: 33
+    metadata_missing: 22
+  by raw variant:
+    primary_raw: 29
+    broadband_processor_raw: 8
+    filter_1Hz-200Hz: 14
+    filter_200Hz-3kHz: 14
+  important caveat:
+    rsync was still moving during this audit; rerun the audit after upload
+    completion before treating counts as final.
+  current flagged naming/folder issue:
+    h1_exp17(000) appears in both:
+      incoming/manny4tbum_20260706/5_25_2026/134-0150
+      incoming/manny4tbum_20260706/5_25_2026/134-0150/134-0150
+    This is likely a duplicate/nesting issue to resolve manually.
+  current metadata-missing groups:
+    pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)
+    ventral_sosrs(000)
+    ventral_sosrs(001)
+    ventral_sosrs_2(000)
+    ventral_sosrs_2_opsin(000)
+    ventral_sosrs_2_opsin(001)
+    ventral_sosrs_opsin_day3(000)
+    ventral_sosrs_opsin_day3(001)
+    These may be real gaps only if the metadata inventory remains missing after
+    rsync completes and metadata inspection is rerun.
+  intended use:
+    This audit should be treated as a ground-truth reconciliation layer, not as
+    an automatic pipeline driver yet. It is useful for:
+      1. confirming every visible raw file is represented,
+      2. grouping raw variants and sidecars by folder/stem,
+      3. finding duplicate/nested saves,
+      4. finding raw files missing metadata matches,
+      5. reviewing which logical groups are safe to include in a manifest.
+    The pipeline should continue to consume explicit reviewed manifests. After
+    uploads are complete and this audit schema stabilizes, we can use
+    logical_recording_groups.csv/raw_files.csv to generate candidate manifests,
+    but only with a review step that freezes one audit snapshot. Do not let a
+    live filesystem audit silently change downstream submissions while rsync or
+    metadata inspection is still moving.
+  integration recommendation:
+    Use this as a preflight/reconciliation gate before manifest generation.
+    The clean flow should be:
+      raw filesystem -> ground-truth audit -> human-reviewed candidate manifest
+      -> metadata-locked pipeline preparation -> one-well smoke -> scale-up.
+    This avoids clunky pipeline logic while still giving us a consistent
+    accounting source for messy naming and folder saves.
+
 incoming_h1_5_25_primary
   raw: h1_exp17(000).raw
   dataset: RawVoltageData
