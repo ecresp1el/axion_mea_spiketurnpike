@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-07 09:31 EDT
+Date updated: 2026-07-07 10:45 EDT
 
 ## Goal
 
@@ -11,7 +11,7 @@ visualization, result collection, or NWB-units export ourselves.
 This repo should only own the Axion-specific bridge:
 
 - read Axion `.raw`/continuous voltage data,
-- resolve the Axion well and 4x4 electrode geometry,
+- resolve the Axion plate family, well map, and per-well electrode geometry,
 - write one supported input artifact per well, preferably NWB or another input
   format accepted by the AIND pipeline,
 - preserve Axion metadata/provenance,
@@ -64,8 +64,118 @@ Do not submit another large export batch from the affected recordings until the
 Axion loader compatibility issue is fixed or a different supported ingestion
 path is chosen.
 
-The 2 `SixWell` logical recordings remain intentionally blocked with
-`submit=false` until a confirmed SixWell plate map/geometry is added.
+Plate handling is now metadata-driven. Raw metadata selects a locked downstream
+profile:
+
+```text
+FortyEightWell/Lumos metadata:
+  plate_family: lumos_48well
+  plate_map: metadata/plate_maps/axion_48_well_opto_plate_map.csv
+  electrode_geometry: metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv
+  n_chan_bin: 16
+  params_template: config/aind_axion_lumos_params.json
+
+SixWell/CytoView metadata:
+  plate_family: cytoview_6well
+  plate_map: metadata/plate_maps/axion_6_well_plate_map.csv
+  electrode_geometry: metadata/plate_maps/axion_per_well_8x8_electrode_geometry.csv
+  n_chan_bin: 64
+  params_template: config/aind_axion_cytoview6_params.json
+```
+
+Do not manually mix these settings. If raw metadata selects SixWell, all
+downstream plate map, electrode geometry, channel count, and AIND/Kilosort
+params must stay SixWell. If raw metadata selects Lumos 48-well, all downstream
+settings must stay Lumos 48-well.
+
+Moving forward, do not deduplicate primary `.raw`, filtered `.raw`, and
+`*_BroadbandProcessor.raw` into a single preferred raw variant. Keep every
+usable raw variant as its own manifest row with a unique recording stem and
+carry filtering/provenance metadata through the manifest. The dataset selector
+is an execution detail for that raw row, not a reason to discard other raw
+variants.
+
+Representative preflight for the newly uploaded incoming `SixWell` files
+completed on `2026-07-07`. These files worked in the current MATLAB Axion File
+Loader sense: `AxisFile` opened, the requested dataset resolved, and a 1-second
+A1 tiny load succeeded. They are not yet cleared for production AIND submission
+because the new SixWell metadata-driven route still needs a one-well smoke run.
+
+```text
+incoming preflight root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_incoming_preflight_20260707_095329
+
+metadata inventory:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_metadata_compare_20260707_094704/raw_metadata_inventory.csv
+
+full incoming metadata inventory:
+  incoming rows: 29
+  status_counts: {"ok": 29}
+  note: this confirms metadata parsing for the incoming set. The deeper
+        AxisFile/dataset/tiny-load check was run on the 4 representative files
+        below.
+
+dry metadata-routing check:
+  input rows: 29 incoming raw variants
+  manifest rows emitted: 29
+  plate_family counts: {"cytoview_6well": 29}
+  dataset counts: {"RawVoltageData": 28, "BroadbandHighFrequency": 1}
+  raw_variant counts:
+    primary_raw_NeuralSpikes: 7
+    primary_raw_NeuralBroadband: 7
+    filter_1Hz-200Hz: 7
+    filter_200Hz-3kHz: 7
+    broadband_processor: 1
+  single-well dry prep:
+    SixWell A1 generated n_chan_bin=64, 8x8 geometry, and
+    config/aind_axion_cytoview6_params.json.
+  note: this validates config generation only. It is not yet a production
+        AIND smoke run.
+
+incoming_h1_5_25_primary
+  raw: h1_exp17(000).raw
+  dataset: RawVoltageData
+  plate_type: SixWell
+  analog_mode: NeuralSpikes
+  duration_s: 856.75
+  overall_status: ok
+  axisfile_ok: true
+  dataset_ok: true
+  tiny_load_ok: true
+
+incoming_h1_5_28_small_primary
+  raw: h1_dorsal_and_ventral_exp17_2(000).raw
+  dataset: RawVoltageData
+  plate_type: SixWell
+  analog_mode: NeuralBroadband
+  duration_s: 5.25
+  overall_status: ok
+  axisfile_ok: true
+  dataset_ok: true
+  tiny_load_ok: true
+
+incoming_pv_5_28_broadband
+  raw: pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_BroadbandProcessor.raw
+  dataset: BroadbandHighFrequency
+  plate_type: SixWell
+  analog_mode: NeuralBroadband
+  duration_s: 602.75
+  overall_status: ok
+  axisfile_ok: true
+  dataset_ok: true
+  tiny_load_ok: true
+
+incoming_pv_5_28_filter_200_3k
+  raw: pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_Filter(200Hz-3kHz).raw
+  dataset: RawVoltageData
+  plate_type: SixWell
+  analog_mode: NeuralBroadband
+  duration_s: 602.75
+  overall_status: ok
+  axisfile_ok: true
+  dataset_ok: true
+  tiny_load_ok: true
+```
 
 Current collector snapshot as of `2026-07-07T09:31:23`:
 
@@ -119,11 +229,51 @@ Updated status outputs:
 ```
 
 Collector logic was updated on `2026-07-07` so export logs containing the Axion
-`LookupChannelID` / `Index must not exceed 2880` signature are reported as:
+block-vector metadata warnings and/or the downstream `LookupChannelID` /
+`Index must not exceed 2880` signature are reported as:
 
 ```text
 derived_stage: ingestion_open_failed
-export_failure_class: axion_axisfile_lookupchannel_open_failed
+export_failure_class:
+  axion_metadata_format_compatibility_issue
+  or axion_axisfile_lookupchannel_open_failed
+```
+
+Current working interpretation after manual Maestro/MATLAB comparison:
+
+```text
+The affected .raw files open and function normally in Axion Maestro, so the
+recordings are likely valid. The failure is specific to the MATLAB Axion File
+Loader path. Header/core metadata can be parsed, including version, data type,
+sampling frequency, and channel count, but block-vector metadata checksum and
+length checks disagree with the current MATLAB parser's expectations. The
+affected files appear to contain a larger metadata block than a known-working
+file imported with the same MATLAB environment and Axion File Loader version.
+Re-exporting from Maestro reproduces the same MATLAB loader behavior.
+
+Treat this as a metadata-format compatibility issue between these valid Axion
+raw files and the current MATLAB Axion File Loader, not as a MATLAB
+installation problem and not as evidence that the recording is corrupt.
+```
+
+Pinned future work, not proceeding now:
+
+```text
+Custom low-level Axion rescue extraction may be possible because Axion's MATLAB
+scripts show that the continuous voltage payload is interleaved int16 samples
+with a structured channel map. However, the affected files currently produce
+untrustworthy parsed data-region offsets through the stock loader, so a rescue
+extractor would first need to reconstruct the real data-region boundary and
+channel ordering without relying on the failing CombinedBlockVector parser.
+
+Do not feed a custom extractor into AIND until it has been validated against a
+known-good file such as 2_25_2026 by comparing the same well/channel/time window
+against the official AxisFile/LoadData output.
+
+This is parked as a future bypass/investigation path. The current operational
+policy remains: classify the affected files as ingestion_open_failed under the
+current loader, avoid treating those wells as running, and avoid large
+submissions from affected recordings until a supported ingestion path is chosen.
 ```
 
 The normal MATLAB export path now also writes a structured failure artifact
@@ -138,7 +288,10 @@ For the current Axion loader issue, that JSON records:
 ```text
 analysis_kind: axion_well_kilosort_binary_export_failure
 phase: axisfile_open
-failure_class: axion_axisfile_lookupchannel_open_failed
+failure_class: axion_metadata_format_compatibility_issue
+  or axion_axisfile_lookupchannel_open_failed
+warning_identifier: <last MATLAB warning id>
+warning_message: <last MATLAB warning message>
 error_message: <MATLAB exception message>
 error_report: <full MATLAB getReport output>
 raw_file, recording_stem, well, dataset
@@ -548,7 +701,10 @@ Updated goals for `2026-07-07`:
 
 3. Completed: separate the two failure classes clearly.
    Class A: raw ingestion/export-open failure:
-     AxisFile(rawFile) fails with LookupChannelID / index must not exceed 2880.
+     AxisFile(rawFile) fails because the current MATLAB Axion File Loader cannot
+     handle the file's block-vector metadata format, often surfacing as
+     BlockVectorMetaData checksum / Unexpected BlockVectorMetadata length
+     warnings and then LookupChannelID / index must not exceed 2880.
      This blocks export before NWB, SpikeInterface, AIND, or Kilosort.
 
    Class B: low-activity Kilosort4 failure:
@@ -556,31 +712,33 @@ Updated goals for `2026-07-07`:
      This is handled by the low_activity_ks4_nt2_npcs2 fallback.
 
 4. Completed: update collector logic for known export-open failures.
-   scripts/summarize_aind_batch_status.py now labels export logs containing the
-   LookupChannelID / 2880-index signature as ingestion_open_failed with
-   export_failure_class=axion_axisfile_lookupchannel_open_failed.
+   scripts/summarize_aind_batch_status.py now labels export logs or structured
+   failure JSON containing the metadata-format warning and/or LookupChannelID /
+   2880-index signature as ingestion_open_failed.
 
 5. Preserve reproducibility.
    Every new manifest, preflight command, submitted Slurm command, and result
    summary should live under the project folder with a copied command/env/repro
    path. Avoid repo-root Nextflow/cache clutter.
 
-6. Next: investigate or bypass the Axion AxisFile compatibility issue.
+6. Pinned for later: investigate or bypass the Axion AxisFile compatibility issue.
    Candidate paths:
      patch/override the Axion MATLAB loader for the affected channel metadata,
      use a different Axion-supported export/conversion route,
-     or acquire/export compatible raw files from AxIS if available.
+     acquire/export compatible raw files from AxIS if available,
+     or prototype a custom low-level rescue extractor only after validation on
+     known-good files. Do not proceed with this extractor work yet.
 
 7. Only after ingestion compatibility is solved, prepare a fresh scale-up.
    Candidate next run should include only recordings/raw variants that pass
-   preflight, keep SixWell blocked until geometry is confirmed, submit at
-   recording level with per-well dependencies, and keep automatic low-activity
-   fallback enabled.
+   preflight, preserve all available raw/filter variants as separate manifest
+   rows, lock downstream configs from raw metadata, submit at recording level
+   with per-well dependencies, and keep automatic low-activity fallback enabled.
 
 8. Update this handoff before any new large submission.
    The handoff should state:
-     which raw variant was selected per recording,
-     why it was selected,
+     which raw variants are included per biological recording,
+     what filtering/provenance metadata each variant carries,
      how many recordings/wells are eligible,
      how many are blocked and why,
      where the submitted commands and live status will be stored.
@@ -2185,10 +2343,11 @@ What each file is used for:
 
 Assumptions:
 
-- Each well is treated as an independent 16-channel recording for export, NWB,
-  and AIND sorting.
-- Wells on the same plate type share the same 4x4 electrode geometry:
-  `metadata/plate_maps/axion_per_well_4x4_electrode_geometry.csv`.
+- Each well is treated as an independent recording for export, NWB, and AIND
+  sorting. The channel count is locked by the metadata-derived plate profile:
+  16 channels for Lumos 48-well, 64 channels for SixWell/CytoView.
+- Wells on the same plate type share the same per-well electrode geometry:
+  4x4 at 350 um for Lumos 48-well, 8x8 at 300 um for SixWell/CytoView.
 - Once a well is exported, downstream ingestion reads that well's
   `channel_mapping.csv` as the canonical mapping. The mapping must include
   binary order, well label, Axion channel identity, electrode row/column, and
@@ -3003,15 +3162,13 @@ selected_well_pipelines_submitted: 65
 recording_supervisors_submitted: 5
 ```
 
-Important assumption: the raw inventory contained paired Axion primary `.raw`
-files and `*_BroadbandProcessor.raw` files. The scale-up manifest currently
-de-duplicates those pairs into one logical recording and chooses the
-`*_BroadbandProcessor.raw` file for sorting, because the successful proof run and
-fresh run used that continuous voltage input. This is a major assumption, not a
-final conclusion. A later comparison workflow should include both file families
-as separate inputs with distinct `recording_stem` values so we can directly
-compare whether the primary `.raw` and `*_BroadbandProcessor.raw` filtering
-differences change spike sorting outputs.
+Historical note: the original `20260706` scale-up manifest de-duplicated paired
+Axion primary `.raw` and `*_BroadbandProcessor.raw` files into one logical
+recording and chose the `*_BroadbandProcessor.raw` file because the successful
+proof run used that continuous voltage input. That assumption is superseded.
+Moving forward, primary `.raw`, filtered `.raw`, and `*_BroadbandProcessor.raw`
+files should remain separate manifest rows with distinct `recording_stem` values
+and carried filtering/provenance metadata.
 
 Submitted FortyEightWellLumos recordings and selected wells:
 
@@ -3023,7 +3180,7 @@ Submitted FortyEightWellLumos recordings and selected wells:
 2_25_2026_129-8447_test(000)_FortyEightWellLumos: 14 wells
 ```
 
-Blocked recordings:
+Previously blocked SixWell recordings:
 
 ```text
 2_24_2026_134-0150_test(000)_SixWell
@@ -3031,10 +3188,21 @@ Blocked recordings:
 ```
 
 These SixWell recordings have raw files, spike-count sidecars, spike-list
-sidecars, and metadata matches, but they are intentionally `submit=false`
-because this repo currently has 48-well and 24-well plate maps, not a confirmed
-SixWell plate map. Do not enable them until the SixWell plate geometry and well
-map are added as the single source of truth.
+sidecars, and metadata matches. They were originally `submit=false` because
+the repo only had 48-well and 24-well plate maps. As of `2026-07-07`, SixWell
+profile assets have been added:
+
+```text
+metadata/plate_maps/axion_6_well_plate_map.csv
+metadata/plate_maps/axion_per_well_8x8_electrode_geometry.csv
+config/aind_axion_cytoview6_params.json
+src/axion_mea/plate_profiles.py
+```
+
+The next step for these recordings is a small SixWell smoke run, not a large
+submission. Confirm one well exports with 64 channels, writes a 64-row channel
+mapping, prepares SpikeInterface/AIND params from the SixWell template, and
+does not reuse any Lumos 48-well geometry or channel-count settings.
 
 The scale-up submission has already been run:
 

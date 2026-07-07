@@ -57,14 +57,17 @@ end
 geometry = geometry(connected_mask(geometry.connected), :);
 
 try
+    lastwarn("");
     axisFile = AxisFile(char(rawFile));
 catch ME
+    [warningMessage, warningId] = lastwarn;
     write_failure_manifest(failureManifestPath, rawFile, recordingStem, well, datasetName, ...
-        "axisfile_open", ME);
+        "axisfile_open", warningId, warningMessage, ME);
     rethrow(ME);
 end
 cleanupAxis = onCleanup(@() delete(axisFile));
 try
+    lastwarn("");
     dataSet = select_dataset(axisFile, datasetName);
     if isempty(dataSet)
         error("AxionExport:DatasetNotFound", "Dataset %s was not found in %s.", datasetName, rawFile);
@@ -73,12 +76,14 @@ try
         dataSet = dataSet(1);
     end
 catch ME
+    [warningMessage, warningId] = lastwarn;
     write_failure_manifest(failureManifestPath, rawFile, recordingStem, well, datasetName, ...
-        "dataset_selection", ME);
+        "dataset_selection", warningId, warningMessage, ME);
     rethrow(ME);
 end
 
 try
+    lastwarn("");
     if isnan(duration) || duration <= 0
         timeRangeDescription = "all time (timespan argument omitted)";
         waveforms = dataSet.LoadData(char(well), LoadArgs.ByElectrodeDimensions);
@@ -88,8 +93,9 @@ try
         waveforms = dataSet.LoadData(char(well), timeRange, LoadArgs.ByElectrodeDimensions);
     end
 catch ME
+    [warningMessage, warningId] = lastwarn;
     write_failure_manifest(failureManifestPath, rawFile, recordingStem, well, datasetName, ...
-        "load_data", ME);
+        "load_data", warningId, warningMessage, ME);
     rethrow(ME);
 end
 
@@ -191,18 +197,20 @@ fprintf("Wrote mapping: %s\n", mappingCsv);
 fprintf("Wrote manifest: %s\n", manifestPath);
 end
 
-function write_failure_manifest(path, rawFile, recordingStem, well, datasetName, phase, ME)
+function write_failure_manifest(path, rawFile, recordingStem, well, datasetName, phase, warningId, warningMessage, ME)
 report = string(getReport(ME, "extended", "hyperlinks", "off"));
 failure = struct();
 failure.analysis_kind = "axion_well_kilosort_binary_export_failure";
 failure.status = "failed";
 failure.phase = string(phase);
-failure.failure_class = classify_failure(report);
+failure.failure_class = classify_failure(report, string(warningId), string(warningMessage));
 failure.checked_at = string(datetime("now", "TimeZone", "local", "Format", "yyyy-MM-dd HH:mm:ss ZZZZ"));
 failure.raw_file = string(rawFile);
 failure.recording_stem = string(recordingStem);
 failure.well = string(well);
 failure.dataset = string(datasetName);
+failure.warning_identifier = string(warningId);
+failure.warning_message = string(warningMessage);
 failure.error_identifier = string(ME.identifier);
 failure.error_message = string(ME.message);
 failure.error_report = report;
@@ -210,8 +218,13 @@ write_text_file(path, jsonencode(failure, PrettyPrint=true));
 fprintf("Wrote export failure manifest: %s\n", path);
 end
 
-function failureClass = classify_failure(report)
-if contains(report, "Index exceeds the number of array elements. Index must not exceed 2880") && ...
+function failureClass = classify_failure(report, warningId, warningMessage)
+metadataWarning = contains(warningId, "BlockVectorMetaData", "IgnoreCase", true) || ...
+    contains(warningMessage, "BlockVectorMetaData checksum", "IgnoreCase", true) || ...
+    contains(warningMessage, "Unexpected BlockVectorMetadata length", "IgnoreCase", true);
+if metadataWarning
+    failureClass = "axion_metadata_format_compatibility_issue";
+elseif contains(report, "Index exceeds the number of array elements. Index must not exceed 2880") && ...
         contains(report, "LookupChannelID")
     failureClass = "axion_axisfile_lookupchannel_open_failed";
 else

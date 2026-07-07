@@ -3,13 +3,21 @@
 
 import argparse
 import csv
+import io
 import json
 import shlex
+import sys
 from pathlib import Path
 from typing import List, Tuple
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from axion_mea.plate_profiles import PlateProfile, profile_from_metadata
+
 PROJECT_CONFIG = REPO_ROOT / "config" / "greatlakes_project.env"
 DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
 DEFAULT_RAW_METADATA_INVENTORY = (
@@ -26,7 +34,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--recording-stem", required=True)
     parser.add_argument("--raw-file", type=Path, required=True)
-    parser.add_argument("--plate-map", type=Path, default=REPO_ROOT / "metadata/plate_maps/axion_48_well_opto_plate_map.csv")
+    parser.add_argument("--plate-map", type=Path, default=None)
+    parser.add_argument("--electrode-geometry", type=Path, default=None)
+    parser.add_argument("--params-template", type=Path, default=None)
     parser.add_argument("--wells", default="all", help="Comma-separated wells, or 'all' from the plate map.")
     parser.add_argument(
         "--selection-manifest",
@@ -51,14 +61,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-config", type=Path, default=PROJECT_CONFIG)
     parser.add_argument("--session-description", default="Axion MEA per-well continuous voltage export for AIND ingestion")
     parser.add_argument("--allow-aind-overwrite", action="store_true")
-    parser.add_argument(
-        "--allow-unsupported-plate",
-        action="store_true",
-        help=(
-            "Bypass the current guard that only the validated FortyEightWellLumos "
-            "4x4-per-well geometry is supported for AIND scale-up."
-        ),
-    )
     return parser.parse_args()
 
 
@@ -127,8 +129,8 @@ def _metadata_from_raw_inventory(inventory_csv: Path | None, raw_file: Path) -> 
         return {}
     raw_resolved = str(raw_file.expanduser().resolve())
     raw_name = raw_file.name
-    with resolved.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
-        rows = list(csv.DictReader(handle))
+    text = resolved.read_bytes().replace(b"\x00", b"").decode("utf-8-sig", errors="replace")
+    rows = list(csv.DictReader(io.StringIO(text)))
     for strategy in ("raw_file", "raw_name"):
         matches = [row for row in rows if str(row.get(strategy, "")) == (raw_resolved if strategy == "raw_file" else raw_name)]
         if len(matches) == 1:
@@ -145,35 +147,28 @@ def source_metadata(args: argparse.Namespace) -> dict[str, str]:
     return metadata
 
 
-def validate_supported_plate(args: argparse.Namespace) -> dict[str, str]:
+def resolve_plate_profile(args: argparse.Namespace) -> tuple[dict[str, str], PlateProfile]:
     metadata = source_metadata(args)
-    if args.allow_unsupported_plate:
-        return metadata
-    plate_type_name = metadata.get("plate_type_name") or metadata.get("raw_plate_type_name") or ""
-    well_dimensions = metadata.get("well_dimensions", "")
-    electrode_dimensions = metadata.get("electrode_dimensions", "")
-    num_channels = metadata.get("num_channels", "")
-    looks_lumos48 = (
-        plate_type_name == "FortyEightWellLumos"
-        or (
-            well_dimensions == "[6 8]"
-            and electrode_dimensions == "[6 8 4 4]"
-            and num_channels == "768"
-        )
-    )
-    if not looks_lumos48:
-        raise SystemExit(
-            "Unsupported or unknown plate type for this AIND scale-up path. "
-            "Current validated route is FortyEightWellLumos / 48 wells / 16 "
-            "electrodes per well / 4x4 geometry. "
-            f"Observed plate_type_name={plate_type_name!r}, "
-            f"well_dimensions={well_dimensions!r}, "
-            f"electrode_dimensions={electrode_dimensions!r}, "
-            f"num_channels={num_channels!r}. "
-            "SixWell/CytoView needs its own plate map, per-well geometry, channel "
-            "count, and Kilosort/AIND params before scale-up."
-        )
-    return metadata
+    try:
+        profile = profile_from_metadata(metadata)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    for label, provided, expected in [
+        ("plate map", args.plate_map, profile.plate_map),
+        ("electrode geometry", args.electrode_geometry, profile.electrode_geometry),
+        ("params template", args.params_template, profile.params_template),
+    ]:
+        if provided is None:
+            continue
+        provided_resolved = provided.expanduser().resolve()
+        expected_resolved = expected.expanduser().resolve()
+        if provided_resolved != expected_resolved:
+            raise SystemExit(
+                f"Raw metadata selected {profile.family}, so {label} is locked to "
+                f"{expected_resolved}. Refusing mismatched {label}: {provided_resolved}"
+            )
+    return metadata, profile
 
 
 def write_env(path: Path, lines: List[Tuple[str, str]]) -> None:
@@ -189,13 +184,17 @@ def main() -> None:
     args = parse_args()
     project_root = args.project_root.expanduser().resolve()
     recording_stem = args.recording_stem
-    source_metadata_row = validate_supported_plate(args)
+    source_metadata_row, plate_profile = resolve_plate_profile(args)
+    profile_env = plate_profile.env_values()
+    plate_map = plate_profile.plate_map.expanduser().resolve()
+    electrode_geometry = plate_profile.electrode_geometry.expanduser().resolve()
+    params_template = plate_profile.params_template.expanduser().resolve()
     export_duration_s = str(args.export_duration_s).strip() or "NaN"
     if args.selection_manifest is not None:
         selected = set(load_selected_wells(args.selection_manifest))
-        wells = [well for well in load_wells(args.plate_map, "all") if well in selected]
+        wells = [well for well in load_wells(plate_map, "all") if well in selected]
     else:
-        wells = load_wells(args.plate_map, args.wells)
+        wells = load_wells(plate_map, args.wells)
     batch_root = project_root / "jobs" / "aind_batches" / recording_stem
     binary_root = project_root / "data" / "interim" / "kilosort_binary" / recording_stem
     nwb_root = project_root / "data" / "interim" / "nwb" / recording_stem
@@ -243,10 +242,26 @@ def main() -> None:
                 ("DATASET", args.dataset),
                 ("EXPORT_START_TIME_S", str(args.export_start_time_s)),
                 ("EXPORT_DURATION_S", export_duration_s),
-                ("PLATE_MAP", str(args.plate_map.expanduser().resolve())),
+                ("PLATE_FAMILY", plate_profile.family),
+                ("PLATE_MAP", str(plate_map)),
+                ("ELECTRODE_GEOMETRY", str(electrode_geometry)),
                 ("EXPORT_OUTPUT_DIR", str(binary_dir)),
                 ("BINARY_FILE", str(binary_file)),
                 ("KILOSORT_ENV_FILE", str(well_job_dir / "kilosort_ready.env")),
+                ("N_CHAN_BIN", profile_env["N_CHAN_BIN"]),
+                ("NBLOCKS", profile_env["NBLOCKS"]),
+                ("NT", profile_env["NT"]),
+                ("NT0MIN", profile_env["NT0MIN"]),
+                ("DMIN", profile_env["DMIN"]),
+                ("DMINX", profile_env["DMINX"]),
+                ("MAX_CHANNEL_DISTANCE", profile_env["MAX_CHANNEL_DISTANCE"]),
+                ("X_CENTERS", profile_env["X_CENTERS"]),
+                ("NEAREST_TEMPLATES", profile_env["NEAREST_TEMPLATES"]),
+                ("NEAREST_CHANS", profile_env["NEAREST_CHANS"]),
+                ("MIN_TEMPLATE_SIZE", profile_env["MIN_TEMPLATE_SIZE"]),
+                ("WHITENING_RANGE", profile_env["WHITENING_RANGE"]),
+                ("DO_CAR", profile_env["DO_CAR"]),
+                ("INVERT_SIGN", profile_env["INVERT_SIGN"]),
             ],
         )
         write_env(
@@ -272,9 +287,10 @@ def main() -> None:
                 ("CHANNEL_MAPPING_CSV", str(channel_mapping_csv)),
                 ("BINARY_EXPORT_MANIFEST", str(binary_export_manifest)),
                 ("SPIKEINTERFACE_OUTPUT_DIR", str(spikeinterface_dir)),
+                ("PARAMS_TEMPLATE", str(params_template)),
                 ("FS", "12500"),
                 ("DTYPE", "int16"),
-                ("N_CHAN_BIN", "16"),
+                ("N_CHAN_BIN", profile_env["N_CHAN_BIN"]),
                 ("OFFSET_TO_UV", "0"),
                 ("IS_FILTERED", "true"),
             ],
@@ -353,6 +369,18 @@ def main() -> None:
                 "spikeinterface_dir": str(spikeinterface_dir),
                 "aind_env": str(spikeinterface_aind_env if args.aind_input == "spikeinterface" else aind_env),
                 "aind_input": args.aind_input,
+                "plate_family": plate_profile.family,
+                "plate_map": str(plate_map),
+                "electrode_geometry": str(electrode_geometry),
+                "params_template": str(params_template),
+                "n_chan_bin": profile_env["N_CHAN_BIN"],
+                "dmin": profile_env["DMIN"],
+                "dminx": profile_env["DMINX"],
+                "max_channel_distance": profile_env["MAX_CHANNEL_DISTANCE"],
+                "x_centers": profile_env["X_CENTERS"],
+                "nearest_templates": profile_env["NEAREST_TEMPLATES"],
+                "nearest_chans": profile_env["NEAREST_CHANS"],
+                "whitening_range": profile_env["WHITENING_RANGE"],
                 "plate_type_name": source_metadata_row.get("plate_type_name", ""),
                 "well_dimensions": source_metadata_row.get("well_dimensions", ""),
                 "electrode_dimensions": source_metadata_row.get("electrode_dimensions", ""),

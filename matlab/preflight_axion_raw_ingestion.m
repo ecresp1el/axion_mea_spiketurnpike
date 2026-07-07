@@ -41,8 +41,12 @@ result.do_tiny_load = doTinyLoad;
 result.tiny_load_duration_s = tinyLoadDurationS;
 result.peek_ok = false;
 result.peek_error = "";
+result.peek_warning_id = "";
+result.peek_warning_message = "";
 result.axisfile_ok = false;
 result.axisfile_error = "";
+result.axisfile_warning_id = "";
+result.axisfile_warning_message = "";
 result.dataset_ok = false;
 result.dataset_error = "";
 result.tiny_load_ok = false;
@@ -50,23 +54,37 @@ result.tiny_load_error = "";
 result.overall_status = "not_run";
 
 try
+    lastwarn("");
     info = peek_axion_raw_metadata(rawFile);
+    [warningMessage, warningId] = lastwarn;
+    result.peek_warning_id = string(warningId);
+    result.peek_warning_message = string(warningMessage);
     result.peek_ok = true;
     result.peek = info;
 catch ME
+    [warningMessage, warningId] = lastwarn;
+    result.peek_warning_id = string(warningId);
+    result.peek_warning_message = string(warningMessage);
     result.peek_error = string(getReport(ME, "extended", "hyperlinks", "off"));
 end
 
 axisFile = [];
 cleanupAxis = [];
 try
+    lastwarn("");
     tic;
     axisFile = AxisFile(char(rawFile));
     result.axisfile_elapsed_s = toc;
+    [warningMessage, warningId] = lastwarn;
+    result.axisfile_warning_id = string(warningId);
+    result.axisfile_warning_message = string(warningMessage);
     cleanupAxis = onCleanup(@() delete(axisFile)); %#ok<NASGU>
     result.axisfile_ok = true;
 catch ME
     result.axisfile_elapsed_s = toc;
+    [warningMessage, warningId] = lastwarn;
+    result.axisfile_warning_id = string(warningId);
+    result.axisfile_warning_message = string(warningMessage);
     result.axisfile_error = string(getReport(ME, "extended", "hyperlinks", "off"));
 end
 

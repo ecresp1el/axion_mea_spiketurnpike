@@ -5,32 +5,35 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from axion_mea.plate_profiles import profile_from_metadata
+
 DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
 DEFAULT_RAW_METADATA_INVENTORY = (
     DEFAULT_PROJECT_ROOT / "metadata" / "matlab_axisfile_raw_metadata_inventory.csv"
 )
-PLATE_MAP_48 = REPO_ROOT / "metadata" / "plate_maps" / "axion_48_well_opto_plate_map.csv"
-PLATE_MAP_24 = REPO_ROOT / "metadata" / "plate_maps" / "axion_24_well_plate_map.csv"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Convert a raw-file asset inventory into the recordings_manifest.csv "
-            "used by prepare_aind_recording_batches.py. This builder makes one "
-            "manifest row per logical recording and currently prefers the "
-            "BroadbandProcessor raw file when both primary .raw and "
-            "*_BroadbandProcessor.raw are present. That is a deliberate "
-            "scale-up assumption, not a statement that the paired primary .raw "
-            "is unusable."
+            "used by prepare_aind_recording_batches.py. This builder keeps one "
+            "manifest row per usable raw-file variant so primary, filtered, and "
+            "*_BroadbandProcessor.raw files remain independently traceable."
         )
     )
     parser.add_argument("--inventory-csv", type=Path, required=True)
@@ -53,8 +56,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
-    with path.expanduser().open("r", encoding="utf-8-sig", newline="") as handle:
-        return list(csv.DictReader(handle))
+    text = path.expanduser().read_bytes().replace(b"\x00", b"").decode("utf-8-sig", errors="replace")
+    return list(csv.DictReader(io.StringIO(text)))
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -91,51 +94,63 @@ def scale_recording_stem(row: dict[str, str]) -> str:
         barcode,
         row.get("recording_stem", ""),
         row.get("plate_type_name", ""),
+        raw_variant_label(row),
     ]
     return normalize_token("_".join(piece for piece in pieces if piece))
 
 
-def plate_map_for(row: dict[str, str]) -> tuple[str, str, str]:
-    plate_type = row.get("plate_type_name", "")
-    if "FortyEightWell" in plate_type or "48" in plate_type:
-        return str(PLATE_MAP_48.resolve()), "supported", "48-well/Lumos plate map available"
-    if "TwentyFour" in plate_type or "24" in plate_type:
-        return str(PLATE_MAP_24.resolve()), "supported", "24-well plate map available"
-    if "SixWell" in plate_type or "6" in plate_type:
-        return "", "blocked_missing_plate_map", "SixWell recording detected; add/confirm a SixWell plate map before enabling"
-    return "", "blocked_unknown_plate_type", f"Unknown plate_type_name={plate_type!r}"
+def raw_variant_label(row: dict[str, str]) -> str:
+    raw_name = row.get("raw_name", "")
+    kind = row.get("raw_file_kind", "")
+    if kind == "broadband_processor_raw" or "BroadbandProcessor" in raw_name:
+        return "broadband_processor"
+    match = re.search(r"_Filter\(([^)]+)\)", raw_name)
+    if match:
+        return "filter_" + normalize_token(match.group(1))
+    analog = normalize_token(row.get("metadata_analog_mode", ""))
+    return "_".join(piece for piece in ["primary_raw", analog] if piece)
 
 
-def choose_voltage_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Choose one voltage file per logical recording for the current scale-up plan.
+def loader_dataset_for_variant(row: dict[str, str]) -> str:
+    raw_name = row.get("raw_name", "")
+    kind = row.get("raw_file_kind", "")
+    if kind == "broadband_processor_raw" or "BroadbandProcessor" in raw_name:
+        return "BroadbandHighFrequency"
+    return "RawVoltageData"
 
-    This intentionally de-duplicates paired Axion primary .raw and
-    *_BroadbandProcessor.raw files. For now we prefer BroadbandProcessor because
-    the validated fresh AIND workflow used that file family. A future comparison
-    workflow should emit separate manifest rows for primary-vs-broadband inputs,
-    with distinct recording_stem values, so filtered-input effects on sorting can
-    be compared without overwriting results.
-    """
-    grouped: dict[tuple[str, str], list[dict[str, str]]] = {}
+
+def voltage_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep every raw voltage variant as its own candidate row."""
     for row in rows:
-        key = (row.get("source_dir", ""), row.get("recording_stem", ""))
-        grouped.setdefault(key, []).append(row)
-    chosen = []
-    for group_rows in grouped.values():
-        broadband = [row for row in group_rows if row.get("raw_file_kind") == "broadband_processor_raw"]
-        chosen.append((broadband or group_rows)[0])
-    return sorted(chosen, key=lambda row: (row.get("source_dir", ""), row.get("recording_stem", ""), row.get("raw_name", "")))
+        row.setdefault("raw_variant_label", raw_variant_label(row))
+        row.setdefault("loader_dataset", loader_dataset_for_variant(row))
+    return sorted(
+        rows,
+        key=lambda row: (
+            row.get("source_dir", ""),
+            row.get("recording_stem", ""),
+            row.get("raw_variant_label", ""),
+            row.get("raw_name", ""),
+        ),
+    )
 
 
 def main() -> None:
     args = parse_args()
     inventory_rows = read_csv(args.inventory_csv)
-    chosen_rows = choose_voltage_rows(inventory_rows)
+    chosen_rows = voltage_rows(inventory_rows)
     manifest_rows: list[dict[str, Any]] = []
     summary = Counter()
 
     for row in chosen_rows:
-        plate_map, status, reason = plate_map_for(row)
+        try:
+            profile = profile_from_metadata(row)
+            status = "supported"
+            reason = f"{profile.family} profile selected from raw metadata"
+        except ValueError as exc:
+            profile = None
+            status = "blocked_unknown_plate_type"
+            reason = str(exc)
         assets_ready = (
             truthy(row.get("raw_file_exists", ""))
             and truthy(row.get("spike_counts_csv_exists", ""))
@@ -150,10 +165,13 @@ def main() -> None:
         manifest_row = {
             "recording_stem": scale_recording_stem(row),
             "raw_file": row["raw_file"],
-            "plate_map": plate_map,
+            "plate_map": str(profile.plate_map.resolve()) if profile else "",
+            "electrode_geometry": str(profile.electrode_geometry.resolve()) if profile else "",
+            "params_template": str(profile.params_template.resolve()) if profile else "",
             "raw_metadata_inventory": str(args.raw_metadata_inventory.expanduser().resolve()),
             "spike_counts_csv": row.get("spike_counts_csv", ""),
             "spike_list_csv": row.get("spike_list_csv", ""),
+            "dataset": row.get("loader_dataset", ""),
             "aind_input": args.aind_input,
             "allow_aind_overwrite": "true",
             "submit": str(enabled).lower(),
@@ -164,14 +182,37 @@ def main() -> None:
             "scaleup_reason": reason,
             "source_dir": row.get("source_dir", ""),
             "raw_name": row.get("raw_name", ""),
+            "raw_variant_label": row.get("raw_variant_label", ""),
             "axion_recording_stem": row.get("recording_stem", ""),
             "raw_file_kind": row.get("raw_file_kind", ""),
+            "dataset_description": row.get("dataset_description", ""),
+            "metadata_analog_mode": row.get("metadata_analog_mode", ""),
+            "metadata_high_pass_filter": row.get("metadata_high_pass_filter", ""),
+            "metadata_high_pass_cutoff": row.get("metadata_high_pass_cutoff", ""),
+            "metadata_low_pass_filter": row.get("metadata_low_pass_filter", ""),
+            "metadata_low_pass_cutoff": row.get("metadata_low_pass_cutoff", ""),
+            "metadata_axis_version": row.get("metadata_axis_version", ""),
+            "metadata_instrument": row.get("metadata_instrument", ""),
+            "metadata_firmware_version": row.get("metadata_firmware_version", ""),
+            "plate_family": profile.family if profile else "",
             "plate_type_name": row.get("plate_type_name", ""),
+            "well_dimensions": row.get("well_dimensions", ""),
+            "electrode_dimensions": row.get("electrode_dimensions", ""),
+            "num_channels": row.get("num_channels", ""),
+            "n_chan_bin": str(profile.n_chan_bin) if profile else "",
+            "dmin": str(profile.dmin) if profile else "",
+            "dminx": str(profile.dminx) if profile else "",
+            "max_channel_distance": str(profile.max_channel_distance) if profile else "",
+            "x_centers": str(profile.x_centers) if profile else "",
+            "nearest_templates": str(profile.nearest_templates) if profile else "",
+            "nearest_chans": str(profile.nearest_chans) if profile else "",
+            "whitening_range": str(profile.whitening_range) if profile else "",
             "duration_s": row.get("duration_s", ""),
         }
         manifest_rows.append(manifest_row)
         summary[f"status_{scale_status}"] += 1
         summary[f"plate_{row.get('plate_type_name', 'unknown')}"] += 1
+        summary[f"variant_{row.get('raw_variant_label', 'unknown')}"] += 1
 
     output_dir = args.output_dir.expanduser().resolve()
     manifest_csv = output_dir / "recordings_manifest.csv"

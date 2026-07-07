@@ -1,0 +1,7 @@
+plate_type,well,row_label,row_index,column_index,default_group,treatment,notes
+six_well,A1,A,1,1,unassigned,,
+six_well,A2,A,1,2,unassigned,,
+six_well,A3,A,1,3,unassigned,,
+six_well,B1,B,2,1,unassigned,,
+six_well,B2,B,2,2,unassigned,,
+six_well,B3,B,2,3,unassigned,,

@@ -23,6 +23,14 @@ AXION_LOOKUPCHANNEL_PATTERNS = (
     "BasicChannelArray/LookupChannel",
     "LookupChannelID",
 )
+AXION_METADATA_FORMAT_PATTERNS = (
+    "BlockVectorMetaData checksum was incorrect",
+    "Unexpected BlockVectorMetadata length",
+)
+INGESTION_OPEN_FAILURE_CLASSES = {
+    "axion_axisfile_lookupchannel_open_failed",
+    "axion_metadata_format_compatibility_issue",
+}
 JOB_LINE_RE = re.compile(
     r"well=(?P<well>\S+)\s+export_job=(?P<export_job>\S+)\s+"
     r"nwb_job=(?P<nwb_job>\S+)\s+spikeinterface_job=(?P<spikeinterface_job>\S+)\s+"
@@ -350,10 +358,21 @@ def classify_export_failure(binary_file: Path | None, project_root: Path, export
         if not log_path.is_file():
             continue
         text = log_path.read_text(encoding="utf-8", errors="replace")
+        metadata_format_issue = any(pattern in text for pattern in AXION_METADATA_FORMAT_PATTERNS)
         if all(pattern in text for pattern in AXION_LOOKUPCHANNEL_PATTERNS):
+            failure_class = (
+                "axion_metadata_format_compatibility_issue"
+                if metadata_format_issue
+                else "axion_axisfile_lookupchannel_open_failed"
+            )
+            reason = (
+                "Maestro-valid Axion raw appears to use block-vector metadata not handled by the current MATLAB Axion File Loader."
+                if metadata_format_issue
+                else "AxisFile(rawFile) failed during Axion channel lookup: index must not exceed 2880."
+            )
             return {
-                "export_failure_class": "axion_axisfile_lookupchannel_open_failed",
-                "export_failure_reason": "AxisFile(rawFile) failed during Axion channel lookup: index must not exceed 2880.",
+                "export_failure_class": failure_class,
+                "export_failure_reason": reason,
                 "export_failure_phase": "axisfile_open",
                 "export_failure_json": "",
                 "export_failure_log": str(log_path),
@@ -401,7 +420,7 @@ def derive_stage(row: dict[str, Any]) -> str:
     if state_is(row, "fallback_aind", "PENDING"):
         return "fallback_pending"
 
-    if row.get("export_failure_class") == "axion_axisfile_lookupchannel_open_failed":
+    if row.get("export_failure_class") in INGESTION_OPEN_FAILURE_CLASSES:
         return "ingestion_open_failed"
     if state_in(row, "export", FAILED_STATES):
         return "export_failed"

@@ -206,6 +206,9 @@ def main() -> None:
         submitted_jobs = batch_root / "submitted_jobs.tsv"
         supervisor_output_dir = project_root / "jobs" / "aind_recording_supervisors" / recording_stem
         aind_input = field(row, "aind_input", args.aind_input) or args.aind_input
+        dataset = field(row, "dataset")
+        electrode_geometry = resolve_path(field(row, "electrode_geometry"), manifest_path.parent)
+        params_template = resolve_path(field(row, "params_template"), manifest_path.parent)
         allow_overwrite = truthy(
             field(row, "allow_aind_overwrite", ""),
             default=args.allow_aind_overwrite,
@@ -277,6 +280,10 @@ def main() -> None:
             "--aind-input",
             aind_input,
         ]
+        if dataset:
+            prepare_cmd.extend(["--dataset", dataset])
+        add_optional_path(prepare_cmd, "--electrode-geometry", electrode_geometry)
+        add_optional_path(prepare_cmd, "--params-template", params_template)
         add_optional_path(prepare_cmd, "--raw-metadata-inventory", raw_inventory)
         if allow_overwrite:
             prepare_cmd.append("--allow-aind-overwrite")
@@ -315,6 +322,12 @@ def main() -> None:
                 "selection_manifest": str(selection_manifest_for_prepare),
                 "selection_manifest_source": "provided" if selection_manifest else "generated",
                 "plate_map": str(plate_map),
+                "electrode_geometry": str(electrode_geometry) if electrode_geometry else "",
+                "params_template": str(params_template) if params_template else "",
+                "dataset": dataset,
+                "plate_family": field(row, "plate_family"),
+                "raw_variant_label": field(row, "raw_variant_label"),
+                "raw_file_kind": field(row, "raw_file_kind"),
                 "raw_metadata_inventory": str(raw_inventory) if raw_inventory else "",
                 "aind_input": aind_input,
                 "allow_aind_overwrite": str(allow_overwrite).lower(),
@@ -342,6 +355,12 @@ def main() -> None:
         "selection_manifest",
         "selection_manifest_source",
         "plate_map",
+        "electrode_geometry",
+        "params_template",
+        "dataset",
+        "plate_family",
+        "raw_variant_label",
+        "raw_file_kind",
         "raw_metadata_inventory",
         "aind_input",
         "allow_aind_overwrite",
