@@ -228,6 +228,30 @@ standalone file ground-truth audit:
       filter_ground_truth_summary.csv
       filter_ground_truth_summary.json
       filter_metadata_counts_by_raw_variant.csv
+  refreshed final metadata inventory:
+    The first post-upload MATLAB metadata inventory was launched serially as
+    Slurm job 53046852, but this was canceled because slow/problematic older
+    files made the whole pass serially fragile. The replacement approach used
+    per-file array submission:
+      slurm/inspect_axion_raw_metadata_array.sbatch
+      job: 53047033, array 1-88%8, 32G per task
+      high-memory retry: 53047284 for tasks 7-8 with 128G
+    Tasks 7-8 were:
+      2_20_2026/129-8447/test(000).raw
+      2_20_2026/129-8447/test(000)_BroadbandProcessor.raw
+    The parallel metadata inventory completed with 88/88 rows and status ok:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_metadata_final_20260707_1134_parallel/raw_metadata_inventory.csv
+    The refreshed ground-truth audit using that inventory is:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1134_final_refreshed_metadata
+    Counts from refreshed audit at 2026-07-07T12:02:17:
+      visible .raw files: 88
+      logical raw groups: 42
+      metadata matched raws: 88
+      raw metadata status: {"ok": 88}
+      plate type counts by raw:
+        FortyEightWellLumos: 43
+        SixWell: 45
+      raw_metadata_missing issue: 0
     Filter/variant ground truth from this frozen audit:
       raw files by variant:
         primary_raw: 42
@@ -255,12 +279,12 @@ standalone file ground-truth audit:
         acquisition_digital_low_pass_filter
         derived_high_pass_filter
         derived_low_pass_filter
-      Current metadata-matched primary_raw filter breakdown:
-        11 primary raws:
+      Refreshed primary_raw filter breakdown after 88/88 metadata completion:
+        23 primary raws:
           Analog Mode Setting = Neural Broadband
           Digital High Pass Filter = 0.1 Hz IIR
           Digital Low Pass Filter = None
-        5 primary raws:
+        14 primary raws:
           Analog Mode Setting = Neural Spikes
           Digital High Pass Filter = 200 Hz IIR
           Digital Low Pass Filter = 3 kHz Kaiser Window
@@ -272,16 +296,11 @@ standalone file ground-truth audit:
           Analog Mode Setting = Neural Spikes
           Digital High Pass Filter = 200 Hz IIR
           Digital Low Pass Filter = None
-        21 primary raws:
-          metadata missing in the current joined metadata inventory, so their
-          primary acquisition filter setting is not yet confirmed by metadata.
       The Axion-generated raw filename/variant still identifies derived files
       such as `_Filter(1Hz-200Hz)`, `_Filter(200Hz-3kHz)`, and
       `_BroadbandProcessor`, but the primary `.raw` filter must be interpreted
-      from metadata. Exact metadata-derived filter settings remain incomplete
-      until the MATLAB raw metadata inventory is rerun after the final upload;
-      the frozen audit still shows 45 raw files as metadata_missing because it
-      joined against the older 2026-07-07T09:47 metadata inventory.
+      from metadata. The refreshed inventory now resolves the earlier
+      metadata_missing caveat for the finalized upload set.
   schema update:
     raw_files.csv now carries Axion metadata timing fields when metadata is
     available:
