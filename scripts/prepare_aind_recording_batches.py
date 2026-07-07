@@ -219,8 +219,10 @@ def main() -> None:
                 f"Row {index} ({recording_stem}) has invalid aind_input={aind_input!r}"
             )
 
+        wells = field(row, "wells")
+        manual_wells = bool(wells and selection_manifest is None)
         select_cmd: list[str] | None = None
-        if selection_manifest is None:
+        if selection_manifest is None and not manual_wells:
             select_cmd = [
                 "bash",
                 str(REPO_ROOT / "scripts" / "select_aind_wells.sh"),
@@ -259,6 +261,8 @@ def main() -> None:
             if truthy(field(row, "exclude_control", ""), default=args.exclude_control):
                 select_cmd.append("--exclude-control")
             selection_manifest_for_prepare = generated_selection_manifest
+        elif manual_wells:
+            selection_manifest_for_prepare = None
         else:
             selection_manifest_for_prepare = selection_manifest
 
@@ -271,8 +275,6 @@ def main() -> None:
             str(raw_file),
             "--plate-map",
             str(plate_map),
-            "--selection-manifest",
-            str(selection_manifest_for_prepare),
             "--project-root",
             str(project_root),
             "--project-config",
@@ -280,6 +282,10 @@ def main() -> None:
             "--aind-input",
             aind_input,
         ]
+        if selection_manifest_for_prepare is not None:
+            prepare_cmd.extend(["--selection-manifest", str(selection_manifest_for_prepare)])
+        if manual_wells:
+            prepare_cmd.extend(["--wells", wells])
         if dataset:
             prepare_cmd.extend(["--dataset", dataset])
         add_optional_path(prepare_cmd, "--electrode-geometry", electrode_geometry)
@@ -287,9 +293,6 @@ def main() -> None:
         add_optional_path(prepare_cmd, "--raw-metadata-inventory", raw_inventory)
         if allow_overwrite:
             prepare_cmd.append("--allow-aind-overwrite")
-        wells = field(row, "wells")
-        if wells and selection_manifest is None:
-            prepare_cmd.extend(["--wells", wells])
 
         if enabled:
             prepare_lines.extend(
@@ -319,8 +322,15 @@ def main() -> None:
                 "enabled": str(enabled).lower(),
                 "recording_stem": recording_stem,
                 "raw_file": str(raw_file),
-                "selection_manifest": str(selection_manifest_for_prepare),
-                "selection_manifest_source": "provided" if selection_manifest else "generated",
+                "selection_manifest": str(selection_manifest_for_prepare) if selection_manifest_for_prepare else "",
+                "selection_manifest_source": (
+                    "manual_wells"
+                    if manual_wells
+                    else "provided"
+                    if selection_manifest
+                    else "generated"
+                ),
+                "wells": wells,
                 "plate_map": str(plate_map),
                 "electrode_geometry": str(electrode_geometry) if electrode_geometry else "",
                 "params_template": str(params_template) if params_template else "",
@@ -360,6 +370,7 @@ def main() -> None:
         "raw_file",
         "selection_manifest",
         "selection_manifest_source",
+        "wells",
         "plate_map",
         "electrode_geometry",
         "params_template",

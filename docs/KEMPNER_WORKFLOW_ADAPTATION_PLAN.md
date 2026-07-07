@@ -243,6 +243,45 @@ standalone file ground-truth audit:
       /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_metadata_final_20260707_1134_parallel/raw_metadata_inventory.csv
     The refreshed ground-truth audit using that inventory is:
       /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1134_final_refreshed_metadata
+    Superseding block-vector-aware refresh at 2026-07-07T13:07:
+      metadata job root:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_metadata_final_20260707_1252_blockvector_audit
+      merged metadata inventory:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_metadata_final_20260707_1252_blockvector_audit/raw_metadata_inventory.csv
+      ground-truth audit:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260707_1252_blockvector_audit
+      Slurm metadata arrays:
+        canceled all-32G attempt: 53050821
+        regular 32G split: 53050852, 86/86 completed
+        high-memory 128G split: 53050853, 2/2 completed
+      The two high-memory tasks were the known 2_20_2026/129-8447
+      primary/BroadbandProcessor files and each used about 83G MaxRSS.
+      The refreshed metadata inventory has 88/88 rows with metadata status ok
+      and now records:
+        block_vector_warning_seen
+        block_vector_warning_ids
+        block_vector_warning_messages
+      Block-vector-aware ground-truth counts:
+        standard export allowed raw files: 75
+        standard export blocked raw files: 13
+        standard export block reason: block_vector_warning_seen
+        logical groups with block_vector_warning_seen: 6
+      Blocked logical groups:
+        2_12_2026/129-8447/opto_test_meis2_with_E2opsin(000)
+        2_12_2026/129-8447/opto_test_meis2_with_E2opsin(001)
+        2_12_2026/129-8447/opto_test_meis2_with_E2opsin(002)
+        2_20_2026/129-8447/test(000)
+        2_24_2026/134-0150/test(000)
+        incoming/manny4tbum_20260706/5_28_26_h1/133-1555/h1_dorsal_and_ventral_exp17_3(003)
+      This snapshot also carries:
+        filter metadata signatures/value counts
+        sampling_frequency_hz and duration/timing fields
+        stimulation/opto event counts, LED status, stimulated wells, event times
+        platemap biology label candidates
+        decoded dorsal/ventral well-label candidate CSV
+        manual stability_recording annotations
+      Treat this `20260707_1252_blockvector_audit` snapshot as the current
+      ground truth before any next manifest/smoke/processing submission.
     Manual curation annotations in that audit:
       manual_logical_group_annotations.csv
       logical_recording_groups_annotated.csv
@@ -3715,6 +3754,363 @@ outcome: canceled by user/Codex after BlockVector warnings appeared in the
   export log; downstream dependency jobs did not run.
 correction: do not use this raw for a standard-loader SixWell smoke unless a
   refreshed metadata inventory proves `block_vector_warning_seen=false`.
+```
+
+Current SixWell smoke submitted on `2026-07-07`:
+
+```text
+recording: sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw
+source logical group:
+  incoming/manny4tbum_20260706/5_28_26_pvreporter/134-0150 ::
+  pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)
+raw:
+  /nfs/turbo/umms-parent/axion_mea_files_directory/incoming/manny4tbum_20260706/5_28_26_pvreporter/134-0150/pv_reporter_cl23_dorsal_and_ventral_exp17_2(000).raw
+raw variant: primary_raw
+loader dataset: RawVoltageData
+metadata filter signature:
+  analog=Neural Broadband |
+  acquisition_hp=0.1 Hz IIR |
+  acquisition_lp=None |
+  derived_hp=<blank> |
+  derived_lp=<blank>
+metadata gate:
+  plate_type_name=SixWell
+  duration_s=602.75
+  num_channels=384
+  block_vector_warning_seen=false
+  standard_export_allowed=true
+well: A1
+manual well-selection note:
+  This recording has `.spk` sidecars but does not have exported
+  `*_spike_counts.csv` or `*_spike_list.csv` files. That blocks automatic
+  activity-based well selection, but it does not block a targeted one-well
+  geometry/export smoke where the well is named explicitly.
+generated batch:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_batches/sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw
+generated manifest sanity check:
+  plate_family=cytoview_6well
+  plate_map=metadata/plate_maps/axion_6_well_plate_map.csv
+  electrode_geometry=metadata/plate_maps/axion_per_well_8x8_electrode_geometry.csv
+  params_template=config/aind_axion_cytoview6_params.json
+  n_chan_bin=64
+submitted jobs:
+  export_A1: 53051307
+  nwb_A1: 53051308
+  spikeinterface_A1: 53051309
+  aind_A1: 53051310
+initial Slurm resources:
+  export_A1 requested 64G
+  nwb_A1 requested 32G
+  spikeinterface_A1 requested 8G
+  aind_A1 requested 8G
+current outcome:
+  export_A1 completed, exit 0, elapsed 00:01:09, MaxRSS about 13.9 GB.
+  nwb_A1 completed, exit 0, elapsed 00:00:40.
+  spikeinterface_A1 completed, exit 0, elapsed 00:00:06.
+  aind_A1 entered current AIND/Nextflow and is running.
+export proof:
+  binary:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/kilosort_binary/sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw/A1/A1.bin
+  binary_size_bytes: 964400000
+  channel_mapping_rows: 64
+  n_chan_bin: 64
+  n_samples: 7534375
+  duration_s: 602.75
+  fs: 12500
+  first mapped electrode: A1 channel 11 at x=0,y=0
+  last mapped electrode: A1 channel 88 at x=2100,y=2100
+AIND dispatch proof:
+  job_dispatch completed and parsed SpikeInterface binary input as:
+    reader_type=binary
+    num_channels=64
+    duration=602.75 s
+    session=sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw_A1
+  AIND params include SixWell values:
+    dmin=300
+    dminx=300
+    x_centers=8
+    nearest_templates=64
+    whitening_range=16
+AIND child-job status:
+  job_dispatch: 53051358 completed, exit 0.
+  preprocessing: 53051367 completed, exit 0.
+  nwb_ecephys: 53051368 completed, exit 0.
+  spikesort_kilosort4: 53051380 submitted to gpu partition and pending for a
+    GPU slot with pending reason `(Resources)` at the time this note was
+    written.
+```
+
+New-upload automatic spike-count lane submitted on `2026-07-07`:
+
+```text
+goal:
+  Start processing every new-upload recording that is immediately safe for the
+  existing automatic activity-selection route, without waiting serially for the
+  SixWell smoke or for one recording to finish before the next recording starts.
+guardrails:
+  - only raw files with refreshed metadata matches were included,
+  - rows with block_vector_warning_seen=true were blocked,
+  - rows missing spike_counts_csv were not auto-selected,
+  - selected wells came from Axion *_spike_counts.csv activity sidecars,
+  - raw metadata still locked plate profile, channel count, geometry, and params.
+root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_autolane_new_upload_20260707_132852
+inventory:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_autolane_new_upload_20260707_132852/selection_asset_inventory/aind_selection_asset_inventory.csv
+manifest:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_autolane_new_upload_20260707_132852/recording_manifest_all_variants/recordings_manifest.csv
+recording batch plan:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_autolane_new_upload_20260707_132852/recording_batch_plan
+manifest counts:
+  raw rows inventoried: 74
+  ready_to_submit: 6
+  blocked_missing_assets_or_metadata: 65
+  blocked_blockvector_metadata_warning: 3
+  ready plate profile: lumos_48well
+  ready raw variant: primary_raw_NeuralBroadband
+  ready loader dataset: RawVoltageData
+important limitation:
+  Filtered derived raws from the same recordings were inventoried but not
+  submitted in this lane because the current selection asset inventory does not
+  yet propagate the primary recording's spike_counts_csv/spike_list_csv to
+  derived `_Filter(...)` raw variants. That is a later inventory-logic fix, not
+  a raw-loader failure.
+submitted recordings:
+  6_22_2026/129-8445 :: ventral_sosrs_opsin_day3(000)
+  6_22_2026/129-8445 :: ventral_sosrs_opsin_day3(001)
+  6_22_2026/129-8445 :: ventral_sosrs_opsin_day3(002)
+  6_22_2026/129-8445 :: ventral_sosrs_opsin_day3(003)
+  6_22_2026/129-8445 :: ventral_sosrs_opsin_day3(004)
+  6_22_2026/129-8445 :: ventral_sosrs_opsin_day3(005)
+selected wells per recording:
+  A3, B4, B5, C3, C5, C6, D2, D6, E5
+selected well pipelines submitted:
+  54
+submitted jobs table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_autolane_new_upload_20260707_132852/recording_batch_plan/submitted_recording_batches.tsv
+supervisors submitted:
+  53052723  ventral_sosrs_opsin_day3(000)
+  53052724  ventral_sosrs_opsin_day3(001)
+  53052725  ventral_sosrs_opsin_day3(002)
+  53052726  ventral_sosrs_opsin_day3(003)
+  53052727  ventral_sosrs_opsin_day3(004)
+  53052728  ventral_sosrs_opsin_day3(005)
+status at submission snapshot:
+  The first export wave had begun running on the standard partition. Downstream
+  NWB, SpikeInterface, and AIND jobs were pending on per-well dependencies.
+  GPU Kilosort jobs will queue behind available gpu partition resources.
+```
+
+SixWell manual all-well discovery lane submitted on `2026-07-07`:
+
+```text
+policy decision:
+  FortyEightWell/Lumos recordings must remain spike-count/activity gated before
+  broad submission because 48 wells per recording can waste substantial compute.
+  SixWell/CytoView recordings are allowed to run all wells when spike-count
+  sidecars are missing, because there are only six wells and this is currently
+  the practical way to discover whether usable spikes exist.
+code change:
+  scripts/prepare_aind_recording_batches.py now supports manifest rows with an
+  explicit `wells` column and no `selection_manifest`. In that case it skips
+  `select_aind_wells.sh` and calls `prepare_aind_well_batch.sh --wells ...`.
+  This preserves the 48-well activity-filter route while allowing deliberate
+  SixWell all-well discovery rows.
+scope:
+  new-upload SixWell primary raw rows only
+  standard_export_allowed=true
+  block_vector_warning_seen=false
+  duration_s >= 120
+  raw_variant=primary_raw
+  loader dataset=RawVoltageData
+excluded:
+  SixWell filtered and BroadbandProcessor derived variants were not submitted
+  in this lane. The first discovery pass is primary raw only to avoid multiplying
+  jobs across duplicate filter variants before we know which wells are useful.
+  BlockVector-warning rows remain blocked.
+root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_sixwell_manual_primary_20260707_133604
+manifest:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_sixwell_manual_primary_20260707_133604/sixwell_manual_primary_recordings_manifest.csv
+recording batch plan:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_sixwell_manual_primary_20260707_133604/recording_batch_plan
+submitted jobs table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_sixwell_manual_primary_20260707_133604/recording_batch_plan/submitted_recording_batches.tsv
+submitted supervisor table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_sixwell_manual_primary_20260707_133604/recording_batch_plan/submitted_recording_supervisors.tsv
+counts:
+  recordings: 19
+  all-six-well recordings: 18
+  one recording with A1 excluded because A1 was already submitted as the SixWell
+    smoke: 1
+  selected/manual well pipelines submitted: 113
+submitted supervisors:
+  53054491..53054509, one per SixWell manual recording.
+status at submission snapshot:
+  113 SixWell export jobs were queued on the standard partition, with each
+  downstream NWB, SpikeInterface, and AIND job pending on its per-well
+  dependency chain.
+```
+
+Live AIND launcher issue found during the `2026-07-07` new-upload scale-up:
+
+```text
+status checked:
+  2026-07-07 early afternoon EDT
+submitted processing scope:
+  48-well auto lane: 6 recordings, 54 selected well pipelines
+  SixWell manual lane: 19 recordings, 113 selected/manual well pipelines
+  total new scale-up lanes: 25 recordings, 167 well pipelines
+  plus separate SixWell smoke A1: 1 well pipeline
+observed failure:
+  Thirty-seven AIND parent jobs failed in about 0-1 seconds while using the
+  pre-fix submitted sbatch body. The first ten observed failures were 48-well
+  AIND parents:
+    53052522  6_22_2026/129-8445 ventral_sosrs_opsin_day3(000) C6
+    53052530  6_22_2026/129-8445 ventral_sosrs_opsin_day3(000) D6
+    53052538  6_22_2026/129-8445 ventral_sosrs_opsin_day3(001) A3
+    53052542  6_22_2026/129-8445 ventral_sosrs_opsin_day3(001) B4
+    53052587  6_22_2026/129-8445 ventral_sosrs_opsin_day3(002) C3
+    53052591  6_22_2026/129-8445 ventral_sosrs_opsin_day3(002) C5
+    53052603  6_22_2026/129-8445 ventral_sosrs_opsin_day3(002) D6
+    53052611  6_22_2026/129-8445 ventral_sosrs_opsin_day3(003) A3
+    53052619  6_22_2026/129-8445 ventral_sosrs_opsin_day3(003) B5
+    53052623  6_22_2026/129-8445 ventral_sosrs_opsin_day3(003) C3
+  Additional SixWell manual AIND parents then failed with the same shared
+  shim/stale-handle pattern. The full failed parent list is captured in the
+  reproducible rerun manifest below; initial examples were:
+    53054122  sixwell_manual_primary_5_25_2026_134-0150_134-0150_h1_exp17(001) B1
+    53054130  sixwell_manual_primary_5_25_2026_134-0150_134-0150_h1_exp17(001) B3
+    53054154  sixwell_manual_primary_5_25_2026_134-0150_h1_exp17(000) B3
+    53054166  sixwell_manual_primary_5_25_26_pvreporter_133-1555_pv_reporter_cl23_dorsal_and_ventral(000) A3
+    53054210  sixwell_manual_primary_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000) A2
+    53054218  sixwell_manual_primary_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000) B1
+    53054226  sixwell_manual_primary_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000) B3
+    53054234  sixwell_manual_primary_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001) A2
+    53054303  sixwell_manual_primary_Testing_mea_transient_plateing_134-0150_My_Experiment(000) A2
+important interpretation:
+  For inspected failed lanes, export, NWB export, and SpikeInterface prep all
+  completed before the AIND parent failed. This is not evidence that those raw
+  files, wells, SixWell geometry, or Kilosort are bad.
+error signature:
+  chmod: cannot access
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/tools/aind_python_shim/python:
+    No such file or directory
+root cause:
+  Same class as the historical concurrent Nextflow launch/cache collision, but
+  this time the shared runtime object was the Python shim. Multiple AIND parent
+  jobs were concurrently removing/writing/chmod'ing the same shared
+  `tools/aind_python_shim/python` file.
+fix applied:
+  `slurm/run_aind_nwb_well.sbatch` now creates a per-job shim under:
+    scratch/aind_nextflow/<recording>/<well>/python_shim/<slurm_job_id>/python
+  and exports that per-job `AIND_PYTHON_SHIM_DIR` before launching Nextflow.
+  This keeps the existing multi-prefix Python wrapper logic while removing the
+  cross-job race on the shared shim file.
+operational warning:
+  Slurm snapshots the sbatch script at submit time. Any already-submitted
+  pending AIND parent jobs still carry the old shared-shim launcher body. To
+  guarantee the fix, cancel/resubmit only the affected AIND parent jobs using
+  the saved per-well submit commands or regenerate the batch plan with the fixed
+  wrapper. Do not rerun raw export/NWB/SpikeInterface prep unless those upstream
+  jobs actually failed.
+reproducible recovery path:
+  Recovery must be AIND-parent-only for this failure class. The upstream
+  per-well raw export, NWB export, and SpikeInterface prep products remain the
+  provenance-backed inputs. The rerun command for each failed AIND parent keeps
+  the original per-well `AIND_CONFIG`, `NWB_FILE`, result directory, and
+  `afterok:<spikeinterface_job>:<nwb_job>` dependency chain.
+  Recovery root:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_resubmit_after_python_shim_fix_20260707_1430
+  Rerun manifest with old job IDs, upstream dependency IDs, per-well env paths,
+  NWB inputs, result folders, exact commands, and new job IDs:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_resubmit_after_python_shim_fix_20260707_1430/failed_aind_parent_resubmit_manifest.csv
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_resubmit_after_python_shim_fix_20260707_1430/failed_aind_parent_resubmit_manifest.json
+  Submit script:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_resubmit_after_python_shim_fix_20260707_1430/submit_failed_aind_parents_only.sh
+  Submitted old-to-new job table:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_resubmit_after_python_shim_fix_20260707_1430/submitted_failed_aind_parent_reruns.tsv
+  Submitted reruns:
+    rows: 37
+    new AIND parent jobs: 53055454..53055490
+    immediate status check after submission: all 37 PENDING with reason
+      `(Priority)`, no immediate shim failure observed.
+clear-slate status snapshot:
+  Because raw Slurm job counts are not one-to-one with wells, the current unit
+  of account is the well pipeline: recording/well through export -> NWB ->
+  SpikeInterface prep -> AIND/Nextflow -> Kilosort4 child. The first clear
+  slate snapshot was written here:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_clear_slate_20260707_1445/clear_slate_summary.txt
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_clear_slate_20260707_1445/well_pipeline_clear_slate.csv
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_clear_slate_20260707_1445/well_pipeline_clear_slate.json
+  Snapshot counts:
+    total well pipelines including smoke: 168
+    48well_auto: 54 wells across 6 recordings
+    sixwell_manual: 113 wells across 19 recordings
+    sixwell_smoke: 1 well
+    export: 168/168 completed
+    NWB export: 168/168 completed
+    SpikeInterface prep: 168/168 completed
+    original AIND parents: 131 running, 37 failed old-wrapper attempts
+    effective AIND parents after replacement: 131 running, 37 pending
+  Interpretation:
+    One running Kilosort4 child proves that at least one well has reached the
+    GPU sorter stage, so the route is live. It does not prove every well will
+    finish successfully; each well can still fail later for biological/signal
+    reasons, Kilosort low-activity/template issues, GPU/runtime failures, or
+    postprocessing. Use the clear-slate CSV, not raw `squeue`, to decide which
+    well pipelines are accounted for.
+return-later checkpoint at 2026-07-07 13:58 EDT:
+  Per-well step model:
+    Axion prep layer:
+      1. export_axion_well_binary
+      2. export_axion_well_nwb
+      3. prepare_aind_spikeinterface_well
+    AIND/Nextflow layer:
+      4. job_dispatch
+      5. preprocessing
+      6. nwb_ecephys
+      7. spikesort_kilosort4
+      8. postprocessing
+      9. curation
+      10. visualization
+      11. results_collector / quality-control collection
+      12. nwb_units
+  Current interpretation:
+    The Axion prep layer is complete for all 168 well pipelines.
+    No current well has yet been confirmed complete through all AIND downstream
+    stages to `nwb_units`.
+    Two wells have completed the GPU Kilosort4 stage successfully:
+      - sixwell_smoke_20260528_134-0150_pv_cl23_dv_exp17_2_000_primary_raw / A1
+        Kilosort4 job 53051380, COMPLETED exit 0.
+      - 6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband / E5
+        Kilosort4 job 53053851, COMPLETED exit 0.
+    Live Kilosort4 scheduler state:
+      completed today: 2
+      running: 2
+      pending: 110
+      failed observed at this checkpoint: 0
+    The Kilosort4 stage is GPU-scheduler limited. Each Kilosort4 child requests
+    `gpu` partition and `gres/gpu:1`; this is not a pipeline logic limit of one
+    Kilosort at a time.
+  When returning later, check:
+    1. whether any trace has `nwb_units COMPLETED`,
+    2. whether Kilosort4 failures appeared,
+    3. whether the fixed-wrapper rerun jobs 53055454..53055490 moved from
+       pending into running/completed,
+    4. regenerate a new clear-slate snapshot rather than relying only on raw
+       `squeue` totals.
+reproducibility rule going forward:
+  Treat every launcher/environment fix as a new provenance event. Preserve:
+    - original batch manifests,
+    - old failed job IDs and error signatures,
+    - exact fixed code path used for resubmission,
+    - exact per-well env files,
+    - upstream dependency job IDs,
+    - new submitted job IDs.
+  Do not replace the ground truth by memory. Add a timestamped recovery root and
+  join old->new job IDs back into a CSV/JSON manifest before considering the
+  recovery reproducible.
 ```
 
 The scale-up submission has already been run:

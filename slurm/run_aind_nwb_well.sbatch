@@ -83,7 +83,6 @@ mkdir -p \
   "${AIND_CONTAINER_HOME}" \
   "${AIND_XDG_CACHE_HOME}" \
   "${AIND_XDG_CACHE_HOME}/matplotlib" \
-  "${AIND_PYTHON_SHIM_DIR}" \
   "${AIND_SINGULARITY_CACHE_DIR}" \
   "${AIND_SINGULARITY_TMPDIR}"
 
@@ -94,6 +93,10 @@ launch_dir="${work_dir}/launch"
 nxf_home="${AIND_NXF_HOME_ROOT}/${RECORDING_STEM}/${WELL}"
 run_job_dir="${AIND_JOBS_ROOT}/${RECORDING_STEM}/${WELL}"
 repro_dir="${results_dir}/repro"
+shared_aind_python_shim_dir="${AIND_PYTHON_SHIM_DIR}"
+aind_python_shim_run_id="${SLURM_JOB_ID:-manual_$$}"
+AIND_PYTHON_SHIM_DIR="${work_dir}/python_shim/${aind_python_shim_run_id}"
+export AIND_PYTHON_SHIM_DIR
 
 if [[ -d "${results_dir}" && "${AIND_ALLOW_OVERWRITE}" != "true" ]]; then
   if find "${results_dir}" -mindepth 1 -maxdepth 1 ! -name repro ! -name nextflow | grep -q .; then
@@ -103,7 +106,7 @@ if [[ -d "${results_dir}" && "${AIND_ALLOW_OVERWRITE}" != "true" ]]; then
   fi
 fi
 
-mkdir -p "${input_dir}" "${results_dir}/nextflow" "${work_dir}" "${launch_dir}" "${nxf_home}" "${run_job_dir}" "${repro_dir}"
+mkdir -p "${input_dir}" "${results_dir}/nextflow" "${work_dir}" "${launch_dir}" "${nxf_home}" "${run_job_dir}" "${repro_dir}" "${AIND_PYTHON_SHIM_DIR}"
 rm -f "${input_dir}"/*.nwb
 ln -s "$(realpath "${NWB_FILE}")" "${input_dir}/$(basename "${NWB_FILE}")"
 
@@ -173,6 +176,7 @@ echo "AIND_MONITOR_INTERVAL_SECONDS=${AIND_MONITOR_INTERVAL_SECONDS}"
 echo "AIND_CONTAINER_DIR=${AIND_CONTAINER_DIR}"
 echo "AIND_CONTAINER_HOME=${AIND_CONTAINER_HOME}"
 echo "AIND_XDG_CACHE_HOME=${AIND_XDG_CACHE_HOME}"
+echo "AIND_SHARED_PYTHON_SHIM_DIR=${shared_aind_python_shim_dir}"
 echo "AIND_PYTHON_SHIM_DIR=${AIND_PYTHON_SHIM_DIR}"
 if [[ -f "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env" ]]; then
   echo "AIND_CAPSULE_VERSIONS=${AIND_PIPELINE_ROOT}/pipeline/capsule_versions_custom.env"
@@ -224,6 +228,7 @@ fi
   echo "export HOME=${HOME@Q}"
   echo "export XDG_CACHE_HOME=${XDG_CACHE_HOME@Q}"
   echo "export MPLCONFIGDIR=${MPLCONFIGDIR@Q}"
+  echo "export AIND_PYTHON_SHIM_DIR=${AIND_PYTHON_SHIM_DIR@Q}"
   printf 'DATA_PATH=%q RESULTS_PATH=%q ' "${input_dir}" "${results_dir}"
   printf '%q ' "${nextflow_command[@]}"
   echo
