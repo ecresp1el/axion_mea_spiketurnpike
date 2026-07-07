@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 20:21 EDT
+Date updated: 2026-07-06 20:38 EDT
 
 ## Goal
 
@@ -53,7 +53,7 @@ for the 5 eligible `FortyEightWellLumos` logical recordings. The 2 `SixWell`
 logical recordings remain intentionally blocked with `submit=false` until a
 confirmed SixWell plate map/geometry is added.
 
-Scale-up launch state as of `2026-07-06T20:20:39`:
+Scale-up launch state as of `2026-07-06T20:38:04`:
 
 ```text
 logical_recordings_in_manifest: 7
@@ -61,6 +61,32 @@ eligible_lumos_recordings_submitted: 5
 blocked_sixwell_recordings: 2
 selected_well_pipelines_submitted: 65
 recording_supervisors_submitted: 5
+current_failed_or_cancelled: 0
+```
+
+Current checkpoint status:
+
+```text
+Submission safe:
+  passed
+  5 Lumos recordings submitted, 65 selected wells submitted, 5 supervisors submitted.
+
+Export safe:
+  not yet
+  2_25_2026 has 11/14 binary exports done; the other submitted recordings are still exporting.
+
+NWB/SI prep safe:
+  not yet
+  2_25_2026 has 11/14 NWB exports and 11/14 SpikeInterface prep outputs done.
+
+AIND/Kilosort entered:
+  partially
+  2_25_2026 has 11 selected wells in AIND running.
+  The other four submitted recordings have not reached AIND yet.
+
+Recording safe:
+  not yet
+  No submitted scale-up recording is terminal yet.
 ```
 
 The submitted scale-up recordings are:
@@ -95,6 +121,42 @@ The active run logic is:
    isolated low_activity_ks4_nt2_npcs2 fallback automatically.
 5. Treat the collector outputs as the current ground truth for per-well and
    per-recording status.
+```
+
+Scale-up safety checkpoints:
+
+```text
+1. Submission safe
+   All intended Lumos recordings have submitted well job IDs, SixWell remains
+   blocked, and one supervisor exists per submitted recording.
+
+2. Export safe
+   For each submitted recording:
+     binary_exports_done == selected_wells
+   This proves full-series Axion export works across the submitted recordings.
+
+3. NWB/SI prep safe
+   For each submitted recording:
+     nwb_exports_done == selected_wells
+     spikeinterface_prep_done == selected_wells
+   This proves the per-well NWB, channel mapping, ProbeInterface, and AIND params
+   assets were produced.
+
+4. AIND/Kilosort entered
+   For each submitted recording, at least one selected well reaches:
+     derived_stage == aind_running
+   or its Nextflow trace contains `spikesort_kilosort4`.
+   This proves jobs progressed past export/prep into the maintained AIND sorter
+   workflow.
+
+5. Recording terminal safe
+   Each submitted recording reaches one of:
+     complete_success
+     complete_success_with_fallback
+   with selected_wells_failed == 0 and fallback_failed == 0.
+
+6. Batch terminal safe
+   All 5 submitted Lumos recordings are terminal safe.
 ```
 
 ## Historical Validation And Issue Log
