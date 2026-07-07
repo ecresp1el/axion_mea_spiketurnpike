@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-06 21:05 EDT
+Date updated: 2026-07-06 21:32 EDT
 
 ## Goal
 
@@ -157,6 +157,157 @@ Why this checkpoint is waiting:
    2_25_2026 A1 completed spikesort_kilosort4 in about 12 minutes. Final
    recording-level success is still waiting on the remaining wells and final
    units/QC/result collector stages.
+```
+
+Follow-up checkpoint as of `2026-07-06T21:10:16`:
+
+```text
+The scale-up submission does not impose a recording-level dependency where
+2_25_2026 must finish before the other recordings can progress. Each selected
+well has its own dependency chain:
+
+  axion-export-well -> axion-export-nwb / axion-aind-si-prep -> axion-aind-nwb
+
+The reason the run looks partly serialized is cluster/resource pressure plus
+full-series export cost, not an intentional "finish one recording first" rule.
+Slurm showed Kilosort jobs pending for Priority/Resources and many downstream
+jobs pending for Dependency.
+
+New status observed after the 21:02 checkpoint:
+
+2_25_2026_129-8447_test(000)_FortyEightWellLumos
+  B6 standard AIND job 53023279 failed with the known sparse KS4 template issue:
+    n_samples=4 should be >= n_clusters=6
+  C7 standard AIND job 53023291 failed with the known sparse KS4 template issue:
+    n_samples=2 should be >= n_clusters=6
+  C7 was already submitted to low_activity_ks4_nt2_npcs2 fallback and was
+  fallback_running.
+  B6 was listed as a fallback candidate and should be submitted by the supervisor
+  if the supervisor loop continues normally.
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos
+  sacct showed all 10 selected export jobs failed after about 49-54 minutes.
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos
+  sacct showed several selected export jobs failed after about 48-51 minutes;
+  other selected wells were still running at the checkpoint.
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos
+  sacct showed A1 export job 53023123 failed after about 50 minutes;
+  other selected wells were still running at the checkpoint.
+
+Confirmed 2_12 export failures occurred during AxisFile construction with:
+  Index exceeds the number of array elements. Index must not exceed 2880.
+  Error in BasicChannelArray/LookupChannel / LookupChannelID
+
+This is separate from the Kilosort low-activity fallback issue. It indicates
+some 2_12 BroadbandProcessor files may have Axion channel metadata that the
+current export path cannot parse cleanly during full-series loading.
+```
+
+Correction checkpoint as of `2026-07-06T21:20:04`:
+
+```text
+The Axion LookupChannelID / "Index must not exceed 2880" export-open failure is
+not limited to 2_12. It has been observed in 4 of the 5 submitted Lumos
+BroadbandProcessor recordings.
+
+Affected submitted recordings with the exact signature:
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(000)_FortyEightWellLumos
+  10/10 selected export logs contain the signature.
+  sacct shows 10/10 export jobs failed.
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(001)_FortyEightWellLumos
+  10/10 selected export logs contain the signature.
+  sacct shows 10/10 export jobs failed.
+
+2_12_2026_129-8447_opto_test_meis2_with_E2opsin(002)_FortyEightWellLumos
+  7/7 selected export logs contain the signature.
+  sacct shows 7/7 export jobs failed.
+
+2_20_2026_129-8447_test(000)_FortyEightWellLumos
+  12/24 selected export logs contained the signature at this checkpoint.
+  sacct showed multiple export jobs failed and others still running.
+
+Not affected at this checkpoint:
+
+2_25_2026_129-8447_test(000)_FortyEightWellLumos
+  0/14 export logs contain the signature.
+  14/14 export jobs completed and the recording entered AIND.
+
+Interpretation:
+  The issue is broader than a single recording date or opto recording. It is a
+  BroadbandProcessor/raw-open compatibility problem affecting most submitted
+  recordings except the previously validated 2_25 file. The next diagnostic
+  should compare primary .raw vs *_BroadbandProcessor.raw for affected
+  recordings using the debug AxisFile opener before launching more full export
+  jobs.
+```
+
+Diagnostic preflight submitted as of `2026-07-06T21:32`:
+
+```text
+Purpose:
+  Determine whether the export failures are caused by the chosen raw variant,
+  especially whether primary .raw files can be opened when the matching
+  *_BroadbandProcessor.raw files fail.
+
+New diagnostic files:
+  matlab/preflight_axion_raw_ingestion.m
+  slurm/preflight_axion_raw_ingestion.sbatch
+
+What the diagnostic checks:
+  1. peek_axion_raw_metadata(rawFile)
+     Metadata/header peep without constructing loadable Axion datasets.
+
+  2. AxisFile(rawFile)
+     The exact raw-file open path used by export_axion_well_kilosort_binary.m.
+     This is where the current "LookupChannelID / index must not exceed 2880"
+     failures occur.
+
+  3. Dataset selection
+     RawVoltageData for primary .raw files.
+     BroadbandHighFrequency for *_BroadbandProcessor.raw files.
+
+  4. Tiny well load
+     LoadData on A1 for a 1 second window, only after AxisFile and dataset
+     selection succeed.
+
+Submitted comparison set:
+
+53025406  2_12_000_primary     RawVoltageData           opto_test_meis2_with_E2opsin(000).raw
+53025407  2_12_000_broadband   BroadbandHighFrequency   opto_test_meis2_with_E2opsin(000)_BroadbandProcessor.raw
+53025408  2_12_001_primary     RawVoltageData           opto_test_meis2_with_E2opsin(001).raw
+53025409  2_12_001_broadband   BroadbandHighFrequency   opto_test_meis2_with_E2opsin(001)_BroadbandProcessor.raw
+53025410  2_12_002_primary     RawVoltageData           opto_test_meis2_with_E2opsin(002).raw
+53025411  2_12_002_broadband   BroadbandHighFrequency   opto_test_meis2_with_E2opsin(002)_BroadbandProcessor.raw
+53025412  2_20_000_primary     RawVoltageData           test(000).raw
+53025413  2_20_000_broadband   BroadbandHighFrequency   test(000)_BroadbandProcessor.raw
+53025414  2_25_000_primary     RawVoltageData           test(000).raw
+53025415  2_25_000_broadband   BroadbandHighFrequency   test(000)_BroadbandProcessor.raw
+
+Submission ledger:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/submitted_preflight_jobs.tsv
+
+Per-job result location:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_raw_preflight_20260706_2128/<label>/preflight_result.json
+
+Slurm state at submission check:
+  all 10 preflight jobs were PENDING, mostly due to Priority.
+
+How to interpret the result:
+  If primary .raw passes while BroadbandProcessor fails, the scale-up ingestion
+  rule should switch from blindly preferring *_BroadbandProcessor.raw to choosing
+  the raw variant that passes preflight.
+
+  If both primary and BroadbandProcessor fail for a recording, the issue is
+  broader than the processed raw variant and should be treated as an Axion loader
+  incompatibility or corrupted/unsupported raw metadata for that recording.
+
+  If 2_25 remains the only passing recording, it should not be treated as proof
+  the scale-up ingestion route is general; it is only proof that this one raw
+  variant is compatible with the current loader/export path.
 ```
 
 The submitted scale-up recordings are:
