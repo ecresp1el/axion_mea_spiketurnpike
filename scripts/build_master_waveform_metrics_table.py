@@ -13,12 +13,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from axion_mea.master_unit_table import DEFAULT_STEP2_MANIFEST, load_master_unit_table, load_step2_manifest
-
-
-DEFAULT_OUTPUT_CSV = Path(
-    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/"
-    "downstream/master_waveform_metrics_table.csv"
+from axion_mea.master_unit_table import (
+    CANONICAL_MASTER_UNIT_TABLE,
+    DEFAULT_STEP2_MANIFEST,
+    load_master_unit_table,
+    load_step2_manifest,
 )
 
 
@@ -30,7 +29,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_STEP2_MANIFEST)
-    parser.add_argument("--output-csv", type=Path, default=DEFAULT_OUTPUT_CSV)
+    parser.add_argument("--output-csv", type=Path, default=CANONICAL_MASTER_UNIT_TABLE)
     parser.add_argument("--skipped-csv", type=Path, default=None)
     parser.add_argument("--recording", default=None, help="Optional exact recording filter.")
     parser.add_argument("--well", default=None, help="Optional exact well filter.")

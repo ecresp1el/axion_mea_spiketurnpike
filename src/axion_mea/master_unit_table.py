@@ -1,8 +1,10 @@
-"""Build the canonical per-unit waveform metrics table from frozen AIND output.
+"""Build and load the canonical Step 3 master waveform metrics table.
 
 This module intentionally stops short of a general analysis object model. It
-loads only the assets needed for the first downstream deliverable: one row per
-Kilosort good unit, with firing-rate and template waveform metrics.
+loads only the assets needed to create the canonical Step 3 dataset: one row
+per Kilosort good unit, with firing-rate and template waveform metrics. After
+that CSV exists, downstream biological analyses should load it directly instead
+of reopening every completed well unless they explicitly need per-well assets.
 """
 
 from __future__ import annotations
@@ -18,6 +20,11 @@ import pandas as pd
 DEFAULT_STEP2_MANIFEST = Path(
     "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/"
     "aind_unit_classification_step2_full_20260708_153945/step2_full_manifest.csv"
+)
+
+CANONICAL_MASTER_UNIT_TABLE = Path(
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/"
+    "downstream/master_waveform_metrics_table.csv"
 )
 
 RECORDING_NAME = "block0_None_recording1"
@@ -50,6 +57,12 @@ STEP2_LABEL_COLUMNS = [
 
 def load_step2_manifest(path: str | Path = DEFAULT_STEP2_MANIFEST) -> pd.DataFrame:
     """Load the frozen Step 2 manifest used as the downstream well universe."""
+
+    return pd.read_csv(Path(path))
+
+
+def load_canonical_master_unit_table(path: str | Path = CANONICAL_MASTER_UNIT_TABLE) -> pd.DataFrame:
+    """Load the canonical Step 3 dataset for downstream biological analyses."""
 
     return pd.read_csv(Path(path))
 

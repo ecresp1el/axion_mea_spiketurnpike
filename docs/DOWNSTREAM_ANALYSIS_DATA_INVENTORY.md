@@ -12,8 +12,9 @@ UnitRefine, Bombcell, or SpikeInterface recovery.
 The downstream analysis framework should follow this sequence:
 
 1. Inventory: what exists.
-2. Data model: what is canonical.
-3. Loader API: how to access it.
+2. Master table: create the canonical Step 3 dataset.
+3. Loader API: load the canonical table first; reopen wells only for missing
+   per-well assets.
 4. Analysis modules: RS/FS, optotagging, QC, PSTHs, and related analyses.
 
 ## Output Roots
@@ -698,10 +699,17 @@ scientific feature tables.
 ## Proposed Data Model
 
 The first downstream analysis deliverable should be a single master unit table,
-not a figure and not a general well object model. The table is the canonical
-object for downstream analyses: feature-space plots, RS/FS waveform grouping,
-trough-to-peak histograms, optotag filters, and RS-vs-FS statistics should all
-start from this table.
+not a figure and not a general well object model. This table is not an
+intermediate artifact. It is the canonical Step 3 dataset.
+
+Every downstream biological analysis should start by loading this table rather
+than reopening 122 individual wells whenever possible. Reopen per-well
+SortingAnalyzer, sorting, or NWB-Zarr outputs only when an analysis explicitly
+requires an asset that is not represented in the master table.
+
+The table is the canonical object for downstream analyses: feature-space plots,
+RS/FS waveform grouping, trough-to-peak histograms, optotag filters, and
+RS-vs-FS statistics should all start from this table.
 
 ```text
 MasterUnitTable
@@ -791,6 +799,14 @@ Default output:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/master_waveform_metrics_table.csv
 ```
 
+Canonical downstream loader:
+
+```python
+from axion_mea.master_unit_table import load_canonical_master_unit_table
+
+units = load_canonical_master_unit_table()
+```
+
 The loader is intentionally minimal: it loads the Step 2 manifest, Step 1
 curated sorting, Step 1 SortingAnalyzer templates, and optional Step 2 unit
 labels. It computes only the columns needed for the master table.
@@ -850,14 +866,19 @@ Builds the table rows for one well.
 
 ## Design Rules for Analysis Modules
 
-1. Use existing AIND outputs whenever possible.
-2. Treat the Step 1 curated sorting as the canonical spike/unit source.
-3. Treat the Step 1 SortingAnalyzer as the canonical SpikeInterface object.
-4. Treat Step 2 labels as metadata, not the current primary inclusion gate.
-5. Treat NWB-Zarr as the portable export and source for persisted unit locations
+1. Load the canonical Step 3 master table before reopening per-well outputs.
+2. Reopen Step 1/Step 2 well assets only when the analysis requires data not
+   represented in the master table.
+3. Use existing AIND outputs whenever possible.
+4. Treat the Step 1 curated sorting as the canonical spike/unit source when a
+   per-well reopen is required.
+5. Treat the Step 1 SortingAnalyzer as the canonical SpikeInterface object when
+   a per-well reopen is required.
+6. Treat Step 2 labels as metadata, not the current primary inclusion gate.
+7. Treat NWB-Zarr as the portable export and source for persisted unit locations
    and waveform summaries.
-6. Do not assume per-unit quality metric tables, template metric tables,
+8. Do not assume per-unit quality metric tables, template metric tables,
    principal components, individual waveforms, per-spike locations, or full
    per-spike amplitudes are persisted.
-7. If a future analysis requires a missing derived asset, that should be a
+9. If a future analysis requires a missing derived asset, that should be a
    separate downstream analysis cache decision, not a recovery-pipeline change.
