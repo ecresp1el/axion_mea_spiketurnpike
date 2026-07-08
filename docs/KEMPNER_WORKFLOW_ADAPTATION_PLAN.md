@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 16:05 EDT
+Date updated: 2026-07-08 16:11 EDT
 
 ## Goal
 
@@ -22,7 +22,7 @@ come from AIND/Kempner methods, not from new local reimplementations.
 
 ## Current Operational State
 
-Formal pipeline state as of `2026-07-08 16:05 EDT`:
+Formal pipeline state as of `2026-07-08 16:11 EDT`:
 
 - Step 1 and Step 2 are now formally created.
 - Step 1 generated completed AIND/Kilosort/NWB-units outputs for 122 wells.
@@ -248,6 +248,122 @@ Current reproducibility status:
 - UnitRefine/Bombcell labels are preserved as metadata, but current primary
   biological analysis should use Kilosort4 good units plus independent
   electrophysiological QC.
+
+## Step 3 Biological Analysis Strategy
+
+Step 1 AIND spike sorting and Step 2 recovery/classification are complete and
+frozen. The sections above remain the implementation and validation record for
+those phases. Step 3 is analysis mode, not continued pipeline development.
+
+Objective:
+
+- Generate biological analyses and manuscript-quality figures efficiently.
+- Maximize reuse of the frozen Step 1 and Step 2 outputs.
+- Build only the minimum reusable code required for the next biological
+  analysis.
+- Use Kilosort4 good units as the primary analysis set. Kilosort4 MUA units may
+  be included when scientifically appropriate; Kilosort noise remains excluded.
+- Preserve UnitRefine and Bombcell labels as metadata, not automatic exclusion
+  criteria.
+
+Guiding principle:
+
+- Organize development around biological analyses, not figures and not software
+  modules.
+- Each biological analysis should produce one scientifically meaningful result,
+  support one or more manuscript panels, expose reusable outputs for later
+  analyses, and avoid recomputing information already produced by frozen Step 1.
+- Figures are outputs of analyses, not development milestones.
+
+Canonical data sources:
+
+- Step 1 is the canonical scientific data source.
+- Step 2 is metadata layered on top of Step 1: labels, curation, diagnostics,
+  and provenance.
+- Do not duplicate or recompute information already available unless a specific
+  biological analysis requires it.
+
+Biological analysis dependency graph:
+
+```text
+Spike Sorting
+  -> Waveforms / Templates / Spike Times
+  -> Waveform Metrics
+  -> RS/FS Classification
+  -> Optotagging
+  -> Network & Population Analyses
+  -> Manuscript Figures
+```
+
+Biological analysis blocks:
+
+```text
+1. Waveform Analysis
+   purpose:
+     Generate waveform-derived measurements.
+   outputs:
+     mean waveforms
+     SEM waveforms
+     normalized waveforms
+     waveform metrics
+     trough-to-peak duration
+     waveform asymmetry
+     repolarization slope
+   supports:
+     Supplementary RS/FS figure panels A-C
+     Supplementary Optotagging figure panel F
+
+2. RS/FS Classification
+   purpose:
+     Generate biological RS/FS classifications from waveform features.
+   outputs:
+     RS labels
+     FS labels
+     feature tables
+     classification boundaries
+   supports:
+     Supplementary RS/FS figure panels A-C
+
+3. Spike Stability Analysis
+   outputs:
+     waveform stability
+     amplitude stability
+     firing-rate stability
+   supports:
+     Supplementary RS/FS figure panel D
+     Supplementary Optotagging figure panel G
+
+4. Isolation Analysis
+   outputs:
+     autocorrelograms
+     cross-correlograms
+     spatial footprints
+   supports:
+     Supplementary RS/FS figure panels E-F
+     Supplementary Optotagging figure panel G
+
+5. Optotagging Analysis
+   outputs:
+     raster plots
+     PSTHs
+     first-spike latency
+     response probability
+     reliability
+     optotagged neuron summary
+   supports:
+     Supplementary Optotagging figure panels C-H
+```
+
+Development philosophy:
+
+1. Determine whether the required biological quantity already exists in frozen
+   Step 1 outputs.
+2. Build only the smallest reusable functions necessary for the current
+   biological analysis.
+3. Delay general software framework development until repeated analyses
+   demonstrate a real need.
+4. Every new function should directly contribute to one or more biological
+   analyses or manuscript figure panels.
 
 ## Historical Step 2 Debug Log
 
