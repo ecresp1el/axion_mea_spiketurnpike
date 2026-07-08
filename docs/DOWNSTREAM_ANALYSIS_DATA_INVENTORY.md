@@ -1,0 +1,871 @@
+# Downstream Analysis Data Inventory
+
+Date inspected: 2026-07-08 15:58 EDT
+
+## Scope
+
+The recovery pipeline is frozen. This document inventories the existing Step 1
+and Step 2 AIND outputs and proposes the downstream analysis data model. It does
+not define new recovery-pipeline work and does not require rerunning Kilosort,
+UnitRefine, Bombcell, or SpikeInterface recovery.
+
+The downstream analysis framework should follow this sequence:
+
+1. Inventory: what exists.
+2. Data model: what is canonical.
+3. Loader API: how to access it.
+4. Analysis modules: RS/FS, optotagging, QC, PSTHs, and related analyses.
+
+## Output Roots
+
+Step 1 AIND/Kilosort/NWB-units root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/
+```
+
+Step 2 frozen classification/QC recovery root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_step2_full/aind_unit_classification_step2_full_20260708_153945/<recording>/<well>/
+```
+
+Step 2 batch manifest and submitted jobs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/step2_full_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/submitted_jobs.tsv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/recovery_params.json
+```
+
+As of this inspection, Step 2 full-scale processing was still in progress:
+
+```text
+sacct state counts:
+  80 COMPLETED
+  28 RUNNING
+  14 PENDING
+
+visible Step 2 files:
+  71 unit label CSVs
+  67 classification summaries
+  72 quality metric diagnostics
+```
+
+The data model should therefore support wells with Step 1 only and wells with
+both Step 1 and completed Step 2 outputs.
+
+## Representative Wells Inspected
+
+Lumos 48-well sample:
+
+```text
+recording:
+  6_22_2026_129-8445_ventral_sosrs_opsin_day3(003)_FortyEightWellLumos_primary_raw_NeuralBroadband
+well:
+  A3
+channels:
+  16
+sampling rate:
+  12500.0 Hz
+duration:
+  600.0 s
+units:
+  46
+persisted SortingAnalyzer extensions:
+  correlograms
+  random_spikes
+  templates
+```
+
+SixWell sample:
+
+```text
+recording:
+  sixwell_manual_primary_5_25_26_pvreporter_134-0150_pv_reporter_cl32_dorsal_and_ventral_exp17(000)
+well:
+  A1
+channels:
+  64
+sampling rate:
+  12500.0 Hz
+duration:
+  600.0 s
+units:
+  82
+persisted SortingAnalyzer extensions:
+  correlograms
+  random_spikes
+  templates
+```
+
+Load checks were performed in the AIND SpikeInterface 0.104.8 container.
+
+## Asset Inventory
+
+### Well Manifest
+
+Path:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/step2_full_manifest.csv
+```
+
+Format: CSV.
+
+Useful columns:
+
+```text
+lane
+plate_family
+recording
+well
+source_results_dir
+recovery_output_dir
+recovery_params_json
+unit_count_total
+kslabel_good_count
+kslabel_mua_count
+spike_count_total
+source_ledger_csv
+```
+
+Load with `pandas.read_csv`.
+
+Canonical source: yes, for the Step 2 analysis universe and for mapping each
+well to its Step 1 and Step 2 directories.
+
+### Submitted Step 2 Jobs
+
+Path:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/submitted_jobs.tsv
+```
+
+Format: TSV.
+
+Load with `pandas.read_csv(path, sep="\t")`.
+
+Canonical source: yes, for job IDs and submitted Step 2 well list. Not a
+scientific data source.
+
+### Recording
+
+Primary path:
+
+```text
+<step1_well>/postprocessed/block0_None_recording1.zarr
+```
+
+Format: SpikeInterface `SortingAnalyzer` Zarr directory containing the recording
+and sorting references.
+
+Load with:
+
+```python
+import spikeinterface.full as si
+analyzer = si.load_sorting_analyzer(path)
+recording = analyzer.recording
+```
+
+Canonical source: yes, for SpikeInterface-native access to sampling rate,
+channel count, channel locations, duration, and any downstream computations that
+need the recording object.
+
+Portable/archive path:
+
+```text
+<step1_well>/nwb/*.nwb
+```
+
+Format: NWB-Zarr directory, not a single HDF5 file.
+
+Load with `hdmf_zarr.NWBZarrIO` or direct `zarr.open_group` for selected arrays.
+
+Canonical source: yes for portable NWB export and `units` arrays; use the
+SortingAnalyzer as the canonical SpikeInterface object.
+
+### Sorting
+
+Curated sorting path:
+
+```text
+<step1_well>/curated/block0_None_recording1/
+```
+
+Spikesorted sorting path:
+
+```text
+<step1_well>/spikesorted/block0_None_recording1/
+```
+
+Format: SpikeInterface `NumpyFolderSorting`.
+
+Load with:
+
+```python
+import spikeinterface.full as si
+sorting = si.load(path)
+```
+
+Persisted files:
+
+```text
+numpysorting_info.json
+si_folder.json
+spikes.npy
+provenance.pkl or provenance.json
+properties/Amplitude.npy
+properties/ContamPct.npy
+properties/KSLabel.npy
+properties/KSLabel_repeat.npy
+properties/original_cluster_id.npy
+```
+
+Canonical source: yes. For primary biological analyses, use the Step 1 curated
+sorting and Kilosort4 labels. Current analysis policy is to use Kilosort4 good
+units as the primary inclusion set, optionally include Kilosort4 MUA units when
+scientifically appropriate, and exclude Kilosort noise units.
+
+### SortingAnalyzer
+
+Path:
+
+```text
+<step1_well>/postprocessed/block0_None_recording1.zarr
+```
+
+Format: SpikeInterface `SortingAnalyzer` Zarr directory.
+
+Load with:
+
+```python
+import spikeinterface.full as si
+analyzer = si.load_sorting_analyzer(path)
+```
+
+Canonical source: yes, for reusable SpikeInterface extensions. Loaders should
+call `analyzer.get_loaded_extension_names()` or `analyzer.has_extension(name)`
+for each well instead of assuming every extension exists.
+
+Persisted extensions observed in representative wells:
+
+```text
+correlograms
+random_spikes
+templates
+```
+
+Not persisted as Step 1 analyzer extensions in the inspected wells:
+
+```text
+waveforms
+quality_metrics
+template_metrics
+spike_locations
+spike_amplitudes
+principal_components
+```
+
+### Waveforms
+
+NWB path:
+
+```text
+<step1_well>/nwb/*.nwb/units/waveform_mean
+<step1_well>/nwb/*.nwb/units/waveform_sd
+```
+
+Format: Zarr arrays inside NWB-Zarr.
+
+Observed shapes:
+
+```text
+Lumos A3 waveform_mean: (46, 37, 16)
+SixWell A1 waveform_mean: (82, 37, 64)
+```
+
+Load with `hdmf_zarr.NWBZarrIO` or direct Zarr.
+
+Canonical source: yes, for persisted mean and standard-deviation waveforms in
+the NWB export. Individual extracted waveforms were not persisted in the
+inspected Step 1 analyzer. Step 2 computes waveforms transiently for recovery
+but does not persist them as reusable analysis assets.
+
+### Templates
+
+Analyzer path:
+
+```text
+<step1_well>/postprocessed/block0_None_recording1.zarr/extensions/templates/
+```
+
+Format: SpikeInterface analyzer extension in Zarr.
+
+Load with:
+
+```python
+templates = analyzer.get_extension("templates").get_data()
+```
+
+Observed Lumos A3 shape:
+
+```text
+(46, 62, 16)
+```
+
+NWB alternative:
+
+```text
+<step1_well>/nwb/*.nwb/units/waveform_mean
+```
+
+Canonical source: yes, if `analyzer.has_extension("templates")` is true. Use
+NWB `waveform_mean` for portable export or if a downstream workflow is NWB-first.
+
+### Template Metrics
+
+Step 2 diagnostic path:
+
+```text
+<step2_well>/quality_metrics_required_diagnostic.json
+```
+
+Format: JSON diagnostic/provenance file.
+
+Load with `json.load`.
+
+Canonical source: no, for per-unit template metric values. The diagnostic JSON
+records available/configured metrics, required columns, feature audits, completed
+metrics, failed metrics, and skipped metrics. It is not a per-unit metric table.
+
+Template metrics were computed during Step 2 recovery for classifier execution,
+but the inspected Step 2 outputs do not persist a reusable per-unit
+`template_metrics` table or analyzer extension.
+
+### Quality Metrics
+
+Step 2 diagnostic path:
+
+```text
+<step2_well>/quality_metrics_required_diagnostic.json
+```
+
+Format: JSON diagnostic/provenance file.
+
+Load with `json.load`.
+
+Canonical source: no, for per-unit quality metric values. The diagnostic JSON is
+canonical only for provenance and feature audit information.
+
+Observed diagnostic keys include:
+
+```text
+spikeinterface_version
+available_quality_metrics
+configured_quality_metrics
+required_pre_classifier_quality_metrics
+optional_post_classifier_quality_metrics
+computed_quality_metric_columns
+completed_metrics
+failed_metrics
+skipped_metrics
+unitrefine_feature_audit
+unitrefine_required_columns
+bombcell_required_columns
+default_qc_required_columns
+```
+
+The inspected Step 1 analyzer does not persist a `quality_metrics` extension.
+Step 2 computes metrics for classification but does not persist a reusable
+per-unit quality-metrics DataFrame.
+
+### Spike Locations
+
+NWB paths:
+
+```text
+<step1_well>/nwb/*.nwb/units/estimated_x
+<step1_well>/nwb/*.nwb/units/estimated_y
+<step1_well>/nwb/*.nwb/units/estimated_z
+<step1_well>/nwb/*.nwb/units/extremum_channel_index
+```
+
+Format: per-unit Zarr arrays inside NWB-Zarr.
+
+Load with `hdmf_zarr.NWBZarrIO` or direct Zarr.
+
+Canonical source: yes, for persisted per-unit estimated locations. Per-spike
+`spike_locations` were computed transiently during Step 2 recovery but were not
+persisted as a Step 2 analyzer extension in the inspected outputs.
+
+### Correlograms
+
+Analyzer path:
+
+```text
+<step1_well>/postprocessed/block0_None_recording1.zarr/extensions/correlograms/
+```
+
+Format: SpikeInterface analyzer extension in Zarr.
+
+Load with:
+
+```python
+ccgs, bins = analyzer.get_extension("correlograms").get_data()
+```
+
+Observed Lumos A3 shape:
+
+```text
+ccgs: (46, 46, 52)
+bins: (53,)
+```
+
+Canonical source: yes, if `analyzer.has_extension("correlograms")` is true.
+
+### Spike Amplitudes
+
+Sorting properties:
+
+```text
+<step1_well>/curated/block0_None_recording1/properties/Amplitude.npy
+<step1_well>/spikesorted/block0_None_recording1/properties/Amplitude.npy
+```
+
+NWB unit amplitudes:
+
+```text
+<step1_well>/nwb/*.nwb/units/amplitude
+```
+
+Format: per-unit NumPy array or NWB-Zarr unit column.
+
+Load sorting properties through SpikeInterface:
+
+```python
+amplitude = sorting.get_property("Amplitude")
+```
+
+Load NWB amplitude through `hdmf_zarr.NWBZarrIO` or direct Zarr.
+
+Canonical source: yes, for per-unit amplitude summaries. A full per-spike
+`spike_amplitudes` extension was not persisted in the inspected Step 1 analyzer.
+Step 2 may compute spike amplitudes transiently for recovery, but the full
+extension is not a reusable persisted analysis artifact in the inspected outputs.
+
+### Principal Components
+
+Path: no persisted Step 1 or Step 2 per-well PCA extension was found in the
+inspected analyzer/output folders.
+
+Format: not available as a persisted reusable asset.
+
+Canonical source: no. Principal components were part of Step 2 recovery
+computation, but downstream analysis loaders should not assume a reusable
+`principal_components` extension exists.
+
+### Unit Labels
+
+Step 1 Kilosort labels:
+
+```text
+<step1_well>/curated/block0_None_recording1/properties/KSLabel.npy
+<step1_well>/curated/block0_None_recording1/properties/KSLabel_repeat.npy
+```
+
+Load with:
+
+```python
+kslabel = sorting.get_property("KSLabel")
+```
+
+Step 2 classifier/default-QC labels:
+
+```text
+<step2_well>/curation/unit_labels_block0_None_recording1.csv
+```
+
+Format: CSV.
+
+Observed columns:
+
+```text
+default_qc
+unitrefine_label
+unitrefine_probability
+bombcell_label
+```
+
+Load with `pandas.read_csv`.
+
+Canonical source: yes, for classifier/default-QC metadata. The CSV does not
+include an explicit `unit_id` column, so the loader must attach unit IDs from
+the Step 1 curated sorting or analyzer in the same row order.
+
+Primary biological inclusion should still use Step 1 Kilosort4 labels plus
+independent QC, not UnitRefine/Bombcell as an automatic exclusion gate.
+
+### Curation JSON
+
+Path:
+
+```text
+<step2_well>/curation/curation_block0_None_recording1.json
+```
+
+Format: SpikeInterface curation JSON.
+
+Load with `json.load`.
+
+Observed keys:
+
+```text
+supported_versions
+format_version
+unit_ids
+label_definitions
+manual_labels
+removed
+merges
+splits
+```
+
+Canonical source: yes, for classifier-derived curation metadata.
+
+### Merge JSON
+
+Path:
+
+```text
+<step2_well>/curation/unit_merges_block0_None_recording1.json
+```
+
+Format: JSON list.
+
+Load with `json.load`.
+
+Canonical source: yes, for Step 2 merge metadata. Empty lists are valid.
+
+### Step 2 Summary
+
+Path:
+
+```text
+<step2_well>/classification_recovery_summary.json
+```
+
+Format: JSON.
+
+Load with `json.load`.
+
+Useful keys include:
+
+```text
+n_units
+recording
+well
+labels_csv
+curation_json
+quality_metrics_diagnostic
+unitrefine_counts
+bombcell_counts
+default_qc_pass
+default_qc_fail
+elapsed_seconds
+source_analyzer
+source_results_dir
+output_dir
+```
+
+Canonical source: yes, for Step 2 run summary/provenance. Not a replacement for
+the label CSV.
+
+### AIND DataProcess Metadata
+
+Path:
+
+```text
+<step2_well>/data_process_unit_classification_recovery.json
+```
+
+Format: AIND DataProcess JSON.
+
+Load with `json.load`.
+
+Canonical source: yes, for provenance. Not a scientific analysis table.
+
+### NWB Units
+
+Path:
+
+```text
+<step1_well>/nwb/*.nwb/units/
+```
+
+Format: NWB-Zarr unit table arrays.
+
+Observed unit keys:
+
+```text
+amplitude
+depth
+device_name
+electrodes
+electrodes_index
+estimated_x
+estimated_y
+estimated_z
+extremum_channel_index
+id
+ks_unit_id
+original_cluster_id
+shank
+spike_times
+spike_times_index
+unit_name
+waveform_mean
+waveform_sd
+```
+
+Load with `hdmf_zarr.NWBZarrIO` or direct Zarr access. Use `spike_times_index`
+to split the flat `spike_times` array by unit.
+
+Canonical source: yes, for portable NWB unit export. For SpikeInterface-native
+analysis, prefer the Step 1 curated sorting and analyzer.
+
+### Quality-Control Images
+
+Paths:
+
+```text
+<step1_well>/quality_control/block0_None/traces_raw.png
+<step1_well>/quality_control/block0_None/rms.png
+<step1_well>/quality_control/block0_None/psd.png
+<step1_well>/visualization/block0_None_recording1/traces_full_seg0.png
+```
+
+Format: PNG.
+
+Load with image libraries such as Pillow or use directly in reports.
+
+Canonical source: yes, for visual QC reports. Not machine-readable analysis
+features.
+
+### AIND Metadata and Reproducibility
+
+Step 1 metadata paths:
+
+```text
+<step1_well>/data_description.json
+<step1_well>/processing.json
+<step1_well>/quality_control.json
+<step1_well>/visualization_output.json
+```
+
+Step 1 reproducibility paths:
+
+```text
+<step1_well>/repro/aind_config.env
+<step1_well>/repro/aind_params.json
+<step1_well>/repro/aind_pipeline_commit.txt
+<step1_well>/repro/aind_pipeline_status.txt
+<step1_well>/repro/axion_repo_commit.txt
+<step1_well>/repro/axion_repo_status.txt
+<step1_well>/repro/nextflow_command.sh
+<step1_well>/repro/submitted_job.sbatch
+<step1_well>/repro/input_nwb.txt
+<step1_well>/repro/data_path.txt
+<step1_well>/repro/results_path.txt
+```
+
+Nextflow provenance:
+
+```text
+<step1_well>/nextflow/trace.txt
+<step1_well>/nextflow/report.html
+<step1_well>/nextflow/timeline.html
+<step1_well>/nextflow/dag.html
+<step1_well>/nextflow/nextflow.log
+```
+
+Format: JSON, text, shell script, HTML, and Nextflow trace tables.
+
+Canonical source: yes, for provenance and reproducibility. Not primary
+scientific feature tables.
+
+## Proposed Data Model
+
+The analysis framework should center on a well-level record with explicit Step 1
+and Step 2 path groups.
+
+```text
+WellKey
+  recording
+  well
+  lane
+  plate_family
+
+Step1WellPaths
+  root
+  analyzer_zarr
+  curated_sorting
+  spikesorted_sorting
+  nwb_zarr
+  qc_json
+  qc_images
+  repro_dir
+  nextflow_dir
+
+Step2WellPaths
+  root
+  labels_csv
+  curation_json
+  merge_json
+  quality_metrics_diagnostic_json
+  classification_summary_json
+  data_process_json
+```
+
+The canonical per-unit table should be assembled lazily from existing outputs:
+
+```text
+UnitTable
+  recording
+  well
+  unit_id
+  original_cluster_id
+  ks_label
+  ks_label_repeat
+  kilosort_amplitude
+  contam_pct
+  spike_count
+  firing_rate
+  default_qc
+  unitrefine_label
+  unitrefine_probability
+  bombcell_label
+  estimated_x
+  estimated_y
+  estimated_z
+  extremum_channel_index
+  analysis_include_primary
+  analysis_include_with_mua
+```
+
+Recommended inclusion fields:
+
+```text
+analysis_include_primary:
+  KSLabel == "good"
+
+analysis_include_with_mua:
+  KSLabel in {"good", "mua"}
+```
+
+Do not use UnitRefine or Bombcell labels as automatic primary exclusion criteria
+until a separate classifier-calibration project validates them for Axion Lumos
+organoid MEA recordings.
+
+## Proposed Loader API
+
+The first implementation should expose read-only loaders. It should not
+recompute missing SpikeInterface extensions by default.
+
+```python
+discover_step2_manifest(path=None) -> pandas.DataFrame
+```
+
+Loads `step2_full_manifest.csv` and returns one row per submitted well.
+
+```python
+get_well_paths(recording: str, well: str, manifest=None) -> WellPaths
+```
+
+Returns Step 1 and Step 2 path objects. Step 2 paths may exist even before all
+files are complete, so individual files should be checked explicitly.
+
+```python
+load_analyzer(paths: WellPaths) -> SortingAnalyzer
+```
+
+Loads `<step1_well>/postprocessed/block0_None_recording1.zarr`.
+
+```python
+load_sorting(paths: WellPaths, curated=True) -> BaseSorting
+```
+
+Loads the Step 1 curated or spikesorted `NumpyFolderSorting`.
+
+```python
+load_nwb_units(paths: WellPaths) -> pandas.DataFrame
+```
+
+Loads NWB-Zarr units, including spike time references, amplitudes, locations,
+and waveform summary metadata.
+
+```python
+load_step2_labels(paths: WellPaths, attach_unit_ids=True) -> pandas.DataFrame
+```
+
+Loads `unit_labels_block0_None_recording1.csv`. If `attach_unit_ids=True`, add
+unit IDs from the Step 1 sorting/analyzer row order.
+
+```python
+load_unit_table(paths: WellPaths) -> pandas.DataFrame
+```
+
+Builds the canonical per-unit table by joining Step 1 sorting properties, Step 2
+labels when present, and NWB unit locations/waveform metadata when needed.
+
+```python
+load_templates(paths: WellPaths)
+```
+
+Returns analyzer templates if `templates` is present. Optionally falls back to
+NWB `waveform_mean` only when the caller requests a portable waveform summary.
+
+```python
+load_correlograms(paths: WellPaths)
+```
+
+Returns `(ccgs, bins)` from the analyzer `correlograms` extension when present.
+
+```python
+load_quality_diagnostic(paths: WellPaths) -> dict
+```
+
+Loads Step 2 quality-metric diagnostic JSON. This is provenance/feature-audit
+metadata, not a per-unit quality-metrics DataFrame.
+
+```python
+load_curation(paths: WellPaths) -> dict
+load_merges(paths: WellPaths) -> list
+load_step2_summary(paths: WellPaths) -> dict
+load_dataprocess(paths: WellPaths) -> dict
+```
+
+Loads Step 2 curation and provenance artifacts.
+
+```python
+available_assets(paths: WellPaths) -> dict
+```
+
+Reports which files and analyzer extensions exist for a well. This should be
+used before analysis modules request optional assets.
+
+## Design Rules for Analysis Modules
+
+1. Use existing AIND outputs whenever possible.
+2. Treat the Step 1 curated sorting as the canonical spike/unit source.
+3. Treat the Step 1 SortingAnalyzer as the canonical SpikeInterface object.
+4. Treat Step 2 labels as metadata, not the current primary inclusion gate.
+5. Treat NWB-Zarr as the portable export and source for persisted unit locations
+   and waveform summaries.
+6. Do not assume per-unit quality metric tables, template metric tables,
+   principal components, individual waveforms, per-spike locations, or full
+   per-spike amplitudes are persisted.
+7. If a future analysis requires a missing derived asset, that should be a
+   separate downstream analysis cache decision, not a recovery-pipeline change.
+
