@@ -15,9 +15,22 @@ STEP3_LAYOUT = {
     "zone1": ["curation", "spikelist"],
     "zone2": ["unitlist", "merge"],
     "zone3": ["trace", "spikerate"],
-    "zone4": ["probe", "maintemplate", "correlogram", "isi"],
+    "zone4": ["probe", "waveform", "maintemplate", "correlogram", "isi"],
     "zone5": ["similarity", "mainsettings"],
 }
+
+STEP1_DISPLAYED_UNIT_PROPERTIES = [
+    "KSLabel",
+    "Amplitude",
+    "ContamPct",
+    "classifier_label",
+    "classifier_probability",
+    "original_cluster_id",
+    "firing_rate",
+    "num_spikes",
+    "x",
+    "y",
+]
 
 
 def main() -> None:
@@ -76,6 +89,7 @@ def main() -> None:
         port=args.port,
         panel_start_server_kwargs={"show": False},
         layout=STEP3_LAYOUT,
+        displayed_unit_properties=STEP1_DISPLAYED_UNIT_PROPERTIES,
         disable_save_settings_button=True,
         verbose=args.verbose,
     )
