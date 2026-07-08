@@ -266,6 +266,8 @@ def compute_quality_metrics_diagnostic(
     quality_metrics_params: dict,
     curation_params: dict,
     output_dir: Path,
+    metrics_to_run: list[str] | str | None = None,
+    diagnostic_filename: str = "quality_metrics_diagnostic.json",
 ) -> dict:
     column_to_metric, metric_to_columns = quality_metric_column_map()
     available_metrics = sqm.get_quality_metric_list()
@@ -297,7 +299,20 @@ def compute_quality_metrics_diagnostic(
     log(f"Bombcell required quality metrics: {sorted(bombcell_metrics)}")
     log(f"Bombcell non-quality/template metric columns: {bombcell_non_quality_columns}")
     log(f"Default QC required quality metrics: {sorted(default_qc_metrics)}")
-    log(f"Configured quality metrics to compute diagnostically: {requested_metrics}")
+    required_metric_names = unitrefine_metrics | default_qc_metrics | bombcell_metrics
+    required_metrics = [metric for metric in requested_metrics if metric in required_metric_names]
+    optional_metrics = [metric for metric in requested_metrics if metric not in required_metric_names]
+    if metrics_to_run == "required":
+        metrics_to_run = required_metrics
+    elif metrics_to_run == "optional":
+        metrics_to_run = optional_metrics
+    elif metrics_to_run is None:
+        metrics_to_run = requested_metrics
+
+    log(f"Configured quality metrics: {requested_metrics}")
+    log(f"Required pre-classifier quality metrics: {required_metrics}")
+    log(f"Optional post-classifier quality metrics: {optional_metrics}")
+    log(f"Quality metrics in this pass: {metrics_to_run}")
 
     completed_metrics = []
     failed_metrics = []
@@ -306,7 +321,7 @@ def compute_quality_metrics_diagnostic(
     qm_start = time.perf_counter()
     quality_job_kwargs = dict(si.get_global_job_kwargs())
 
-    for metric_name in requested_metrics:
+    for metric_name in metrics_to_run:
         metric_start_elapsed = time.perf_counter() - qm_start
         log(
             "QUALITY_METRIC START "
@@ -411,6 +426,9 @@ def compute_quality_metrics_diagnostic(
         "spikeinterface_version": si.__version__,
         "available_quality_metrics": available_metrics,
         "configured_quality_metrics": requested_metrics,
+        "metrics_run_in_this_pass": metrics_to_run,
+        "required_pre_classifier_quality_metrics": required_metrics,
+        "optional_post_classifier_quality_metrics": optional_metrics,
         "unitrefine_required_columns": unitrefine_columns,
         "unitrefine_required_quality_metrics": sorted(unitrefine_metrics),
         "unitrefine_non_quality_or_template_columns": unitrefine_non_quality_columns,
@@ -428,7 +446,7 @@ def compute_quality_metrics_diagnostic(
         "computed_quality_metric_columns": computed_columns,
         "total_runtime_seconds": total_runtime,
     }
-    diagnostic_path = output_dir / "quality_metrics_diagnostic.json"
+    diagnostic_path = output_dir / diagnostic_filename
     diagnostic_path.write_text(json.dumps(check_json(diagnostic), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     log(
         "QUALITY_METRIC SUMMARY "
