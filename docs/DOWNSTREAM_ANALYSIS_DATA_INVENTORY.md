@@ -854,21 +854,34 @@ RS/FS outputs live next to the canonical table on Turbo:
   master_waveform_metrics_table_rs_fs_summary.csv
   master_waveform_metrics_table_rs_fs_provenance.json
   master_waveform_metrics_table_rs_fs_plot_provenance.json
+  master_waveform_metrics_table_rs_fs_template_waveform_mean_sem.csv
+  master_waveform_metrics_table_rs_fs_template_waveform_provenance.json
   figures/rs_fs_classification/
     figure__rs_fs_class_counts.png
     figure__rs_fs_feature_space.png
     figure__rs_fs_firing_rate_by_class.png
     figure__rs_fs_trough_to_peak_histogram.png
+  figures/rs_fs_waveforms/
+    figure__rs_fs_template_waveform_summary.png
   repro/
     annotate_rs_fs_classification_command.sh
     annotate_rs_fs_classification_command_context.json
     plot_rs_fs_classification_command.sh
     plot_rs_fs_classification_command_context.json
+    plot_rs_fs_template_waveforms_command.sh
+    plot_rs_fs_template_waveforms_command_context.json
 ```
 
 The `repro/` command files follow the existing handoff convention: source
 `config/greatlakes_project.env`, activate the Great Lakes Conda environment, and
 run the exact Step 3 command.
+
+The template waveform summary is one of the few Step 3 RS/FS outputs that
+reopens Step 1 wells. It starts from the canonical table, uses
+`template_reference` to retrieve each unit's selected-channel average template,
+baseline-subtracts and trough-normalizes each waveform, aligns units to trough =
+0 ms, and plots FS/RS class means, sampled individual unit overlays, and
+mean +/- SEM.
 
 ## Reuse vs Recomputation
 
