@@ -65,6 +65,60 @@ objective:
   pass/fail counts across these representative Lumos wells.
 ```
 
+Classifier-validation result snapshot:
+
+```text
+summary table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623/validation_summary_table.csv
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623/validation_summary_table.md
+status:
+  9/9 validation wells completed with exit 0.
+result:
+  UnitRefine labeled every unit as noise across all 9 representative Lumos wells.
+  Bombcell also labeled every unit as noise across all 9 representative Lumos wells.
+interpretation:
+  The all-noise result is not specific to the original A3 canary. It appears
+  representative of the sampled Lumos wells and is evidence that the pretrained
+  UnitRefine/Bombcell classifiers are likely overly conservative or poorly
+  calibrated for this Axion organoid MEA recording modality.
+next action:
+  Do not scale recovered UnitRefine/Bombcell labels as trusted biological labels
+  until the classifier calibration/validation question is resolved. Use the
+  generated labels as diagnostic outputs, not as final biological ground truth.
+```
+
+Full Step 2 scale-up submission:
+
+```text
+status:
+  Submitted frozen recovery pipeline across every Step 1 well that completed
+  `nwb_units`, regardless of plate size or lane.
+submission time:
+  2026-07-08 15:39 EDT
+batch root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945
+manifest:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/step2_full_manifest.csv
+submitted jobs:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/submitted_jobs.tsv
+recovery params:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/recovery_params.json
+submitted well count:
+  122 total
+  54 FortyEightWellLumos / 48well_auto
+  67 SixWell / sixwell_manual_primary
+  1 SixWell / sixwell_smoke
+job ID range:
+  first submitted: 53116835
+  last submitted: 53116967
+important analysis policy:
+  Preserve UnitRefine/Bombcell labels as metadata/QC/supplementary outputs.
+  Do not use UnitRefine/Bombcell as the primary biological inclusion criterion
+  unless a separate classifier-calibration project validates them for Axion MEA.
+  Current primary analysis should use Kilosort4 good units plus independent
+  electrophysiological QC criteria.
+```
+
 Latest unified status was refreshed on `2026-07-08 13:01 EDT` using the
 Great Lakes project conda environment from `config/greatlakes_project.env`
 (`/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort`).
