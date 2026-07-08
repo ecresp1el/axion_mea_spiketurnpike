@@ -856,6 +856,12 @@ RS/FS outputs live next to the canonical table on Turbo:
   master_waveform_metrics_table_rs_fs_plot_provenance.json
   master_waveform_metrics_table_rs_fs_template_waveform_mean_sem.csv
   master_waveform_metrics_table_rs_fs_template_waveform_provenance.json
+  master_waveform_metrics_table_rs_fs_template_waveform_audit.csv
+  master_waveform_metrics_table_rs_fs_template_waveform_audit.json
+  representative_well_B3_dominant_template_audit.csv
+  representative_well_B3_dominant_template_audit_provenance.json
+  representative_unit_template_vs_extracted_waveforms.csv
+  representative_unit_template_vs_extracted_waveforms_provenance.json
   figures/rs_fs_classification/
     figure__rs_fs_class_counts.png
     figure__rs_fs_feature_space.png
@@ -863,6 +869,9 @@ RS/FS outputs live next to the canonical table on Turbo:
     figure__rs_fs_trough_to_peak_histogram.png
   figures/rs_fs_waveforms/
     figure__rs_fs_template_waveform_summary.png
+    figure__rs_fs_template_waveform_trough_peak_audit_20.png
+    figure__representative_well_B3_dominant_templates_trough_peak.png
+    figure__representative_unit_template_vs_extracted_waveforms.png
   repro/
     annotate_rs_fs_classification_command.sh
     annotate_rs_fs_classification_command_context.json
@@ -870,6 +879,12 @@ RS/FS outputs live next to the canonical table on Turbo:
     plot_rs_fs_classification_command_context.json
     plot_rs_fs_template_waveforms_command.sh
     plot_rs_fs_template_waveforms_command_context.json
+    validate_rs_fs_waveform_extraction_command.sh
+    validate_rs_fs_waveform_extraction_command_context.json
+    plot_representative_well_dominant_templates_command.sh
+    plot_representative_well_dominant_templates_command_context.json
+    compare_representative_unit_waveform_representations_command.sh
+    compare_representative_unit_waveform_representations_command_context.json
 ```
 
 The `repro/` command files follow the existing handoff convention: source
@@ -882,6 +897,182 @@ reopens Step 1 wells. It starts from the canonical table, uses
 baseline-subtracts and trough-normalizes each waveform, aligns units to trough =
 0 ms, and plots FS/RS class means, sampled individual unit overlays, and
 mean +/- SEM.
+
+### Waveform Representation Validation
+
+Current status: the RS/FS classifier has not been changed. The work below
+validates the waveform source and representation before any classifier or metric
+definition is revised.
+
+Dominant-channel validation:
+
+```text
+script:
+  scripts/plot_representative_well_dominant_templates.py
+representative well:
+  sixwell_manual_primary_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000) / B3
+unit count:
+  50 Kilosort-good units
+result:
+  50/50 units used the same dominant channel encoded in template_reference
+  recomputed trough-to-peak durations matched the master table exactly
+```
+
+This validates that the plotted waveform for each audited unit comes from the
+same selected dominant template channel used for the master table metrics.
+
+Template time axis:
+
+```text
+sampling_frequency_hz:
+  12500.0
+sample_dt_ms:
+  0.08
+templates.average shape in B3:
+  144 units x 62 samples x 64 channels
+templates extension params:
+  ms_before = 2.0
+  ms_after = 3.0
+derived sample window:
+  nbefore = 25
+  nafter = 37
+x-axis for template plots:
+  (sample_index - detected_trough_index) * 1000 / sampling_frequency_hz
+```
+
+After trough alignment, trough time is 0 ms by construction. The earlier
+class-average waveform figure used a wide aligned plotting window. The right
+edge of that plot was supported by a changing subset of templates, which can
+create misleading late-window mean behavior. Treat that figure as provisional
+until the final plotting crop is locked.
+
+`templates.average` semantics in the Step 1 SortingAnalyzer:
+
+```text
+SpikeInterface version:
+  0.104.8
+SortingAnalyzer setting:
+  return_in_uV = true
+recording class:
+  spikeinterface.core.binaryfolder.BinaryFolderRecording
+recording dtype:
+  int16
+recording annotations:
+  is_filtered = true
+recording scaling:
+  gain_to_uV present, offset_to_uV = 0
+template computation:
+  ComputeTemplates calls estimate_templates_with_accumulator
+  average = sum(extracted snippets) / spike_count
+spikes used for template computation:
+  random_spikes extension, max_spikes_per_unit = 500
+operators persisted:
+  average, std, median
+```
+
+Interpretation:
+
+```text
+Is templates.average dewhitened extracellular template in physical units?
+  It is an average of snippets extracted from the analyzer recording with
+  return_in_uV=true, so it is in the analyzer's uV-scaled trace units.
+  It is not a native Kilosort whitened template. However, the analyzer recording
+  is the Step 1 preprocessed filtered recording, not necessarily the raw
+  acquisition voltage trace.
+
+Is it whitened?
+  Not by the template computation path. It reflects whatever preprocessing is
+  already present in the analyzer recording. The loaded analyzer recording is a
+  filtered BinaryFolderRecording with uV scaling.
+
+Is it reconstructed from PCA?
+  No. The template extension path does not use the principal_components
+  extension or PCA reconstruction. It directly accumulates waveform snippets.
+
+Is it residual-subtracted or morphology-modified by template subtraction?
+  Not in the SpikeInterface ComputeTemplates step. The templates are direct
+  averages of analyzer-recording snippets at selected spike times. Any
+  morphology changes would come from the upstream filtered/preprocessed
+  recording used by the analyzer, not from residual subtraction inside the
+  template averaging step.
+```
+
+Representative-unit comparison:
+
+```text
+script:
+  scripts/compare_representative_unit_waveform_representations.py
+representative unit:
+  B3 unit 1, RS_like, template_reference templates.average[unit_index=1,channel_index=2]
+stored template:
+  templates.average on the dominant metric channel
+extracted analyzer snippets:
+  same analyzer recording, same channel, same nbefore/nafter
+random-spike snippet count:
+  500
+result:
+  max_abs_delta_random_spike_mean_vs_template = 2.614423632696372e-06 uV
+  rms_delta_random_spike_mean_vs_template = 9.69948007837167e-07 uV
+all-spike subsample:
+  2000 spikes from 68998 total
+  max_abs_delta_all_spike_subsample_mean_vs_template = 0.2520563997142018 uV
+```
+
+The stored template is therefore reproducible from the analyzer recording and
+the exact random spikes used by the template extension. The all-spike subsample
+is close but not identical, as expected because it uses a different spike set.
+
+NWB-Zarr waveform comparison:
+
+```text
+asset:
+  units/waveform_mean
+shape in representative B3 well:
+  144 units x 37 samples x 64 electrodes
+metadata unit:
+  volts
+observed relationship:
+  representative unit waveform_mean matches templates.average samples 13:49
+  with RMSE about 1.06e-06 in the stored numeric scale
+```
+
+The NWB `waveform_mean` is a shorter exported waveform summary, not the full
+62-sample template used by the master table. The numeric scale matches the
+analyzer template scale without conversion, even though the NWB metadata says
+`volts`; do not use the NWB unit string alone to infer waveform units until the
+export convention is audited.
+
+Native Phy/Kilosort waveform comparison:
+
+```text
+status:
+  unavailable for the completed Step 1 AIND output audited here
+reason:
+  native Phy/Kilosort files such as templates.npy, spike_times.npy,
+  spike_clusters.npy, whitening_mat_inv.npy, and ops.npy were not preserved
+  under the completed Step 1 well output
+```
+
+Kilosort trough-to-peak duration:
+
+```text
+installed Kilosort:
+  package version exposed in Conda import = 4.1.3
+  Step 1 sorter log version = 4.1.7
+source inspection:
+  no built-in trough-to-peak, spike-width, or waveform-duration metric is
+  emitted as a standard Kilosort curation output
+  Kilosort provides helpers to compute mean waveforms from saved Phy-style
+  outputs when those outputs exist
+```
+
+Conclusion: Kilosort itself is not the source of the current
+trough-to-peak-duration column. The master table computes TTP downstream from
+the selected-channel Step 1 `templates.average`. Many published studies compute
+TTP from a mean raw or mean filtered waveform, so the next methodological
+decision is whether the Step 1 preprocessed analyzer template is the intended
+waveform representation for RS/FS, or whether a future cache should compute
+mean waveforms from a specifically chosen raw/filtered trace representation.
 
 ## Reuse vs Recomputation
 
