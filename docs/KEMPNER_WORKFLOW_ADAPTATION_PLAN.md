@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 13:32 EDT
+Date updated: 2026-07-08 13:54 EDT
 
 ## Goal
 
@@ -299,6 +299,74 @@ Step 2 issue trail for clean-run gating:
     running. This is the first canary using the full classification dependency
     order and it has progressed beyond the immediate failures seen in attempts
     1-4.
+    Progress check at 2026-07-08 13:43 EDT:
+      RUNNING on gl3356, elapsed 12m25s.
+      AveCPU 16m06s, AveRSS ~1.65G, MaxRSS ~1.73G of 64G requested.
+      Source analyzer gained a `templates` extension at 13:31.
+      No final UnitRefine/Bombcell labels yet.
+    Diagnostic improvement at 2026-07-08 13:46 EDT:
+      `scripts/run_aind_unit_classification_recovery.py` now logs START/DONE
+      timestamps and elapsed seconds around every extension compute and around
+      default QC, UnitRefine, Bombcell, and SLAy. The already-running job
+      53112964 will not gain these logs retroactively; the next retry or
+      scale-out will show exactly which extension is slow.
+  parallel monitor canary, job 53113426:
+    submitted at 2026-07-08 13:47 EDT on a different completed recording:
+      recording:
+        6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband
+      well: A3
+      source units/spikes from latest ledger:
+        50 units, 7613700 spikes
+      recovery root:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_134734
+      output:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_134734/6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+      status at 2026-07-08 13:47 EDT:
+        RUNNING on standard partition node gl3409.
+      final status:
+        FAILED exit 1 after 16s. The new timing logs showed:
+          noise_levels: 0.23s
+          waveforms: 1.54s
+          principal_components: 6.61s
+          template_metrics: failed immediately
+        Failure:
+          AssertionError: Extension template_metrics requires templates to be computed first
+        Interpretation:
+          Even when `templates` is present in a loaded Step 1 analyzer, this
+          SpikeInterface recovery path needs `templates` recomputed in the same
+          session before `template_metrics`.
+        Action:
+          `scripts/run_aind_unit_classification_recovery.py` now forces
+          `templates` into the recovery compute plan even when the source
+          analyzer already lists a templates extension.
+  active monitored retry, job 53113455:
+    submitted at 2026-07-08 13:49 EDT on the same second recording as the
+    parallel monitor canary:
+      recording:
+        6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband
+      well: A3
+      source units/spikes from latest ledger:
+        50 units, 7613700 spikes
+      recovery root:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_134912
+      output:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_134912/6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+      status at 2026-07-08 13:54 EDT:
+        RUNNING on standard partition node gl3191, elapsed 5m18s.
+        AveCPU 6m11s, AveRSS ~1.61G, MaxRSS ~1.69G of 64G requested.
+        The per-extension logs show dependency recovery is working:
+          noise_levels: 0.26s
+          waveforms: 0.60s
+          templates: 0.03s
+          spike_amplitudes: 1.94s
+          principal_components: 6.25s
+          template_similarity: 12.40s
+          template_metrics: 0.43s
+        Current stage:
+          START compute extension quality_metrics at 13:49:50 EDT.
+        Interpretation:
+          The current bottleneck is `quality_metrics`; the job has not failed
+          and has not yet produced final UnitRefine/Bombcell labels.
 ```
 
 New Step 2 implementation files:

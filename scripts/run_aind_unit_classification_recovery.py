@@ -7,6 +7,8 @@ import argparse
 import json
 import os
 import time
+import traceback
+import warnings
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,11 +17,15 @@ import numpy as np
 import pandas as pd
 import spikeinterface as si
 import spikeinterface.curation as scur
+import spikeinterface.metrics.quality as sqm
 from aind_data_schema.components.identifiers import Code
 from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema_models.process_names import ProcessName
+from spikeinterface.curation.model_based_curation import load_model
 from spikeinterface.core.core_tools import check_json
 from spikeinterface.curation.curation_model import Curation
+from spikeinterface.curation.unitrefine_curation import get_model_based_classification_kwargs
+from spikeinterface.metrics.quality.quality_metrics import ComputeQualityMetrics
 
 
 DEFAULT_CURATION_DICT = {
@@ -38,6 +44,46 @@ DEFAULT_CURATION_DICT = {
 
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-curation"
 VERSION = "2.0-recovery"
+
+UNITREFINE_FALLBACK_REQUIRED_COLUMNS = [
+    "amplitude_cutoff",
+    "amplitude_cv_median",
+    "amplitude_cv_range",
+    "amplitude_median",
+    "drift_ptp",
+    "drift_std",
+    "drift_mad",
+    "firing_range",
+    "firing_rate",
+    "isi_violations_ratio",
+    "isi_violations_count",
+    "num_spikes",
+    "presence_ratio",
+    "rp_contamination",
+    "rp_violations",
+    "sliding_rp_violation",
+    "snr",
+    "sync_spike_2",
+    "sync_spike_4",
+    "sync_spike_8",
+    "d_prime",
+    "isolation_distance",
+    "l_ratio",
+    "silhouette",
+    "nn_hit_rate",
+    "nn_miss_rate",
+    "exp_decay",
+    "half_width",
+    "num_negative_peaks",
+    "num_positive_peaks",
+    "peak_to_valley",
+    "peak_trough_ratio",
+    "recovery_slope",
+    "repolarization_slope",
+    "spread",
+    "velocity_above",
+    "velocity_below",
+]
 
 
 def load_json(path: Path) -> dict:
@@ -63,6 +109,294 @@ def timed_step(label: str, func, *args, **kwargs):
         raise
     log(f"DONE {label} in {time.perf_counter() - start:.2f}s")
     return result
+
+
+def quality_metric_column_map() -> tuple[dict[str, str], dict[str, list[str]]]:
+    column_to_metric = {}
+    metric_to_columns = {}
+    for metric in ComputeQualityMetrics.metric_list:
+        columns = list(metric.metric_columns.keys())
+        metric_to_columns[metric.metric_name] = columns
+        for column in columns:
+            column_to_metric[column] = metric.metric_name
+    return column_to_metric, metric_to_columns
+
+
+def threshold_metric_columns(thresholds: dict | None) -> set[str]:
+    if not thresholds:
+        return set()
+    columns = set()
+    for section in thresholds.values():
+        if isinstance(section, dict) and {"greater", "less", "abs"}.intersection(section):
+            columns.add(str(section))
+        elif isinstance(section, dict):
+            columns.update(str(metric) for metric in section)
+    return columns
+
+
+def load_unitrefine_required_columns(unitrefine_params: dict) -> tuple[list[str], dict[str, object]]:
+    classifiers = {
+        "noise_neural_classifier": unitrefine_params.get(
+            "noise_neural_classifier", "SpikeInterface/UnitRefine_noise_neural_classifier"
+        ),
+        "sua_mua_classifier": unitrefine_params.get(
+            "sua_mua_classifier", "SpikeInterface/UnitRefine_sua_mua_classifier"
+        ),
+    }
+    required_columns = set()
+    model_reports = {}
+    for label, classifier in classifiers.items():
+        if classifier is None:
+            model_reports[label] = {"classifier": None, "status": "skipped"}
+            continue
+        try:
+            model, model_info = load_model(
+                trust_model=True,
+                **get_model_based_classification_kwargs(classifier),
+            )
+            features = [str(feature) for feature in model.feature_names_in_]
+            required_columns.update(features)
+            model_reports[label] = {
+                "classifier": str(classifier),
+                "status": "loaded",
+                "required_columns": features,
+                "model_info_requirements": (model_info or {}).get("requirements", {}),
+            }
+        except Exception:  # noqa: BLE001 - diagnostic fallback must not block metric discovery
+            tb = traceback.format_exc()
+            log(f"Failed to load UnitRefine model {classifier}; using fallback feature list")
+            log(tb)
+            required_columns.update(UNITREFINE_FALLBACK_REQUIRED_COLUMNS)
+            model_reports[label] = {
+                "classifier": str(classifier),
+                "status": "fallback",
+                "required_columns": UNITREFINE_FALLBACK_REQUIRED_COLUMNS,
+                "traceback": tb,
+            }
+    return sorted(required_columns), model_reports
+
+
+def metrics_for_columns(columns: set[str], column_to_metric: dict[str, str]) -> tuple[set[str], list[str]]:
+    metric_names = set()
+    unmapped_columns = []
+    for column in sorted(columns):
+        metric_name = column_to_metric.get(column)
+        if metric_name is None:
+            unmapped_columns.append(column)
+        else:
+            metric_names.add(metric_name)
+    return metric_names, unmapped_columns
+
+
+def metric_traceback(analyzer, metric_name: str, metric_params: dict, job_kwargs: dict) -> str:
+    metric = ComputeQualityMetrics.get_metric_by_name(metric_name)
+    tmp_data = {}
+    if metric.needs_tmp_data:
+        extension = ComputeQualityMetrics(analyzer)
+        tmp_data = extension._prepare_data(analyzer, unit_ids=analyzer.unit_ids)
+    metric.compute(
+        analyzer,
+        unit_ids=analyzer.unit_ids,
+        metric_params=metric_params,
+        tmp_data=tmp_data,
+        job_kwargs=job_kwargs,
+        periods=None,
+    )
+    return ""
+
+
+def compute_quality_metrics_diagnostic(
+    analyzer,
+    quality_metrics_params: dict,
+    curation_params: dict,
+    output_dir: Path,
+) -> dict:
+    column_to_metric, metric_to_columns = quality_metric_column_map()
+    available_metrics = sqm.get_quality_metric_list()
+    requested_metrics = quality_metrics_params.get("metric_names") or available_metrics
+    metric_params = deepcopy(quality_metrics_params.get("metric_params", {}))
+    other_quality_kwargs = {
+        key: value
+        for key, value in quality_metrics_params.items()
+        if key not in {"metric_names", "metric_params", "metrics_to_compute", "delete_existing_metrics"}
+    }
+
+    unitrefine_params = curation_params.get("unitrefine", {})
+    unitrefine_columns, unitrefine_model_reports = load_unitrefine_required_columns(unitrefine_params)
+    unitrefine_metrics, unitrefine_non_quality_columns = metrics_for_columns(
+        set(unitrefine_columns),
+        column_to_metric,
+    )
+
+    default_qc_columns = set(curation_params.get("qc_thresholds", {}))
+    default_qc_metrics, default_qc_non_quality_columns = metrics_for_columns(default_qc_columns, column_to_metric)
+
+    bombcell_columns = threshold_metric_columns(curation_params.get("bombcell"))
+    bombcell_metrics, bombcell_non_quality_columns = metrics_for_columns(bombcell_columns, column_to_metric)
+
+    required_metrics = unitrefine_metrics | default_qc_metrics | bombcell_metrics
+    minimal_metrics = [metric for metric in requested_metrics if metric in required_metrics]
+    requested_but_not_required = [metric for metric in requested_metrics if metric not in required_metrics]
+    required_but_not_requested = sorted(required_metrics.difference(requested_metrics))
+
+    log(f"SpikeInterface version: {si.__version__}")
+    log(f"Available quality metrics: {available_metrics}")
+    log(f"UnitRefine required quality metrics: {sorted(unitrefine_metrics)}")
+    log(f"UnitRefine non-quality/template metric columns: {unitrefine_non_quality_columns}")
+    log(f"Bombcell required quality metrics: {sorted(bombcell_metrics)}")
+    log(f"Bombcell non-quality/template metric columns: {bombcell_non_quality_columns}")
+    log(f"Default QC required quality metrics: {sorted(default_qc_metrics)}")
+    log(f"Minimal quality metric set for recovery: {minimal_metrics}")
+    log(f"Skipping requested but unnecessary quality metrics: {requested_but_not_required}")
+    if required_but_not_requested:
+        log(f"Required quality metrics missing from configured request: {required_but_not_requested}")
+
+    completed_metrics = []
+    failed_metrics = []
+    skipped_metrics = [
+        {
+            "metric": metric,
+            "reason": "requested_by_params_but_not_required_by_default_qc_unitrefine_or_bombcell",
+        }
+        for metric in requested_but_not_required
+    ]
+    metric_runs = []
+    qm_start = time.perf_counter()
+    quality_job_kwargs = dict(si.get_global_job_kwargs())
+
+    for metric_name in minimal_metrics:
+        metric_start_elapsed = time.perf_counter() - qm_start
+        log(
+            "QUALITY_METRIC START "
+            f"metric={metric_name} "
+            f"elapsed_since_quality_start={metric_start_elapsed:.2f}s"
+        )
+        metric_start = time.perf_counter()
+        metric_record = {
+            "metric": metric_name,
+            "status": "unknown",
+            "start_elapsed_seconds": round(metric_start_elapsed, 2),
+            "runtime_seconds": None,
+            "warnings": [],
+            "traceback": "",
+            "columns": metric_to_columns.get(metric_name, []),
+        }
+        try:
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                warnings.simplefilter("always")
+                analyzer.compute(
+                    "quality_metrics",
+                    metric_names=minimal_metrics,
+                    metrics_to_compute=[metric_name],
+                    delete_existing_metrics=False,
+                    save=False,
+                    metric_params=metric_params,
+                    **other_quality_kwargs,
+                )
+            metric_record["warnings"] = [str(warning.message) for warning in caught_warnings]
+            error_warnings = [
+                message
+                for message in metric_record["warnings"]
+                if f"Error computing metric {metric_name}:" in message
+            ]
+            dependency_warnings = [
+                message
+                for message in metric_record["warnings"]
+                if "will not be computed due to missing dependencies" in message
+            ]
+            qm_ext = analyzer.get_extension("quality_metrics")
+            qm_data = qm_ext.get_data() if qm_ext is not None else pd.DataFrame()
+            expected_columns = metric_to_columns.get(metric_name, [])
+            missing_columns = [column for column in expected_columns if column not in qm_data.columns]
+            metric_record["missing_columns"] = missing_columns
+            metric_record["runtime_seconds"] = round(time.perf_counter() - metric_start, 2)
+            if error_warnings:
+                try:
+                    metric_traceback(
+                        analyzer,
+                        metric_name,
+                        metric_params.get(metric_name, {}),
+                        quality_job_kwargs,
+                    )
+                except Exception:  # noqa: BLE001 - this is the traceback diagnostic path
+                    metric_record["traceback"] = traceback.format_exc()
+                    log(metric_record["traceback"])
+                metric_record["status"] = "failed"
+                failed_metrics.append(metric_record)
+                log(
+                    "QUALITY_METRIC FAILED "
+                    f"metric={metric_name} "
+                    f"runtime={metric_record['runtime_seconds']:.2f}s "
+                    f"warnings={error_warnings}"
+                )
+            elif missing_columns:
+                metric_record["status"] = "skipped"
+                metric_record["reason"] = "missing output columns after compute"
+                skipped_metrics.append(metric_record)
+                log(
+                    "QUALITY_METRIC SKIPPED "
+                    f"metric={metric_name} "
+                    f"runtime={metric_record['runtime_seconds']:.2f}s "
+                    f"missing_columns={missing_columns} "
+                    f"warnings={dependency_warnings}"
+                )
+            else:
+                metric_record["status"] = "completed"
+                completed_metrics.append(metric_name)
+                log(
+                    "QUALITY_METRIC DONE "
+                    f"metric={metric_name} "
+                    f"runtime={metric_record['runtime_seconds']:.2f}s"
+                )
+        except Exception:  # noqa: BLE001 - continue per diagnostic requirements
+            metric_record["runtime_seconds"] = round(time.perf_counter() - metric_start, 2)
+            metric_record["status"] = "failed"
+            metric_record["traceback"] = traceback.format_exc()
+            failed_metrics.append(metric_record)
+            log(
+                "QUALITY_METRIC FAILED "
+                f"metric={metric_name} "
+                f"runtime={metric_record['runtime_seconds']:.2f}s"
+            )
+            log(metric_record["traceback"])
+        metric_runs.append(metric_record)
+
+    total_runtime = round(time.perf_counter() - qm_start, 2)
+    qm_ext = analyzer.get_extension("quality_metrics")
+    computed_columns = qm_ext.get_data().columns.tolist() if qm_ext is not None else []
+    diagnostic = {
+        "spikeinterface_version": si.__version__,
+        "available_quality_metrics": available_metrics,
+        "requested_quality_metrics": requested_metrics,
+        "minimal_required_quality_metrics": minimal_metrics,
+        "requested_but_not_required_quality_metrics": requested_but_not_required,
+        "required_but_not_requested_quality_metrics": required_but_not_requested,
+        "unitrefine_required_columns": unitrefine_columns,
+        "unitrefine_required_quality_metrics": sorted(unitrefine_metrics),
+        "unitrefine_non_quality_or_template_columns": unitrefine_non_quality_columns,
+        "unitrefine_model_reports": unitrefine_model_reports,
+        "bombcell_required_columns": sorted(bombcell_columns),
+        "bombcell_required_quality_metrics": sorted(bombcell_metrics),
+        "bombcell_non_quality_or_template_columns": bombcell_non_quality_columns,
+        "default_qc_required_columns": sorted(default_qc_columns),
+        "default_qc_required_quality_metrics": sorted(default_qc_metrics),
+        "completed_metrics": completed_metrics,
+        "failed_metrics": failed_metrics,
+        "skipped_metrics": skipped_metrics,
+        "metric_runs": metric_runs,
+        "computed_quality_metric_columns": computed_columns,
+        "total_runtime_seconds": total_runtime,
+    }
+    diagnostic_path = output_dir / "quality_metrics_diagnostic.json"
+    diagnostic_path.write_text(json.dumps(check_json(diagnostic), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    log(
+        "QUALITY_METRIC SUMMARY "
+        f"completed={completed_metrics} "
+        f"failed={[record['metric'] for record in failed_metrics]} "
+        f"skipped={[record.get('metric') for record in skipped_metrics]} "
+        f"total_runtime={total_runtime:.2f}s"
+    )
+    return diagnostic
 
 
 def main() -> int:
@@ -116,7 +450,7 @@ def main() -> int:
     missing_extensions = {
         name: extension_dict[name]
         for name in recovery_extension_order
-        if name in extension_dict and analyzer.get_extension(name) is None
+        if name in extension_dict and (analyzer.get_extension(name) is None or name == "templates")
     }
     quality_metrics_params = extension_dict.get("quality_metrics")
     log(f"Existing extensions: {analyzer.get_loaded_extension_names()}")
@@ -134,13 +468,19 @@ def main() -> int:
             **extension_params,
         )
     if quality_metrics_params is not None and analyzer.get_extension("quality_metrics") is None:
-        timed_step(
-            "compute extension quality_metrics",
-            analyzer.compute,
-            "quality_metrics",
-            save=False,
-            **quality_metrics_params,
+        quality_metrics_diagnostic = compute_quality_metrics_diagnostic(
+            analyzer,
+            quality_metrics_params,
+            curation_params,
+            args.output_dir,
         )
+    else:
+        quality_metrics_diagnostic = {
+            "status": "not_computed",
+            "reason": "quality_metrics_params_missing_or_extension_already_present",
+            "spikeinterface_version": si.__version__,
+            "available_quality_metrics": sqm.get_quality_metric_list(),
+        }
 
     qm_ext = analyzer.get_extension("quality_metrics")
     tm_ext = analyzer.get_extension("template_metrics")
@@ -257,6 +597,7 @@ def main() -> int:
         "n_units": n_units,
         "missing_extensions_computed": list(missing_extensions.keys())
         + (["quality_metrics"] if quality_metrics_params is not None else []),
+        "quality_metrics_diagnostic": quality_metrics_diagnostic,
         "default_qc_pass": int(np.sum(default_qc_labels["default_qc"])),
         "default_qc_fail": int(n_units - np.sum(default_qc_labels["default_qc"])),
         "unitrefine_counts": unitrefine_counts,
