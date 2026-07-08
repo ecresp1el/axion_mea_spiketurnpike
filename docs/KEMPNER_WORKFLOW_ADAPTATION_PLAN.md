@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 13:21 EDT
+Date updated: 2026-07-08 13:29 EDT
 
 ## Goal
 
@@ -198,6 +198,78 @@ retry canary:
     /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_132136/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
   status at 2026-07-08 13:21 EDT:
     RUNNING on standard partition node gl3151
+  final status:
+    FAILED exit 1 after 16s. This reached extension computation on the original
+    source analyzer, but `compute_several_extensions(..., save=False)` still
+    hit dependency ordering:
+      AssertionError: Extension template_metrics requires templates to be computed first
+
+third recovery root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132241
+third submitted table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132241/submitted_canary.tsv
+third canary:
+  recording: 6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband
+  well: A3
+  recovery job: 53112128
+  final status:
+    FAILED exit 1 after 5s. One-at-a-time extension computation progressed but
+    hit a nonessential default extension dependency:
+      AssertionError: Extension amplitude_scalings requires templates to be computed first
+
+current Step 2 code state after third failure:
+  scripts/run_aind_unit_classification_recovery.py has been narrowed to compute
+  only the extensions required for classification recovery:
+    noise_levels
+    waveforms
+    principal_components
+    template_metrics
+    quality_metrics
+  Do not submit scale-out until a fourth canary with this narrowed extension set
+  produces `unit_labels_block0_None_recording1.csv` and
+  `curation_block0_None_recording1.json`.
+
+fourth recovery root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132528
+fourth submitted table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132528/submitted_canary.tsv
+fourth canary:
+  recording: 6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband
+  well: A3
+  recovery job: 53112920
+  output dir:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_132528/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+  status at 2026-07-08 13:25 EDT:
+    PENDING on standard partition, reason Priority
+
+Step 2 issue trail for clean-run gating:
+  attempt 1, job 53112023:
+    failed because copying the analyzer broke recording reload.
+    action: changed recovery to load the original Step 1 analyzer instead of a
+    copied analyzer.
+  attempt 2, job 53112108:
+    failed because dictionary/bulk extension computation hit dependency
+    ordering at template_metrics.
+    action: changed recovery to compute extensions one at a time.
+  attempt 3, job 53112128:
+    failed because the default AIND extension list included nonessential
+    amplitude_scalings, which also hit dependency ordering.
+    action: narrowed recovery to the minimal classification-required extension
+    set.
+  attempt 4, job 53112920:
+    failed exit 1 after 13s. This exposed another assumption: the selected A3
+    source analyzer had only `random_spikes` and `correlograms` loaded, so the
+    recovery still needed to compute upstream classification dependencies such
+    as `templates` before `template_metrics`.
+    action: updated the recovery extension order to:
+      noise_levels
+      waveforms
+      templates
+      spike_amplitudes
+      principal_components
+      template_similarity
+      template_metrics
+      quality_metrics
 ```
 
 New Step 2 implementation files:

@@ -81,10 +81,19 @@ def main() -> int:
 
     analyzer = si.load(source_analyzer)
     extension_dict = deepcopy(postprocessing_params["extensions"])
+    recovery_extension_order = [
+        "noise_levels",
+        "waveforms",
+        "templates",
+        "spike_amplitudes",
+        "principal_components",
+        "template_similarity",
+        "template_metrics",
+    ]
     missing_extensions = {
-        name: value
-        for name, value in extension_dict.items()
-        if analyzer.get_extension(name) is None and name != "quality_metrics"
+        name: extension_dict[name]
+        for name in recovery_extension_order
+        if name in extension_dict and analyzer.get_extension(name) is None
     }
     quality_metrics_params = extension_dict.get("quality_metrics")
 
