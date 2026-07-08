@@ -768,6 +768,57 @@ Do not use UnitRefine or Bombcell labels as automatic primary exclusion criteria
 until a separate classifier-calibration project validates them for Axion Lumos
 organoid MEA recordings.
 
+## Step 3 Objective
+
+Step 3 should determine the canonical analysis object. It should not write
+figures, write analysis modules, or modify the frozen recovery pipeline.
+
+The canonical analysis object should be a read-only, well-level bundle assembled
+from existing persisted outputs:
+
+```text
+AnalysisWell
+  key:
+    recording
+    well
+    lane
+    plate_family
+  paths:
+    Step1WellPaths
+    Step2WellPaths
+  sorting:
+    Step 1 curated NumpyFolderSorting
+  analyzer:
+    Step 1 SortingAnalyzer
+  unit_table:
+    lazily assembled per-unit table
+  nwb_units:
+    optional portable NWB-Zarr unit table view
+  labels:
+    Step 1 Kilosort labels plus Step 2 metadata labels when available
+```
+
+The object should expose existing assets first and only recompute derived
+quantities when an analysis genuinely requires information that was not
+persisted.
+
+## Reuse vs Recomputation
+
+| Analysis | Existing persisted asset | Recomputation required? |
+|---|---|---|
+| waveform QC | Step 1 analyzer `templates`; NWB-Zarr `units/waveform_mean`, `units/waveform_sd`; sorting `Amplitude` property | No for basic waveform shape, amplitude summaries, mean/SD inspection. Yes if the QC requires individual waveforms, waveform-over-time drift, or SpikeInterface `template_metrics` columns not persisted as tables. |
+| RS/FS classification | Step 1 analyzer `templates`; NWB-Zarr `units/waveform_mean`; sampling rate from analyzer | No if RS/FS is computed directly from persisted mean/template waveforms. Yes only if choosing to rely on SpikeInterface `template_metrics` instead of computing waveform width/features from the persisted templates. |
+| autocorrelograms | Step 1 analyzer `correlograms` extension | No. Autocorrelograms are the diagonal of the persisted correlogram tensor. |
+| cross-correlograms | Step 1 analyzer `correlograms` extension | No. Cross-correlograms are the off-diagonal entries of the persisted correlogram tensor. |
+| spatial footprints | Step 1 analyzer `templates`; analyzer channel locations; NWB-Zarr `units/estimated_x`, `estimated_y`, `estimated_z`, `extremum_channel_index` | No for per-unit location and template footprint maps. Yes if per-spike `spike_locations` or more detailed spatial metrics are required. |
+| waveform stability | Step 1 sorting spike trains; Step 1 recording through analyzer; persisted mean/SD waveforms | Yes for true temporal waveform stability, because individual waveforms or time-binned waveforms are not persisted. Mean/SD waveforms only support coarse summary QC. |
+| firing-rate stability | Step 1 curated sorting `spikes.npy` through SpikeInterface; NWB-Zarr `units/spike_times` | No. Compute binned firing rates from persisted spike times. |
+| PSTHs | Step 1 curated sorting or NWB-Zarr `units/spike_times`; stimulus/event timing from NWB or Axion sidecars when present | No SpikeInterface recomputation. Requires a canonical event/stimulus table; if event timing is not already represented cleanly, the missing work is event loading, not recomputing SI extensions. |
+| optotagging | Step 1 curated sorting or NWB-Zarr `units/spike_times`; stimulus/event timing from NWB or Axion sidecars; optional waveform templates | No SpikeInterface recomputation for spike-aligned response metrics. Requires canonical optical-stimulation event metadata. |
+| latency analysis | Step 1 curated sorting or NWB-Zarr `units/spike_times`; stimulus/event timing from NWB or Axion sidecars | No SpikeInterface recomputation. Requires canonical event times. |
+| synchrony | Step 1 analyzer `correlograms`; Step 1 sorting spike trains | No for synchrony derived from persisted correlograms or spike-time coincidence counts. Yes only if specifically using SpikeInterface `quality_metrics` synchrony columns, which are diagnostic/transient and not persisted as a reusable per-unit table. |
+| network analyses | Step 1 curated sorting or NWB-Zarr `units/spike_times`; Step 1 analyzer `correlograms`; unit locations from NWB-Zarr | No for population rates, bursts, pairwise correlations, correlogram networks, graph summaries, and spatially annotated networks. Yes only for analyses requiring non-persisted features such as per-spike amplitudes, principal components, or individual waveform snippets. |
+
 ## Proposed Loader API
 
 The first implementation should expose read-only loaders. It should not
@@ -868,4 +919,3 @@ used before analysis modules request optional assets.
    per-spike amplitudes are persisted.
 7. If a future analysis requires a missing derived asset, that should be a
    separate downstream analysis cache decision, not a recovery-pipeline change.
-
