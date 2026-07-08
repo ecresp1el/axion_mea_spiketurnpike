@@ -549,7 +549,12 @@ def main() -> int:
             "spikeinterface_version": si.__version__,
             "available_quality_metrics": sqm.get_quality_metric_list(),
         }
-    optional_quality_metrics_diagnostic = {"status": "not_computed", "reason": "no_optional_metrics_attempted"}
+    optional_metrics = quality_metrics_diagnostic.get("optional_post_classifier_quality_metrics", [])
+    optional_quality_metrics_diagnostic = {
+        "status": "not_computed",
+        "reason": "no_downstream_recovery_consumer",
+        "metrics": optional_metrics,
+    }
 
     qm_ext = analyzer.get_extension("quality_metrics")
     tm_ext = analyzer.get_extension("template_metrics")
@@ -603,17 +608,6 @@ def main() -> int:
     all_labels_df = pd.concat(all_labels, axis=1)
     labels_csv = labels_dir / f"unit_labels_{args.recording_name}.csv"
     all_labels_df.to_csv(labels_csv, index=False)
-
-    optional_metrics = quality_metrics_diagnostic.get("optional_post_classifier_quality_metrics", [])
-    if quality_metrics_params is not None and optional_metrics:
-        optional_quality_metrics_diagnostic = compute_quality_metrics_diagnostic(
-            analyzer,
-            quality_metrics_params,
-            curation_params,
-            args.output_dir,
-            metrics_to_run=optional_metrics,
-            diagnostic_filename="quality_metrics_optional_diagnostic.json",
-        )
 
     noise_strategy = curation_params.get("noise_strategy")
     if noise_strategy == "bombcell":

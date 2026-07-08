@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 14:24 EDT
+Date updated: 2026-07-08 15:16 EDT
 
 ## Goal
 
@@ -21,6 +21,49 @@ Once Axion data is presented in a supported format, downstream processing should
 come from AIND/Kempner methods, not from new local reimplementations.
 
 ## Current Operational State
+
+Recovery pipeline freeze status as of `2026-07-08 15:16 EDT`:
+
+- The Step 2 UnitRefine/Bombcell recovery pipeline is functionally complete and
+  frozen pending biological validation.
+- Software validation is complete:
+  - Axion MEA geometry supports `spike_locations`.
+  - Required SpikeInterface quality metrics compute successfully.
+  - UnitRefine completes.
+  - Bombcell completes.
+  - `unit_labels.csv`, `curation_*.json`, merge JSON, summary JSON, and AIND
+    `DataProcess` metadata are written successfully.
+  - `sd_ratio` is not computed in the recovery workflow because it has no
+    downstream recovery consumer in UnitRefine, Bombcell, default QC, curation
+    outputs, or required provenance.
+- Do not make further recovery-pipeline code changes unless a new bug is
+  discovered.
+- The next milestone is biological validation of pretrained classifier behavior
+  on representative Lumos wells. Until that validation is complete, treat this as
+  a classifier-calibration/biology question, not a software-development problem.
+
+Current classifier-validation set:
+
+```text
+validation root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623
+manifest:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623/validation_manifest.csv
+submitted jobs:
+  53116344  anchor_A3  001 A3
+  53116345  low        001 D2
+  53116346  low        003 D2
+  53116347  low        005 D2
+  53116348  medium     000 E5
+  53116349  medium     004 E5
+  53116350  medium     002 C5
+  53116351  high       003 B5
+  53116352  high       004 B4
+objective:
+  Produce one table comparing Kilosort good/MUA counts, UnitRefine
+  SUA/MUA/noise counts, Bombcell good/MUA/noise/non_soma counts, and default QC
+  pass/fail counts across these representative Lumos wells.
+```
 
 Latest unified status was refreshed on `2026-07-08 13:01 EDT` using the
 Great Lakes project conda environment from `config/greatlakes_project.env`
