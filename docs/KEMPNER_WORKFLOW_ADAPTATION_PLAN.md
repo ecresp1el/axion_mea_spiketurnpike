@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-07 10:45 EDT
+Date updated: 2026-07-08 13:21 EDT
 
 ## Goal
 
@@ -21,6 +21,192 @@ Once Axion data is presented in a supported format, downstream processing should
 come from AIND/Kempner methods, not from new local reimplementations.
 
 ## Current Operational State
+
+Latest unified status was refreshed on `2026-07-08 13:01 EDT` using the
+Great Lakes project conda environment from `config/greatlakes_project.env`
+(`/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort`).
+Do not run the status ledger with bare system `python` or `python3`.
+
+Current ledger:
+
+```text
+latest symlink:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest
+snapshot:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012
+summary:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_status_summary.txt
+well table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_well_status.csv
+recording table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_recording_status.csv
+unit metrics table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unit_metrics_by_well.csv
+```
+
+Current submitted new-upload/SixWell status:
+
+```text
+expected_well_pipelines: 168
+expected_recordings: 26
+plate_family_counts_by_well: {"FortyEightWellLumos": 54, "SixWell": 114}
+lane_counts_by_well: {"48well_auto": 54, "sixwell_manual_primary": 113, "sixwell_smoke": 1}
+well_status_counts: {"complete_nwb_units": 122, "needs_attention:spikesort_kilosort4": 46}
+kilosort_state_counts: {"COMPLETED": 122, "FAILED": 46}
+nwb_units_state_counts: {"COMPLETED": 122, "not_entered": 46}
+recording_status_counts: {"complete_all_wells": 12, "needs_attention": 14}
+live_slurm_kilosort_child_state_counts: {}
+live_slurm_aind_parent_state_counts: {}
+unit_metrics_status_counts: {"missing_curated_sorting": 46, "ok": 122}
+unit_metrics_totals:
+  wells_with_unit_metrics: 122
+  units_total: 9016
+  kslabel_good_total: 998
+  kslabel_mua_total: 8018
+  kslabel_noise_total: 0
+  total_sorted_spikes: 1039219231
+```
+
+Interpretation:
+
+- The 6 submitted Lumos/48-well auto recordings are complete: 54/54 selected
+  wells reached `nwb_units`.
+- The SixWell smoke is complete: 1/1 well reached `nwb_units`.
+- The SixWell manual-primary lane is partially successful: 67/113 wells reached
+  `nwb_units`; 46/113 wells failed in `spikesort_kilosort4`.
+- No Axion/AIND/Kilosort jobs from these submitted lanes are currently live in
+  Slurm. The visible remaining `squeue` entry for this user is unrelated
+  `siletti-div90-xfer-3d` held transfer work.
+- The 46 current failures are standard-route Kilosort/signal failures, not raw
+  export, NWB export, SpikeInterface prep, Python-shim, or path-quoting
+  failures.
+- Current SixWell failure split:
+  - 42 wells: sparse activity, `n_samples < n_clusters=6`;
+  - 3 wells: zero-sample `TruncatedSVD`;
+  - 1 well: CUDA device-side assert, needs separate inspection.
+
+Reproducibility status:
+
+- Yes, the Axion-to-AIND workflow is now reproducible end-to-end for raw variants
+  that pass ingestion and for wells with enough sortable signal. This is proven
+  by the 54/54 Lumos auto wells, the SixWell smoke, and 67 SixWell manual wells
+  reaching `nwb_units` through the submitted dependency chain.
+- No, the whole broad workflow should not be described as "no issue" yet. Known
+  terminal classes remain: blocked raw ingestion for the older `2_12_2026` and
+  `2_20_2026` recordings, sparse/no-sortability Kilosort failures in SixWell,
+  one CUDA Kilosort failure needing inspection, and KSLabel-only unit labels
+  unless a targeted UnitRefine/Bombcell recovery lane is added.
+- The current safe claim is: the submission, dependency, metadata-driven plate
+  routing, per-well AIND launch, Python shim, path quoting, and ledger recovery
+  are reproducible; biological/signal-level failure handling still needs
+  explicit fallback or terminal-policy automation before broad unattended runs.
+
+Immediate next phase: proceed to UnitRefine/Bombcell-style unit classification
+using existing outputs wherever possible.
+
+Current two-step operating model:
+
+```text
+Step 1 - Axion to AIND/nwb_units:
+  Convert Axion raw data into per-well AIND-compatible inputs, run AIND through
+  Kilosort4/postprocessing/curation/results/QC/nwb_units, and record terminal
+  per-well status in the unified ledger.
+
+Step 2 - recovered UnitRefine/Bombcell classification:
+  For Step 1 wells that already reached nwb_units, reuse existing AIND
+  postprocessed/curated outputs, compute only missing quality_metrics and
+  template_metrics, then rerun only the curation/classification logic to produce
+  true UnitRefine/Bombcell labels.
+```
+
+```text
+usable completed-output input set:
+  122 wells with nwb_units completed and curated SpikeInterface/Kilosort outputs
+  under:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/
+
+do not rerun for those 122 wells unless a canary proves it is necessary:
+  raw Axion export
+  NWB export
+  SpikeInterface prep
+  Kilosort4
+
+instead, build/validate a targeted classification recovery lane that starts from:
+  postprocessed analyzer output:
+    results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+  and/or curated sorting output:
+    results/aind/<recording>/<well>/curated/block0_None_recording1/
+```
+
+Is UnitRefine/Bombcell already built in?
+
+- Partly. The maintained AIND workflow has the curation step that can produce
+  UnitRefine/Bombcell-style labels when the required postprocessing metrics
+  exist.
+- Not fully for this submitted run. The current Lumos and SixWell params only
+  requested lean postprocessing extensions:
+  `random_spikes`, `templates`, `spike_amplitudes`, `template_similarity`,
+  `correlograms`, and `unit_locations`.
+- The current jobs did **not** request `quality_metrics` or `template_metrics`,
+  so AIND curation completed but skipped true classification. The current unit
+  counts are KSLabel-derived (`good`/`mua`) rather than recovered
+  UnitRefine/Bombcell labels.
+- Therefore the next reproducible task is a canary recovery lane that computes
+  the missing metrics from existing outputs, reruns only the curation/classifier
+  logic, writes outputs under a new timestamped provenance root, and then joins
+  those labels back into `scripts/summarize_aind_current_well_ledger.py`.
+
+Step 2 canary submission:
+
+```text
+first recovery root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708
+first canary manifest:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/canary_manifest.csv
+first params:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/recovery_params.json
+first submit script:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/submit_canary.sh
+first submitted table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/submitted_canary.tsv
+first canary:
+  recording: 6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband
+  well: A3
+  recovery job: 53112023
+  output dir:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_131708/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+  status at 2026-07-08 13:17 EDT:
+    PENDING on standard partition, reason Priority
+  final status:
+    FAILED exit 1 after 11s. The copied recovery analyzer could not reload its
+    recording, causing SpikeInterface extension computation to fail with:
+      AssertionError: Extension noise_levels requires the recording
+
+retry recovery root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132136
+retry canary manifest:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132136/canary_manifest.csv
+retry params:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132136/recovery_params.json
+retry submitted table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132136/submitted_canary.tsv
+retry canary:
+  recording: 6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband
+  well: A3
+  recovery job: 53112108
+  output dir:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_132136/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+  status at 2026-07-08 13:21 EDT:
+    RUNNING on standard partition node gl3151
+```
+
+New Step 2 implementation files:
+
+```text
+scripts/prepare_aind_unit_classification_recovery.py
+scripts/run_aind_unit_classification_recovery.py
+slurm/run_aind_unit_classification_recovery.sbatch
+```
 
 The single-recording gate is complete. A fresh recording-level run using
 `*_BroadbandProcessor.raw` completed end-to-end:
@@ -47,9 +233,8 @@ C7 -> low_activity_ks4_nt2_npcs2
 F6 -> low_activity_ks4_nt2_npcs2
 ```
 
-The current active phase is **raw-ingestion compatibility triage before any new
-large scale-up submission**. The `20260706` Lumos scale-up has reached terminal
-accounting:
+The current active phase is **post-scale-up accounting and failure-policy
+triage**. The older `20260706` Lumos scale-up has reached terminal accounting:
 
 - the previously validated `2_25_2026` recording completed successfully with
   fallback for 3 sparse wells,
@@ -4444,6 +4629,165 @@ return-later checkpoint at 2026-07-07 15:59 EDT:
     `unit_metrics_status=missing_curated_sorting` means the well has not yet
     produced curated sorting output or failed before that stage. Re-run the
     unified ledger later to populate more rows as the active jobs finish.
+return-later checkpoint at 2026-07-08 13:01 EDT:
+  Environment:
+    The unified ledger was regenerated from the intended Great Lakes conda
+    environment, not from the login-node system Python:
+      source config/greatlakes_project.env
+      source "${CONDA_BASE}/etc/profile.d/conda.sh"
+      conda activate "${CONDA_ENV}"
+      python scripts/summarize_aind_current_well_ledger.py --output-dir ...
+    Effective Python:
+      Python 3.11.6 from
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort
+  Current ledger outputs:
+    latest symlink:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest
+    snapshot:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012
+    summary:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_status_summary.txt
+    well table:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_well_status.csv
+    recording table:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_recording_status.csv
+    unit metrics table:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unit_metrics_by_well.csv
+  Current unified status:
+    expected well pipelines: 168
+    expected recordings: 26
+    plate-family wells: 54 FortyEightWellLumos, 114 SixWell
+    lane wells: 54 48well_auto, 113 sixwell_manual_primary, 1 sixwell_smoke
+    wells complete through nwb_units: 122
+    wells needing attention at spikesort_kilosort4: 46
+    Kilosort4 completed: 122
+    Kilosort4 failed: 46
+    recordings complete_all_wells: 12
+    recordings needs_attention: 14
+    live Slurm Kilosort4 children: 0
+    live AIND parent jobs: 0
+  Recording-level result:
+    48well_auto:
+      6/6 recordings complete, 54/54 selected wells through nwb_units.
+    sixwell_smoke:
+      1/1 well through nwb_units.
+    sixwell_manual_primary:
+      5/19 recordings complete_all_wells, plus 14 recordings needs_attention.
+      67/113 wells completed through nwb_units.
+      46/113 wells failed at spikesort_kilosort4.
+  Current SixWell failure split from `failure_summary`:
+    15 wells: ValueError: n_samples=4 should be >= n_clusters=6.
+    8 wells: ValueError: n_samples=5 should be >= n_clusters=6.
+    7 wells: ValueError: n_samples=3 should be >= n_clusters=6.
+    7 wells: ValueError: n_samples=2 should be >= n_clusters=6.
+    5 wells: ValueError: n_samples=1 should be >= n_clusters=6.
+    3 wells: zero-sample TruncatedSVD.
+    1 well: CUDA device-side assert triggered.
+  Current unit metrics:
+    wells with curated sorting metrics: 122
+    total units: 9016
+    kslabel_good_total: 998
+    kslabel_mua_total: 8018
+    kslabel_noise_total: 0
+    total sorted spikes across metric-populated wells: 1039219231
+  Reproducibility interpretation:
+    The workflow is reproducible from accepted raw/NWB-prep inputs through AIND
+    and nwb_units for wells with sortable signal. The current run proves this
+    at scale for all 54 Lumos auto selected wells, the SixWell smoke, and 67
+    SixWell manual wells.
+    The broad system is not yet "no issue" because three categories still need
+    explicit policy or recovery automation:
+      1. older 2_12_2026 and 2_20_2026 raw-ingestion incompatibility,
+      2. sparse/no-sortability SixWell Kilosort failures,
+      3. one CUDA Kilosort failure requiring inspection.
+    For future unattended runs, the next reproducibility step is not another
+    full rerun. It is to codify terminal/fallback handling for sparse SixWell
+    failures and, separately, add a targeted UnitRefine/Bombcell recovery lane
+    if true classifier-derived SUA/MUA/noise labels are required.
+return-later checkpoint at 2026-07-08 13:11 EDT:
+  Next phase decision:
+    Proceed with UnitRefine/Bombcell-style curation/classification using the
+    completed AIND outputs wherever possible. The starting population is the
+    122 wells that reached nwb_units and have curated SpikeInterface/Kilosort
+    outputs under:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/
+  Reuse rule:
+    For those 122 wells, do not rerun raw Axion export, NWB export,
+    SpikeInterface prep, or Kilosort4 just to get classifier labels. Start from
+    existing completed outputs:
+      postprocessed/block0_None_recording1.zarr
+      curated/block0_None_recording1/
+    and compute only the missing postprocessing metrics required by curation.
+  Built-in status:
+    AIND has the curation/classification path, but it was not actually activated
+    for the current submitted runs because the active params did not request:
+      quality_metrics
+      template_metrics
+    The current ledger's unit counts are therefore KSLabel-derived counts, not
+    UnitRefine/Bombcell-derived labels.
+  Required recovery lane:
+    1. Pick one completed well as a canary.
+    2. Compute missing `quality_metrics` and `template_metrics` on the existing
+       analyzer/sorting outputs.
+    3. Run only the AIND curation/classification logic, or a small wrapper around
+       the same logic, to produce true classification outputs such as:
+         unit_labels_<recording>.csv
+         curation_<recording>.json
+    4. Store canary and scaled outputs under a new timestamped root, for example:
+         jobs/aind_unit_classification_recovery_YYYYMMDD_HHMMSS/
+         results/aind_unit_classification_recovery/<recording>/<well>/
+    5. Extend `scripts/summarize_aind_current_well_ledger.py` so it keeps
+       KSLabel counts and UnitRefine/Bombcell counts as separate provenance
+       fields and prefers true classifier labels only when present.
+  Practical answer:
+    It is not "already built in" as a completed current-output product. It is
+    partially built into the upstream AIND workflow, but this repo still needs a
+    validated targeted recovery lane to apply it to the 122 completed wells
+    without a full expensive rerun.
+return-later checkpoint at 2026-07-08 13:17 EDT:
+  Pipeline step model is now explicit:
+    Step 1:
+      Axion raw/NWB preparation through AIND/Kilosort/postprocessing/curation/
+      results/QC/nwb_units. The output of Step 1 is the per-well AIND result
+      folder and unified ledger status.
+    Step 2:
+      UnitRefine/Bombcell-style classification recovery on Step 1 completed
+      wells only. Step 2 starts from existing postprocessed/curated outputs,
+      computes missing `quality_metrics` and `template_metrics`, and reruns only
+      curation/classification logic.
+  New Step 2 implementation files:
+    scripts/prepare_aind_unit_classification_recovery.py
+    scripts/run_aind_unit_classification_recovery.py
+    slurm/run_aind_unit_classification_recovery.sbatch
+  Canary prepared from latest ledger:
+    candidate completed wells: 122
+    recovery root:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708
+    manifest:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/canary_manifest.csv
+    params:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/recovery_params.json
+    submit script:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/submit_canary.sh
+    submitted table:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_131708/submitted_canary.tsv
+  Canary submitted:
+    recording:
+      6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband
+    well: A3
+    Slurm job: 53112023
+    output:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_131708/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+    status at checkpoint:
+      PENDING on standard partition, reason Priority.
+  Validation before scale-out:
+    The canary must produce:
+      classification_recovery_summary.json
+      curation/unit_labels_block0_None_recording1.csv
+      curation/curation_block0_None_recording1.json
+    and those labels must include UnitRefine and, if successful, Bombcell fields.
+    Only after this canary is reviewed should Step 2 be scaled to the remaining
+    completed wells.
 reproducibility rule going forward:
   Treat every launcher/environment fix as a new provenance event. Preserve:
     - original batch manifests,
