@@ -61,7 +61,19 @@ status:
   1 SixWell / sixwell_smoke.
 analysis label policy:
   Use original Kilosort4 good units plus independent electrophysiological QC as
-  the current primary biological inclusion criterion.
+  the current primary biological inclusion criterion. Downstream analyses may
+  also include Kilosort4 MUA units when scientifically appropriate, but should
+  not include units labeled as Kilosort noise.
+rationale for analysis policy:
+  The recovery pipeline was successfully validated on representative Lumos wells.
+  UnitRefine and Bombcell executed without software errors, but both pretrained
+  classifiers consistently labeled essentially all Kilosort units as noise across
+  representative low-, medium-, and high-activity wells. This behavior was
+  interpreted as a likely classifier calibration/domain mismatch for Axion Lumos
+  organoid MEA recordings rather than a pipeline failure. Therefore, the recovery
+  pipeline is retained for feature extraction and QC, while primary biological
+  analyses are performed using Kilosort4 good units and may also include
+  Kilosort4 MUA units. Kilosort noise units should remain excluded.
 ```
 
 Formal Step 2 - Frozen Classification/QC Recovery:
