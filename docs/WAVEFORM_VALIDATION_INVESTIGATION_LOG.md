@@ -30,82 +30,63 @@
   The remaining question is biological validity, not whether the code retrieves
   or measures the stored templates consistently.
 
-### Experiment: Representative Well B3 Rebound-Peak Biological Validity
+### Experiment: Well-Level Waveform Population Review PDF
 
 Question tested:
 
 ```text
-For one representative well, does the detected rebound peak correspond to the
-visually expected post-trough rebound peak for every Kilosort-good unit?
+Can we generate a dataset-wide, well-level waveform population review artifact
+that lets a human rapidly inspect whether each completed well's Kilosort-good
+template waveforms look like reasonable extracellular spike waveforms?
 ```
 
 Expected result:
 
 ```text
-If current Step 1 template features are biologically acceptable, most
-Kilosort-good units should have a visible post-trough rebound peak, and only a
-small minority should be ambiguous because of edge-limited, weak/noisy, or late
-rebound peaks.
+A single PDF should contain one page per completed well. Each page should show
+all normalized Kilosort-good dominant-channel template waveforms in light gray,
+the population mean waveform, and +/- SEM, with recording, well, Kilosort-good
+unit count, mean trough-to-peak duration, and median trough-to-peak duration.
 ```
 
 Experiment:
 
 ```text
-Representative recording:
-  sixwell_manual_primary_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)
-Representative well:
-  B3
-Units inspected:
-  50 Kilosort-good units
-Input audit:
-  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/representative_well_B3_dominant_template_audit.csv
 Script:
-  scripts/audit_representative_well_rebound_peak_biological_validity.py
+  scripts/plot_well_waveform_population_validation_pdf.py
+Input table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/master_waveform_metrics_table.csv
+Completed wells plotted:
+  99
+Kilosort-good units plotted:
+  998
 ```
 
 Result:
 
 ```text
-Biologically well measured:
-  43/50 units = 86%
-Ambiguous:
-  7/50 units = 14%
-```
-
-Ambiguous units:
-
-```text
-unit 0:
-  low_amplitude_noisy_rebound
-unit 2:
-  edge_limited_late_rebound
-unit 57:
-  late_rebound_limited_return_to_baseline
-unit 66:
-  edge_limited_no_visible_return_after_peak
-unit 95:
-  weak_noisy_late_rebound
-unit 97:
-  small_amplitude_late_rebound
-unit 123:
-  edge_limited_late_rebound
+PDF generated successfully:
+  99 pages
+Summary CSV rows:
+  99
+Summary CSV Kilosort-good unit total:
+  998
 ```
 
 Outputs:
 
 ```text
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/representative_well_B3_rebound_peak_biological_validity.csv
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/representative_well_B3_rebound_peak_biological_validity_provenance.json
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/figures/rs_fs_waveforms/figure__representative_well_B3_rebound_peak_biological_validity.png
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/repro/audit_representative_well_rebound_peak_biological_validity_command.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/figures/waveform_population/figure__well_waveform_population_review.pdf
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_population_review_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_population_review_provenance.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/repro/plot_well_waveform_population_validation_pdf_command.sh
 ```
 
 Confirmed finding from this experiment:
 
 ```text
-In representative well B3, the current Step 1 dominant-channel template
-measurements appear biologically well measured for most Kilosort-good units
-under visual rebound-peak inspection, but a nonzero ambiguous subset exists.
+A population-level waveform review PDF now exists for all completed wells. The
+experiment did not classify units, flag units, or interpret biological validity.
 ```
 
 ## Open Questions
@@ -133,14 +114,13 @@ established before changing metric definitions or waveform representations.
 Single experiment that will answer it:
 
 ```text
-Apply the same rebound-peak biological-validity audit to a representative
-dataset-level sample of Kilosort-good units across completed wells, stratified
-by recording, well, RS/FS class, and trough-to-peak range. Quantify the fraction
-of biologically well measured versus ambiguous units and the ambiguity modes.
+Human review of the well-level waveform population PDF. The reviewer should
+scroll one page per well and decide whether the well-level waveform populations
+look like reasonable extracellular spike waveforms.
 ```
 
 Current status:
 
 ```text
-Running
+Not started
 ```
