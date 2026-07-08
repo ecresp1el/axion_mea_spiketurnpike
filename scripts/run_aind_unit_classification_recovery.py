@@ -49,6 +49,22 @@ def count_values(labels: pd.Series, values: list[str]) -> dict[str, int]:
     return {value: int(np.sum(labels == value)) for value in values}
 
 
+def log(message: str) -> None:
+    print(f"[{datetime.now().isoformat(timespec='seconds')}] {message}", flush=True)
+
+
+def timed_step(label: str, func, *args, **kwargs):
+    log(f"START {label}")
+    start = time.perf_counter()
+    try:
+        result = func(*args, **kwargs)
+    except Exception:
+        log(f"FAILED {label} after {time.perf_counter() - start:.2f}s")
+        raise
+    log(f"DONE {label} in {time.perf_counter() - start:.2f}s")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-results-dir", required=True, type=Path)
@@ -79,7 +95,14 @@ def main() -> int:
         progress_bar=False,
     )
 
+    log(f"Loading source analyzer: {source_analyzer}")
     analyzer = si.load(source_analyzer)
+    log(
+        "Loaded analyzer "
+        f"units={len(analyzer.unit_ids)} "
+        f"channels={analyzer.recording.get_num_channels() if analyzer.recording is not None else 'missing'} "
+        f"sampling_frequency={analyzer.recording.get_sampling_frequency() if analyzer.recording is not None else 'missing'}"
+    )
     extension_dict = deepcopy(postprocessing_params["extensions"])
     recovery_extension_order = [
         "noise_levels",
@@ -96,13 +119,28 @@ def main() -> int:
         if name in extension_dict and analyzer.get_extension(name) is None
     }
     quality_metrics_params = extension_dict.get("quality_metrics")
+    log(f"Existing extensions: {analyzer.get_loaded_extension_names()}")
+    log(f"Missing recovery extensions to compute: {list(missing_extensions.keys())}")
+    log(f"Will compute quality_metrics: {quality_metrics_params is not None and analyzer.get_extension('quality_metrics') is None}")
 
     started = datetime.now()
     t0 = time.perf_counter()
     for extension_name, extension_params in missing_extensions.items():
-        analyzer.compute(extension_name, save=False, **extension_params)
+        timed_step(
+            f"compute extension {extension_name}",
+            analyzer.compute,
+            extension_name,
+            save=False,
+            **extension_params,
+        )
     if quality_metrics_params is not None and analyzer.get_extension("quality_metrics") is None:
-        analyzer.compute("quality_metrics", save=False, **quality_metrics_params)
+        timed_step(
+            "compute extension quality_metrics",
+            analyzer.compute,
+            "quality_metrics",
+            save=False,
+            **quality_metrics_params,
+        )
 
     qm_ext = analyzer.get_extension("quality_metrics")
     tm_ext = analyzer.get_extension("template_metrics")
@@ -114,7 +152,9 @@ def main() -> int:
     n_units = int(len(analyzer.unit_ids))
     qc_thresholds = curation_params["qc_thresholds"]
     qm = qm_ext.get_data()
-    default_qc_labels = scur.threshold_metrics_label_units(
+    default_qc_labels = timed_step(
+        "default QC threshold labels",
+        scur.threshold_metrics_label_units,
         qm,
         thresholds=qc_thresholds,
         pass_label=True,
@@ -123,7 +163,9 @@ def main() -> int:
     )
 
     unitrefine_params = curation_params.get("unitrefine", {})
-    unitrefine_labels = scur.unitrefine_label_units(
+    unitrefine_labels = timed_step(
+        "UnitRefine labeling",
+        scur.unitrefine_label_units,
         analyzer,
         noise_neural_classifier=unitrefine_params.get(
             "noise_neural_classifier", "SpikeInterface/UnitRefine_noise_neural_classifier"
@@ -136,12 +178,15 @@ def main() -> int:
     bombcell_labels = None
     bombcell_error = ""
     try:
-        bombcell_labels = scur.bombcell_label_units(
+        bombcell_labels = timed_step(
+            "Bombcell labeling",
+            scur.bombcell_label_units,
             analyzer,
             thresholds=curation_params.get("bombcell"),
         )
     except Exception as exc:  # noqa: BLE001 - preserve curation provenance
         bombcell_error = repr(exc)
+        log(f"Bombcell labeling failed but will be preserved in provenance: {bombcell_error}")
 
     all_labels = [default_qc_labels, unitrefine_labels]
     if bombcell_labels is not None:
@@ -173,7 +218,9 @@ def main() -> int:
     else:
         analyzer_for_merge = analyzer
 
-    potential_merges = scur.compute_merge_unit_groups(
+    potential_merges = timed_step(
+        "SLAy merge candidate computation",
+        scur.compute_merge_unit_groups,
         analyzer_for_merge,
         preset="slay",
         steps_params=curation_params.get("slay"),
