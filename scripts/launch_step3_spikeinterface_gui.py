@@ -15,7 +15,7 @@ STEP3_LAYOUT = {
     "zone1": ["curation", "spikelist"],
     "zone2": ["unitlist", "merge"],
     "zone3": ["trace", "spikerate"],
-    "zone4": ["maintemplate", "correlogram", "isi"],
+    "zone4": ["probe", "maintemplate", "correlogram", "isi"],
     "zone5": ["similarity", "mainsettings"],
 }
 
@@ -48,6 +48,8 @@ def main() -> None:
     )
 
     import spikeinterface.full as si
+    patch_probe_view_for_bokeh_compatibility()
+
     from spikeinterface_gui.main import run_mainwindow
 
     analyzer = si.load_sorting_analyzer(analyzer_path, load_extensions=False)
@@ -105,6 +107,57 @@ def default_curation_output(analyzer_path: Path) -> Path:
         / well
         / f"curation_{safe_recording}_{safe_well}.json"
     )
+
+
+def patch_probe_view_for_bokeh_compatibility() -> None:
+    """Keep the web probe view alive if Bokeh drops expected CDS columns.
+
+    spikeinterface-gui 0.13.1 can hit KeyError('alpha') in the Panel probe view
+    with newer Bokeh/Panel. The view is display-only here, so repairing the
+    ColumnDataSource columns before its normal patch calculation is enough.
+    """
+    from spikeinterface_gui.probeview import ProbeView
+
+    if getattr(ProbeView, "_axion_step3_probe_patch", False):
+        return
+
+    original = ProbeView._panel_compute_unit_glyph_patches
+
+    def patched_panel_compute_unit_glyph_patches(self):
+        data = self.glyphs_data_source.data
+        unit_ids = list(self.controller.unit_ids)
+        n_units = len(unit_ids)
+
+        alpha_selected = getattr(self, "alpha_selected", 1)
+        alpha_unselected = getattr(self, "alpha_unselected", 0.3)
+        size_selected = getattr(self, "unit_marker_size_selected", 20)
+        size_unselected = getattr(self, "unit_marker_size_unselected", 15)
+
+        def visibility(unit_id):
+            return bool(self.controller.get_unit_visibility(unit_id))
+
+        if "alpha" not in data or len(data["alpha"]) != n_units:
+            data["alpha"] = [
+                alpha_selected if visibility(unit_id) else alpha_unselected
+                for unit_id in unit_ids
+            ]
+        if "size" not in data or len(data["size"]) != n_units:
+            data["size"] = [
+                size_selected if visibility(unit_id) else size_unselected
+                for unit_id in unit_ids
+            ]
+        if "color" not in data or len(data["color"]) != n_units:
+            data["color"] = [self.get_unit_color(unit_id) for unit_id in unit_ids]
+        if "line_color" not in data or len(data["line_color"]) != n_units:
+            data["line_color"] = [
+                "black" if visibility(unit_id) else self.get_unit_color(unit_id)
+                for unit_id in unit_ids
+            ]
+
+        return original(self)
+
+    ProbeView._panel_compute_unit_glyph_patches = patched_panel_compute_unit_glyph_patches
+    ProbeView._axion_step3_probe_patch = True
 
 
 if __name__ == "__main__":
