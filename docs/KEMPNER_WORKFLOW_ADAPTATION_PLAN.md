@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 15:16 EDT
+Date updated: 2026-07-08 15:45 EDT
 
 ## Goal
 
@@ -22,87 +22,109 @@ come from AIND/Kempner methods, not from new local reimplementations.
 
 ## Current Operational State
 
-Recovery pipeline freeze status as of `2026-07-08 15:16 EDT`:
+Formal pipeline state as of `2026-07-08 15:45 EDT`:
 
-- The Step 2 UnitRefine/Bombcell recovery pipeline is functionally complete and
-  frozen pending biological validation.
-- Software validation is complete:
-  - Axion MEA geometry supports `spike_locations`.
-  - Required SpikeInterface quality metrics compute successfully.
-  - UnitRefine completes.
-  - Bombcell completes.
-  - `unit_labels.csv`, `curation_*.json`, merge JSON, summary JSON, and AIND
-    `DataProcess` metadata are written successfully.
-  - `sd_ratio` is not computed in the recovery workflow because it has no
-    downstream recovery consumer in UnitRefine, Bombcell, default QC, curation
-    outputs, or required provenance.
-- Do not make further recovery-pipeline code changes unless a new bug is
-  discovered.
-- The next milestone is biological validation of pretrained classifier behavior
-  on representative Lumos wells. Until that validation is complete, treat this as
-  a classifier-calibration/biology question, not a software-development problem.
-
-Current classifier-validation set:
-
-```text
-validation root:
-  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623
-manifest:
-  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623/validation_manifest.csv
-submitted jobs:
-  53116344  anchor_A3  001 A3
-  53116345  low        001 D2
-  53116346  low        003 D2
-  53116347  low        005 D2
-  53116348  medium     000 E5
-  53116349  medium     004 E5
-  53116350  medium     002 C5
-  53116351  high       003 B5
-  53116352  high       004 B4
-objective:
-  Produce one table comparing Kilosort good/MUA counts, UnitRefine
-  SUA/MUA/noise counts, Bombcell good/MUA/noise/non_soma counts, and default QC
-  pass/fail counts across these representative Lumos wells.
-```
-
-Classifier-validation result snapshot:
-
-```text
-summary table:
-  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623/validation_summary_table.csv
-  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classifier_validation_20260708_151623/validation_summary_table.md
-status:
-  9/9 validation wells completed with exit 0.
-result:
-  UnitRefine labeled every unit as noise across all 9 representative Lumos wells.
-  Bombcell also labeled every unit as noise across all 9 representative Lumos wells.
-interpretation:
-  The all-noise result is not specific to the original A3 canary. It appears
-  representative of the sampled Lumos wells and is evidence that the pretrained
-  UnitRefine/Bombcell classifiers are likely overly conservative or poorly
-  calibrated for this Axion organoid MEA recording modality.
-next action:
-  Do not scale recovered UnitRefine/Bombcell labels as trusted biological labels
-  until the classifier calibration/validation question is resolved. Use the
-  generated labels as diagnostic outputs, not as final biological ground truth.
-```
-
-Full Step 2 scale-up submission:
-
-```text
-status:
-  Submitted frozen recovery pipeline across every Step 1 well that completed
+- Step 1 and Step 2 are now formally created.
+- Step 1 generated completed AIND/Kilosort/NWB-units outputs for 122 wells.
+- Step 2 is the frozen recovery/classification lane that starts from those Step
+  1 outputs and computes the missing classifier/QC assets.
+- Step 2 has been submitted across every Step 1 well that completed
   `nwb_units`, regardless of plate size or lane.
-submission time:
-  2026-07-08 15:39 EDT
+- The recovery pipeline is functionally complete and frozen. Do not make further
+  recovery-pipeline code changes unless a new software bug is discovered.
+
+Formal Step 1 - Axion to AIND/NWB Units:
+
+```text
+purpose:
+  Convert Axion per-well recordings into AIND-compatible inputs, run the
+  maintained AIND/Kilosort4 pipeline, and produce the canonical sorted output
+  tree through nwb_units.
+inputs:
+  Axion raw/continuous voltage recordings and per-well metadata.
+  Axion well mapping / plate-family geometry.
+  AIND per-well launch configuration.
+outputs:
+  Per-well AIND result directory:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/
+  Key Step 1 artifacts inside each completed well:
+    postprocessed/block0_None_recording1.zarr
+    curated/block0_None_recording1/
+    nwb/*.nwb
+    nextflow/trace.txt
+  Ledger:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260708_130012/unified_well_status.csv
+status:
+  122 wells completed through nwb_units.
+  54 FortyEightWellLumos / 48well_auto.
+  67 SixWell / sixwell_manual_primary.
+  1 SixWell / sixwell_smoke.
+analysis label policy:
+  Use original Kilosort4 good units plus independent electrophysiological QC as
+  the current primary biological inclusion criterion.
+```
+
+Formal Step 2 - Frozen Classification/QC Recovery:
+
+```text
+purpose:
+  Reuse completed Step 1 AIND outputs and compute missing SpikeInterface assets
+  needed for UnitRefine/Bombcell/default-QC metadata. Preserve classifier outputs
+  as QC/metadata/supplementary information, not as the current primary biological
+  inclusion criterion.
+inputs:
+  Step 1 per-well AIND result directory:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/
+  Required source analyzer:
+    postprocessed/block0_None_recording1.zarr
+  Recovery params:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/recovery_params.json
+  Step 2 manifest:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/step2_full_manifest.csv
+outputs:
+  Per-well Step 2 result directory:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_step2_full/aind_unit_classification_step2_full_20260708_153945/<recording>/<well>/
+  Key Step 2 artifacts:
+    curation/unit_labels_block0_None_recording1.csv
+    curation/curation_block0_None_recording1.json
+    curation/unit_merges_block0_None_recording1.json
+    quality_metrics_required_diagnostic.json
+    classification_recovery_summary.json
+    data_process_unit_classification_recovery.json
+  Recomputed in memory for recovery:
+    waveforms
+    templates
+    noise_levels
+    spike_locations
+    spike_amplitudes
+    principal_components
+    template_similarity
+    template_metrics
+    required quality_metrics
+not computed:
+  sd_ratio is intentionally not computed because it has no downstream Step 2
+  recovery consumer in UnitRefine, Bombcell, default QC, curation outputs, or
+  required provenance.
+software validation:
+  Axion MEA geometry supports spike_locations.
+  Required SpikeInterface quality metrics compute successfully.
+  UnitRefine completes.
+  Bombcell completes.
+  unit_labels.csv, curation JSON, merge JSON, summary JSON, and AIND DataProcess
+  metadata are written successfully.
+```
+
+Step 2 full-scale submission:
+
+```text
 batch root:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945
 manifest:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/step2_full_manifest.csv
 submitted jobs:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/submitted_jobs.tsv
-recovery params:
-  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945/recovery_params.json
+submission time:
+  2026-07-08 15:39 EDT
 submitted well count:
   122 total
   54 FortyEightWellLumos / 48well_auto
@@ -111,12 +133,18 @@ submitted well count:
 job ID range:
   first submitted: 53116835
   last submitted: 53116967
-important analysis policy:
-  Preserve UnitRefine/Bombcell labels as metadata/QC/supplementary outputs.
-  Do not use UnitRefine/Bombcell as the primary biological inclusion criterion
-  unless a separate classifier-calibration project validates them for Axion MEA.
-  Current primary analysis should use Kilosort4 good units plus independent
-  electrophysiological QC criteria.
+live state at 2026-07-08 15:45 EDT:
+  5 completed
+  8 running
+  109 pending
+  output files visible so far:
+    7 unit_labels CSVs
+    5 curation JSONs
+    5 summary JSONs
+monitor command:
+  ROOT=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945
+  ids=$(cut -f5 "$ROOT/submitted_jobs.tsv" | tail -n +2 | paste -sd, -)
+  squeue -h -j "$ids" -o '%T' | sort | uniq -c
 ```
 
 Latest unified status was refreshed on `2026-07-08 13:01 EDT` using the
@@ -182,78 +210,25 @@ Interpretation:
   - 3 wells: zero-sample `TruncatedSVD`;
   - 1 well: CUDA device-side assert, needs separate inspection.
 
-Reproducibility status:
+Current reproducibility status:
 
-- Yes, the Axion-to-AIND workflow is now reproducible end-to-end for raw variants
-  that pass ingestion and for wells with enough sortable signal. This is proven
-  by the 54/54 Lumos auto wells, the SixWell smoke, and 67 SixWell manual wells
-  reaching `nwb_units` through the submitted dependency chain.
-- No, the whole broad workflow should not be described as "no issue" yet. Known
-  terminal classes remain: blocked raw ingestion for the older `2_12_2026` and
-  `2_20_2026` recordings, sparse/no-sortability Kilosort failures in SixWell,
-  one CUDA Kilosort failure needing inspection, and KSLabel-only unit labels
-  unless a targeted UnitRefine/Bombcell recovery lane is added.
-- The current safe claim is: the submission, dependency, metadata-driven plate
-  routing, per-well AIND launch, Python shim, path quoting, and ledger recovery
-  are reproducible; biological/signal-level failure handling still needs
-  explicit fallback or terminal-policy automation before broad unattended runs.
+- Step 1 is reproducible for raw variants that pass ingestion and for wells with
+  enough sortable signal. It produced 122 completed `nwb_units` wells.
+- Step 2 is reproducible and frozen for completed Step 1 wells. It has been
+  submitted across all 122 completed Step 1 wells.
+- Known terminal Step 1 classes remain for wells that did not complete Kilosort:
+  blocked raw ingestion for older recordings, sparse/no-sortability Kilosort
+  failures in SixWell, and one CUDA Kilosort failure needing separate inspection.
+- UnitRefine/Bombcell labels are preserved as metadata, but current primary
+  biological analysis should use Kilosort4 good units plus independent
+  electrophysiological QC.
 
-Immediate next phase: proceed to UnitRefine/Bombcell-style unit classification
-using existing outputs wherever possible.
+## Historical Step 2 Debug Log
 
-Current two-step operating model:
+The entries below are retained only to explain how the frozen Step 2 recovery
+pipeline was debugged. They are not current operating instructions.
 
-```text
-Step 1 - Axion to AIND/nwb_units:
-  Convert Axion raw data into per-well AIND-compatible inputs, run AIND through
-  Kilosort4/postprocessing/curation/results/QC/nwb_units, and record terminal
-  per-well status in the unified ledger.
-
-Step 2 - recovered UnitRefine/Bombcell classification:
-  For Step 1 wells that already reached nwb_units, reuse existing AIND
-  postprocessed/curated outputs, compute only missing quality_metrics and
-  template_metrics, then rerun only the curation/classification logic to produce
-  true UnitRefine/Bombcell labels.
-```
-
-```text
-usable completed-output input set:
-  122 wells with nwb_units completed and curated SpikeInterface/Kilosort outputs
-  under:
-    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/
-
-do not rerun for those 122 wells unless a canary proves it is necessary:
-  raw Axion export
-  NWB export
-  SpikeInterface prep
-  Kilosort4
-
-instead, build/validate a targeted classification recovery lane that starts from:
-  postprocessed analyzer output:
-    results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
-  and/or curated sorting output:
-    results/aind/<recording>/<well>/curated/block0_None_recording1/
-```
-
-Is UnitRefine/Bombcell already built in?
-
-- Partly. The maintained AIND workflow has the curation step that can produce
-  UnitRefine/Bombcell-style labels when the required postprocessing metrics
-  exist.
-- Not fully for this submitted run. The current Lumos and SixWell params only
-  requested lean postprocessing extensions:
-  `random_spikes`, `templates`, `spike_amplitudes`, `template_similarity`,
-  `correlograms`, and `unit_locations`.
-- The current jobs did **not** request `quality_metrics` or `template_metrics`,
-  so AIND curation completed but skipped true classification. The current unit
-  counts are KSLabel-derived (`good`/`mua`) rather than recovered
-  UnitRefine/Bombcell labels.
-- Therefore the next reproducible task is a canary recovery lane that computes
-  the missing metrics from existing outputs, reruns only the curation/classifier
-  logic, writes outputs under a new timestamped provenance root, and then joins
-  those labels back into `scripts/summarize_aind_current_well_ledger.py`.
-
-Step 2 canary submission:
+Step 2 canary submission history:
 
 ```text
 first recovery root:
