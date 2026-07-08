@@ -697,71 +697,76 @@ scientific feature tables.
 
 ## Proposed Data Model
 
-The analysis framework should center on a well-level record with explicit Step 1
-and Step 2 path groups.
+The first downstream analysis deliverable should be a single master unit table,
+not a figure and not a general well object model. The table is the canonical
+object for downstream analyses: feature-space plots, RS/FS waveform grouping,
+trough-to-peak histograms, optotag filters, and RS-vs-FS statistics should all
+start from this table.
 
 ```text
-WellKey
-  recording
-  well
-  lane
-  plate_family
-
-Step1WellPaths
-  root
-  analyzer_zarr
-  curated_sorting
-  spikesorted_sorting
-  nwb_zarr
-  qc_json
-  qc_images
-  repro_dir
-  nextflow_dir
-
-Step2WellPaths
-  root
-  labels_csv
-  curation_json
-  merge_json
-  quality_metrics_diagnostic_json
-  classification_summary_json
-  data_process_json
-```
-
-The canonical per-unit table should be assembled lazily from existing outputs:
-
-```text
-UnitTable
+MasterUnitTable
   recording
   well
   unit_id
-  original_cluster_id
-  ks_label
-  ks_label_repeat
-  kilosort_amplitude
-  contam_pct
   spike_count
-  firing_rate
+  firing_rate_hz
+  template_reference
+  trough_to_peak_duration_ms
+  waveform_asymmetry
+  repolarization_slope
+  rs_fs_classification
+  optotag_status
+  optional Step 2 metadata columns
+```
+
+The current implementation writes:
+
+```text
+recording
+well
+unit_id
+spike_count
+firing_rate_hz
+template_reference
+trough_to_peak_duration_ms
+waveform_asymmetry
+repolarization_slope
+rs_fs_classification
+optotag_status
+default_qc
+unitrefine_label
+unitrefine_probability
+bombcell_label
+```
+
+The table is assembled from existing outputs only:
+
+```text
+Step 1 curated sorting:
+  unit_id
+  KSLabel inclusion filter
+  spike_count
+
+Step 1 SortingAnalyzer:
+  recording duration
+  sampling rate
+  average templates
+  trough-to-peak duration
+  waveform asymmetry
+  repolarization slope
+  template reference
+
+Step 2 label CSV when present:
   default_qc
   unitrefine_label
   unitrefine_probability
   bombcell_label
-  estimated_x
-  estimated_y
-  estimated_z
-  extremum_channel_index
-  analysis_include_primary
-  analysis_include_with_mua
 ```
 
-Recommended inclusion fields:
+Current inclusion rule:
 
 ```text
-analysis_include_primary:
-  KSLabel == "good"
-
-analysis_include_with_mua:
-  KSLabel in {"good", "mua"}
+emit rows where Step 1 curated sorting KSLabel == "good"
 ```
 
 Do not use UnitRefine or Bombcell labels as automatic primary exclusion criteria
@@ -770,37 +775,25 @@ organoid MEA recordings.
 
 ## Step 3 Objective
 
-Step 3 should determine the canonical analysis object. It should not write
-figures, write analysis modules, or modify the frozen recovery pipeline.
+Step 3 should build the canonical master unit table. It should not write
+figures, write analysis modules, design a general `AnalysisWell` class, or
+modify the frozen recovery pipeline.
 
-The canonical analysis object should be a read-only, well-level bundle assembled
-from existing persisted outputs:
+Implemented entry point:
 
 ```text
-AnalysisWell
-  key:
-    recording
-    well
-    lane
-    plate_family
-  paths:
-    Step1WellPaths
-    Step2WellPaths
-  sorting:
-    Step 1 curated NumpyFolderSorting
-  analyzer:
-    Step 1 SortingAnalyzer
-  unit_table:
-    lazily assembled per-unit table
-  nwb_units:
-    optional portable NWB-Zarr unit table view
-  labels:
-    Step 1 Kilosort labels plus Step 2 metadata labels when available
+scripts/build_master_waveform_metrics_table.py
 ```
 
-The object should expose existing assets first and only recompute derived
-quantities when an analysis genuinely requires information that was not
-persisted.
+Default output:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/master_waveform_metrics_table.csv
+```
+
+The loader is intentionally minimal: it loads the Step 2 manifest, Step 1
+curated sorting, Step 1 SortingAnalyzer templates, and optional Step 2 unit
+labels. It computes only the columns needed for the master table.
 
 ## Reuse vs Recomputation
 
@@ -819,92 +812,41 @@ persisted.
 | synchrony | Step 1 analyzer `correlograms`; Step 1 sorting spike trains | No for synchrony derived from persisted correlograms or spike-time coincidence counts. Yes only if specifically using SpikeInterface `quality_metrics` synchrony columns, which are diagnostic/transient and not persisted as a reusable per-unit table. |
 | network analyses | Step 1 curated sorting or NWB-Zarr `units/spike_times`; Step 1 analyzer `correlograms`; unit locations from NWB-Zarr | No for population rates, bursts, pairwise correlations, correlogram networks, graph summaries, and spatially annotated networks. Yes only for analyses requiring non-persisted features such as per-spike amplitudes, principal components, or individual waveform snippets. |
 
-## Proposed Loader API
+## Minimal Loader API
 
-The first implementation should expose read-only loaders. It should not
-recompute missing SpikeInterface extensions by default.
+The first implementation exposes read-only table loaders. It does not recompute
+missing SpikeInterface extensions by default.
 
 ```python
-discover_step2_manifest(path=None) -> pandas.DataFrame
+load_step2_manifest(path=None) -> pandas.DataFrame
 ```
 
 Loads `step2_full_manifest.csv` and returns one row per submitted well.
 
 ```python
-get_well_paths(recording: str, well: str, manifest=None) -> WellPaths
+paths_from_manifest_row(row) -> dict[str, Path]
 ```
 
-Returns Step 1 and Step 2 path objects. Step 2 paths may exist even before all
-files are complete, so individual files should be checked explicitly.
+Returns only the paths required for the master table.
 
 ```python
-load_analyzer(paths: WellPaths) -> SortingAnalyzer
+is_completed_well(paths, require_step2_labels=False) -> bool
 ```
 
-Loads `<step1_well>/postprocessed/block0_None_recording1.zarr`.
+Checks for the curated sorting, Kilosort labels, analyzer, and templates.
 
 ```python
-load_sorting(paths: WellPaths, curated=True) -> BaseSorting
+load_master_unit_table(manifest=None, manifest_path=...) -> tuple[pandas.DataFrame, pandas.DataFrame]
 ```
 
-Loads the Step 1 curated or spikesorted `NumpyFolderSorting`.
+Builds the canonical table across all completed manifest wells and returns a
+second skipped-well diagnostics table.
 
 ```python
-load_nwb_units(paths: WellPaths) -> pandas.DataFrame
+load_master_unit_table_for_well(row) -> pandas.DataFrame
 ```
 
-Loads NWB-Zarr units, including spike time references, amplitudes, locations,
-and waveform summary metadata.
-
-```python
-load_step2_labels(paths: WellPaths, attach_unit_ids=True) -> pandas.DataFrame
-```
-
-Loads `unit_labels_block0_None_recording1.csv`. If `attach_unit_ids=True`, add
-unit IDs from the Step 1 sorting/analyzer row order.
-
-```python
-load_unit_table(paths: WellPaths) -> pandas.DataFrame
-```
-
-Builds the canonical per-unit table by joining Step 1 sorting properties, Step 2
-labels when present, and NWB unit locations/waveform metadata when needed.
-
-```python
-load_templates(paths: WellPaths)
-```
-
-Returns analyzer templates if `templates` is present. Optionally falls back to
-NWB `waveform_mean` only when the caller requests a portable waveform summary.
-
-```python
-load_correlograms(paths: WellPaths)
-```
-
-Returns `(ccgs, bins)` from the analyzer `correlograms` extension when present.
-
-```python
-load_quality_diagnostic(paths: WellPaths) -> dict
-```
-
-Loads Step 2 quality-metric diagnostic JSON. This is provenance/feature-audit
-metadata, not a per-unit quality-metrics DataFrame.
-
-```python
-load_curation(paths: WellPaths) -> dict
-load_merges(paths: WellPaths) -> list
-load_step2_summary(paths: WellPaths) -> dict
-load_dataprocess(paths: WellPaths) -> dict
-```
-
-Loads Step 2 curation and provenance artifacts.
-
-```python
-available_assets(paths: WellPaths) -> dict
-```
-
-Reports which files and analyzer extensions exist for a well. This should be
-used before analysis modules request optional assets.
+Builds the table rows for one well.
 
 ## Design Rules for Analysis Modules
 
