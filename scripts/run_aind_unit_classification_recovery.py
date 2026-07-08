@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import time
@@ -205,6 +206,29 @@ def metric_traceback(analyzer, metric_name: str, metric_params: dict, job_kwargs
     return ""
 
 
+def sanitize_quality_metric_params(metric_params: dict) -> dict:
+    """Drop params not accepted by the installed SI metric functions.
+
+    SI 0.104.8 mutates metric class default param dictionaries in place, and
+    several metrics inherit the same empty default dict. Copy those defaults
+    before computing so one metric's compatibility params cannot leak into
+    another metric in the same process.
+    """
+    for metric in ComputeQualityMetrics.metric_list:
+        metric.metric_params = deepcopy(metric.metric_params)
+
+    sanitized = {}
+    for metric_name, params in metric_params.items():
+        metric = ComputeQualityMetrics.get_metric_by_name(metric_name)
+        signature = inspect.signature(metric.metric_function)
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()):
+            sanitized[metric_name] = deepcopy(params)
+            continue
+        allowed = set(signature.parameters)
+        sanitized[metric_name] = {key: value for key, value in params.items() if key in allowed}
+    return sanitized
+
+
 def audit_unitrefine_features(analyzer, unitrefine_columns: list[str]) -> dict:
     combined_metrics = analyzer.get_metrics_extension_data()
     compatibility_columns = {
@@ -246,7 +270,7 @@ def compute_quality_metrics_diagnostic(
     column_to_metric, metric_to_columns = quality_metric_column_map()
     available_metrics = sqm.get_quality_metric_list()
     requested_metrics = quality_metrics_params.get("metric_names") or available_metrics
-    metric_params = deepcopy(quality_metrics_params.get("metric_params", {}))
+    metric_params = sanitize_quality_metric_params(deepcopy(quality_metrics_params.get("metric_params", {})))
     other_quality_kwargs = {
         key: value
         for key, value in quality_metrics_params.items()
@@ -308,7 +332,7 @@ def compute_quality_metrics_diagnostic(
                     metrics_to_compute=[metric_name],
                     delete_existing_metrics=False,
                     save=False,
-                    metric_params=metric_params,
+                    metric_params={metric_name: metric_params.get(metric_name, {})},
                     **other_quality_kwargs,
                 )
             metric_record["warnings"] = [str(warning.message) for warning in caught_warnings]
