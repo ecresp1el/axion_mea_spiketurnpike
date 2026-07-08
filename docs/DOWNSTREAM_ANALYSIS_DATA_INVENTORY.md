@@ -1074,6 +1074,52 @@ decision is whether the Step 1 preprocessed analyzer template is the intended
 waveform representation for RS/FS, or whether a future cache should compute
 mean waveforms from a specifically chosen raw/filtered trace representation.
 
+Population-level waveform review artifact:
+
+```text
+script:
+  scripts/plot_well_waveform_population_validation_pdf.py
+output PDF:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/figures/waveform_population/figure__well_waveform_unit_grid_review.pdf
+summary CSV:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_unit_grid_review_summary.csv
+provenance JSON:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_unit_grid_review_provenance.json
+repro command:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/repro/plot_well_waveform_population_validation_pdf_command.sh
+pages:
+  99, one page per completed recording/well
+units:
+  998 Kilosort-good units
+layout:
+  Each page is a grid of normalized dominant-channel templates.average
+  waveforms, one subplot per Kilosort-good unit. No units are classified,
+  flagged, or interpreted by this artifact.
+```
+
+Filtering/preprocessing metadata copied into the PDF page headers and sidecars:
+
+```text
+source:
+  Step 1 SortingAnalyzer sorting provenance and analyzer recording object
+recording_is_filtered:
+  true
+recording_class:
+  spikeinterface.core.binaryfolder.BinaryFolderRecording
+recording_dtype:
+  int16
+skip_kilosort_preprocessing:
+  true
+kilosort_highpass_cutoff:
+  300
+kilosort_do_CAR:
+  false
+kilosort_do_correction:
+  false
+kilosort_whitening_range:
+  8 or 16, depending on well
+```
+
 ## Reuse vs Recomputation
 
 | Analysis | Existing persisted asset | Recomputation required? |

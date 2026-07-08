@@ -30,23 +30,24 @@
   The remaining question is biological validity, not whether the code retrieves
   or measures the stored templates consistently.
 
-### Experiment: Well-Level Waveform Population Review PDF
+### Experiment: Well-Level Unit-Grid Waveform Review PDF
 
 Question tested:
 
 ```text
-Can we generate a dataset-wide, well-level waveform population review artifact
-that lets a human rapidly inspect whether each completed well's Kilosort-good
-template waveforms look like reasonable extracellular spike waveforms?
+Can we generate a dataset-wide, well-level unit-grid waveform review artifact
+that lets a human rapidly inspect each Kilosort-good unit's normalized mean
+template waveform, organized one page per completed well?
 ```
 
 Expected result:
 
 ```text
-A single PDF should contain one page per completed well. Each page should show
-all normalized Kilosort-good dominant-channel template waveforms in light gray,
-the population mean waveform, and +/- SEM, with recording, well, Kilosort-good
-unit count, mean trough-to-peak duration, and median trough-to-peak duration.
+A single PDF should contain one page per completed well. Each page should show a
+grid of normalized Kilosort-good dominant-channel `templates.average` waveforms,
+with one subplot per unit. Each page should include recording, well,
+Kilosort-good unit count, mean trough-to-peak duration, median trough-to-peak
+duration, and Step 1 filtering/preprocessing metadata.
 ```
 
 Experiment:
@@ -73,19 +74,40 @@ Summary CSV Kilosort-good unit total:
   998
 ```
 
+Filtering/preprocessing metadata included on pages and in sidecars:
+
+```text
+recording_is_filtered:
+  true
+recording_class:
+  spikeinterface.core.binaryfolder.BinaryFolderRecording
+recording_dtype:
+  int16
+skip_kilosort_preprocessing:
+  true
+kilosort_highpass_cutoff:
+  300
+kilosort_do_CAR:
+  false
+kilosort_do_correction:
+  false
+kilosort_whitening_range:
+  8 or 16, depending on the well
+```
+
 Outputs:
 
 ```text
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/figures/waveform_population/figure__well_waveform_population_review.pdf
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_population_review_summary.csv
-/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_population_review_provenance.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/figures/waveform_population/figure__well_waveform_unit_grid_review.pdf
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_unit_grid_review_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/well_waveform_unit_grid_review_provenance.json
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/repro/plot_well_waveform_population_validation_pdf_command.sh
 ```
 
 Confirmed finding from this experiment:
 
 ```text
-A population-level waveform review PDF now exists for all completed wells. The
+A unit-grid waveform review PDF now exists for all completed wells. The
 experiment did not classify units, flag units, or interpret biological validity.
 ```
 
@@ -114,8 +136,8 @@ established before changing metric definitions or waveform representations.
 Single experiment that will answer it:
 
 ```text
-Human review of the well-level waveform population PDF. The reviewer should
-scroll one page per well and decide whether the well-level waveform populations
+Human review of the well-level unit-grid waveform PDF. The reviewer should
+scroll one page per well and decide whether the per-unit mean/template waveforms
 look like reasonable extracellular spike waveforms.
 ```
 
