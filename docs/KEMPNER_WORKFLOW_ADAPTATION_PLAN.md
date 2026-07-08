@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 15:45 EDT
+Date updated: 2026-07-08 16:05 EDT
 
 ## Goal
 
@@ -22,14 +22,16 @@ come from AIND/Kempner methods, not from new local reimplementations.
 
 ## Current Operational State
 
-Formal pipeline state as of `2026-07-08 15:45 EDT`:
+Formal pipeline state as of `2026-07-08 16:05 EDT`:
 
 - Step 1 and Step 2 are now formally created.
 - Step 1 generated completed AIND/Kilosort/NWB-units outputs for 122 wells.
 - Step 2 is the frozen recovery/classification lane that starts from those Step
   1 outputs and computes the missing classifier/QC assets.
-- Step 2 has been submitted across every Step 1 well that completed
-  `nwb_units`, regardless of plate size or lane.
+- Step 2 completed across every Step 1 well that completed `nwb_units`,
+  regardless of plate size or lane.
+- All 122 Step 2 jobs completed in Slurm, and all 122 wells have complete Step
+  2 output sets.
 - The recovery pipeline is functionally complete and frozen. Do not make further
   recovery-pipeline code changes unless a new software bug is discovered.
 
@@ -124,9 +126,17 @@ software validation:
   Bombcell completes.
   unit_labels.csv, curation JSON, merge JSON, summary JSON, and AIND DataProcess
   metadata are written successfully.
+full-scale completion:
+  122/122 submitted wells completed.
+  122/122 unit label CSVs are present.
+  122/122 curation JSONs are present.
+  122/122 merge JSONs are present.
+  122/122 classification summary JSONs are present.
+  122/122 quality metric diagnostic JSONs are present.
+  122/122 AIND DataProcess metadata JSONs are present.
 ```
 
-Step 2 full-scale submission:
+Step 2 full-scale completion:
 
 ```text
 batch root:
@@ -145,14 +155,18 @@ submitted well count:
 job ID range:
   first submitted: 53116835
   last submitted: 53116967
-live state at 2026-07-08 15:45 EDT:
-  5 completed
-  8 running
-  109 pending
-  output files visible so far:
-    7 unit_labels CSVs
-    5 curation JSONs
-    5 summary JSONs
+verified state at 2026-07-08 16:05 EDT:
+  Slurm sacct:
+    122 COMPLETED
+  Slurm squeue:
+    no submitted Step 2 jobs remain queued or running
+  output completeness:
+    122/122 unit_labels CSVs
+    122/122 curation JSONs
+    122/122 merge JSONs
+    122/122 classification summary JSONs
+    122/122 quality metric diagnostic JSONs
+    122/122 AIND DataProcess metadata JSONs
 monitor command:
   ROOT=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_step2_full_20260708_153945
   ids=$(cut -f5 "$ROOT/submitted_jobs.tsv" | tail -n +2 | paste -sd, -)
