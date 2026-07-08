@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 13:29 EDT
+Date updated: 2026-07-08 13:32 EDT
 
 ## Goal
 
@@ -217,15 +217,18 @@ third canary:
     hit a nonessential default extension dependency:
       AssertionError: Extension amplitude_scalings requires templates to be computed first
 
-current Step 2 code state after third failure:
-  scripts/run_aind_unit_classification_recovery.py has been narrowed to compute
-  only the extensions required for classification recovery:
+current Step 2 code state after fourth failure:
+  scripts/run_aind_unit_classification_recovery.py computes the classification
+  dependency chain in explicit order:
     noise_levels
     waveforms
+    templates
+    spike_amplitudes
     principal_components
+    template_similarity
     template_metrics
     quality_metrics
-  Do not submit scale-out until a fourth canary with this narrowed extension set
+  Do not submit scale-out until a canary with this dependency order
   produces `unit_labels_block0_None_recording1.csv` and
   `curation_block0_None_recording1.json`.
 
@@ -241,6 +244,28 @@ fourth canary:
     /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_132528/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
   status at 2026-07-08 13:25 EDT:
     PENDING on standard partition, reason Priority
+  final status:
+    FAILED exit 1 after 13s. Source A3 had only `random_spikes` and
+    `correlograms`, so the recovery still needed to compute `templates` before
+    `template_metrics`.
+
+fifth recovery root:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132827
+fifth submitted table:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_132827/submitted_canary.tsv
+fifth canary:
+  recording: 6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband
+  well: A3
+  recovery job: 53112964
+  output dir:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_132827/6_22_2026_129-8445_ventral_sosrs_opsin_day3(000)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+  status at 2026-07-08 13:30 EDT:
+    PENDING on standard partition, reason Priority
+  status at 2026-07-08 13:32 EDT:
+    RUNNING on standard partition node gl3356. It has passed the immediate
+    analyzer-load and extension-dependency failures from attempts 1-4 and is
+    computing missing SpikeInterface metrics. No UnitRefine/Bombcell output has
+    been produced yet.
 
 Step 2 issue trail for clean-run gating:
   attempt 1, job 53112023:
@@ -270,6 +295,10 @@ Step 2 issue trail for clean-run gating:
       template_similarity
       template_metrics
       quality_metrics
+  attempt 5, job 53112964:
+    running. This is the first canary using the full classification dependency
+    order and it has progressed beyond the immediate failures seen in attempts
+    1-4.
 ```
 
 New Step 2 implementation files:
