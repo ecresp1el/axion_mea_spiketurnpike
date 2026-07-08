@@ -811,6 +811,65 @@ The loader is intentionally minimal: it loads the Step 2 manifest, Step 1
 curated sorting, Step 1 SortingAnalyzer templates, and optional Step 2 unit
 labels. It computes only the columns needed for the master table.
 
+## RS/FS Classification
+
+RS/FS classification is the first biological annotation pass on the canonical
+Step 3 table. It should not reopen all wells. It reads
+`master_waveform_metrics_table.csv`, fills `rs_fs_classification`, and writes
+summary/provenance sidecars.
+
+Implemented entry point:
+
+```text
+scripts/annotate_rs_fs_classification.py
+```
+
+Current conservative rule:
+
+```text
+threshold:
+  trough_to_peak_duration_ms = 0.45 ms
+sampling rate:
+  12500 Hz
+sample margin:
+  1 sample = 0.08 ms
+FS_like:
+  trough_to_peak_duration_ms <= 0.37 ms
+borderline:
+  0.37 ms < trough_to_peak_duration_ms < 0.53 ms
+RS_like:
+  trough_to_peak_duration_ms >= 0.53 ms
+unknown:
+  missing trough_to_peak_duration_ms
+```
+
+The margin preserves a small gray zone around the historical 0.45 ms heuristic
+instead of forcing one-sample-boundary units into a biological class too early.
+
+RS/FS outputs live next to the canonical table on Turbo:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/
+  master_waveform_metrics_table.csv
+  master_waveform_metrics_table_rs_fs_summary.csv
+  master_waveform_metrics_table_rs_fs_provenance.json
+  master_waveform_metrics_table_rs_fs_plot_provenance.json
+  figures/rs_fs_classification/
+    figure__rs_fs_class_counts.png
+    figure__rs_fs_feature_space.png
+    figure__rs_fs_firing_rate_by_class.png
+    figure__rs_fs_trough_to_peak_histogram.png
+  repro/
+    annotate_rs_fs_classification_command.sh
+    annotate_rs_fs_classification_command_context.json
+    plot_rs_fs_classification_command.sh
+    plot_rs_fs_classification_command_context.json
+```
+
+The `repro/` command files follow the existing handoff convention: source
+`config/greatlakes_project.env`, activate the Great Lakes Conda environment, and
+run the exact Step 3 command.
+
 ## Reuse vs Recomputation
 
 | Analysis | Existing persisted asset | Recomputation required? |
