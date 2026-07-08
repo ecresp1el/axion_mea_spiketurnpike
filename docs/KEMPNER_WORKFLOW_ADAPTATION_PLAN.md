@@ -1,6 +1,6 @@
 # Axion to AIND/Kempner Ephys Pipeline Handoff
 
-Date updated: 2026-07-08 13:54 EDT
+Date updated: 2026-07-08 14:24 EDT
 
 ## Goal
 
@@ -296,9 +296,8 @@ Step 2 issue trail for clean-run gating:
       template_metrics
       quality_metrics
   attempt 5, job 53112964:
-    running. This is the first canary using the full classification dependency
-    order and it has progressed beyond the immediate failures seen in attempts
-    1-4.
+    first canary using the full classification dependency order. It progressed
+    beyond the immediate failures seen in attempts 1-4.
     Progress check at 2026-07-08 13:43 EDT:
       RUNNING on gl3356, elapsed 12m25s.
       AveCPU 16m06s, AveRSS ~1.65G, MaxRSS ~1.73G of 64G requested.
@@ -310,6 +309,15 @@ Step 2 issue trail for clean-run gating:
       default QC, UnitRefine, Bombcell, and SLAy. The already-running job
       53112964 will not gain these logs retroactively; the next retry or
       scale-out will show exactly which extension is slow.
+    final status:
+      FAILED exit 1 after 35m16s. Bulk `quality_metrics` completed, but
+      UnitRefine failed immediately afterward because the analyzer did not
+      contain required model features:
+        drift_ptp
+        drift_std
+        drift_mad
+      SpikeInterface skipped the `drift` quality metric because the source
+      analyzer did not have the required `spike_locations` extension.
   parallel monitor canary, job 53113426:
     submitted at 2026-07-08 13:47 EDT on a different completed recording:
       recording:
@@ -367,6 +375,67 @@ Step 2 issue trail for clean-run gating:
         Interpretation:
           The current bottleneck is `quality_metrics`; the job has not failed
           and has not yet produced final UnitRefine/Bombcell labels.
+      status at 2026-07-08 14:15 EDT:
+        RUNNING on standard partition node gl3191, elapsed 26m31s. This job was
+        started before `spike_locations` was added to the recovery order, so it
+        is expected to reproduce the missing-drift-feature failure if it reaches
+        UnitRefine.
+  spike-location canary, job 53114765:
+    submitted at 2026-07-08 14:15 EDT on the same monitored recording/well:
+      recording:
+        6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband
+      well: A3
+      recovery root:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_141527
+      output:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_141527/6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+      status at 2026-07-08 14:16 EDT:
+        PENDING on standard partition, reason Priority.
+      final status:
+        CANCELLED after 2m10s. It proved `spike_locations` can compute on the
+        Axion A3 analyzer:
+          spike_locations completed in 44.34s.
+        The job was cancelled because the per-metric diagnostic wrapper used
+        the full quality metric list on each one-metric call, which triggered a
+        SpikeInterface metric-propagation KeyError unrelated to the Axion
+        geometry question.
+      purpose:
+        Test whether Axion channel geometry is sufficient to compute
+        `spike_locations`, then let `quality_metrics` compute the `drift`
+        columns required by UnitRefine.
+      code state:
+        `scripts/run_aind_unit_classification_recovery.py` now computes
+        `spike_locations` after `templates` and before `quality_metrics`.
+      prerequisite finding:
+        The A3 source analyzer has a recording, 16 channels, 12.5 kHz sampling,
+        and finite 2D channel locations in a 4x4 Axion grid with 350 um spacing.
+        SpikeInterface 0.104.8 `spike_locations` requires `templates`, a
+        recording, and valid channel/probe geometry; these appear satisfiable
+        for the Axion MEA analyzer.
+  corrected spike-location canary, job 53114826:
+    submitted at 2026-07-08 14:19 EDT after fixing the per-metric diagnostic
+    wrapper to call each quality metric with only its own `metric_names` entry:
+      recovery root:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unit_classification_recovery_20260708_141902
+      output:
+        /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind_unit_classification_recovery/aind_unit_classification_recovery_20260708_141902/6_22_2026_129-8445_ventral_sosrs_opsin_day3(001)_FortyEightWellLumos_primary_raw_NeuralBroadband/A3
+      status at 2026-07-08 14:24 EDT:
+        RUNNING on standard partition node gl3191, elapsed 4m12s.
+      confirmed progress:
+        `spike_locations` completed in 44.71s.
+        `drift` quality metric completed in 1.55s once `spike_locations` was
+        present.
+      current quality metric findings:
+        `amplitude_cutoff` failed because SI 0.104.8
+        `compute_amplitude_cutoffs()` does not accept `peak_sign`.
+        `amplitude_median` failed because SI 0.104.8
+        `compute_amplitude_medians()` does not accept `peak_sign`.
+        `synchrony` failed because SI 0.104.8
+        `compute_synchrony_metrics()` does not accept `peak_sign`.
+      interpretation:
+        Axion geometry is sufficient for `spike_locations` and `drift`.
+        The remaining visible blocker is now a params/API compatibility issue
+        for required quality metrics, not missing Axion geometry.
 ```
 
 New Step 2 implementation files:

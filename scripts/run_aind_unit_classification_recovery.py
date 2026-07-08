@@ -128,7 +128,7 @@ def threshold_metric_columns(thresholds: dict | None) -> set[str]:
     columns = set()
     for section in thresholds.values():
         if isinstance(section, dict) and {"greater", "less", "abs"}.intersection(section):
-            columns.add(str(section))
+            continue
         elif isinstance(section, dict):
             columns.update(str(metric) for metric in section)
     return columns
@@ -205,6 +205,38 @@ def metric_traceback(analyzer, metric_name: str, metric_params: dict, job_kwargs
     return ""
 
 
+def audit_unitrefine_features(analyzer, unitrefine_columns: list[str]) -> dict:
+    combined_metrics = analyzer.get_metrics_extension_data()
+    compatibility_columns = {
+        "half_width": "trough_half_width",
+        "peak_to_valley": "peak_to_trough_duration",
+        "peak_trough_ratio": "peak_after_to_trough_ratio",
+    }
+    missing_features = []
+    all_nan_features = []
+    successful_features = []
+    feature_columns = {}
+    for feature in unitrefine_columns:
+        column = feature if feature in combined_metrics.columns else compatibility_columns.get(feature)
+        if column not in combined_metrics.columns:
+            missing_features.append(feature)
+            feature_columns[feature] = None
+        else:
+            feature_columns[feature] = column
+            if combined_metrics[column].isna().all():
+                all_nan_features.append(feature)
+            else:
+                successful_features.append(feature)
+    return {
+        "feature_names_in": unitrefine_columns,
+        "missing_features": missing_features,
+        "all_nan_features": all_nan_features,
+        "successfully_computed_features": successful_features,
+        "feature_to_computed_column": feature_columns,
+        "combined_metric_columns": combined_metrics.columns.tolist(),
+    }
+
+
 def compute_quality_metrics_diagnostic(
     analyzer,
     quality_metrics_params: dict,
@@ -234,11 +266,6 @@ def compute_quality_metrics_diagnostic(
     bombcell_columns = threshold_metric_columns(curation_params.get("bombcell"))
     bombcell_metrics, bombcell_non_quality_columns = metrics_for_columns(bombcell_columns, column_to_metric)
 
-    required_metrics = unitrefine_metrics | default_qc_metrics | bombcell_metrics
-    minimal_metrics = [metric for metric in requested_metrics if metric in required_metrics]
-    requested_but_not_required = [metric for metric in requested_metrics if metric not in required_metrics]
-    required_but_not_requested = sorted(required_metrics.difference(requested_metrics))
-
     log(f"SpikeInterface version: {si.__version__}")
     log(f"Available quality metrics: {available_metrics}")
     log(f"UnitRefine required quality metrics: {sorted(unitrefine_metrics)}")
@@ -246,25 +273,16 @@ def compute_quality_metrics_diagnostic(
     log(f"Bombcell required quality metrics: {sorted(bombcell_metrics)}")
     log(f"Bombcell non-quality/template metric columns: {bombcell_non_quality_columns}")
     log(f"Default QC required quality metrics: {sorted(default_qc_metrics)}")
-    log(f"Minimal quality metric set for recovery: {minimal_metrics}")
-    log(f"Skipping requested but unnecessary quality metrics: {requested_but_not_required}")
-    if required_but_not_requested:
-        log(f"Required quality metrics missing from configured request: {required_but_not_requested}")
+    log(f"Configured quality metrics to compute diagnostically: {requested_metrics}")
 
     completed_metrics = []
     failed_metrics = []
-    skipped_metrics = [
-        {
-            "metric": metric,
-            "reason": "requested_by_params_but_not_required_by_default_qc_unitrefine_or_bombcell",
-        }
-        for metric in requested_but_not_required
-    ]
+    skipped_metrics = []
     metric_runs = []
     qm_start = time.perf_counter()
     quality_job_kwargs = dict(si.get_global_job_kwargs())
 
-    for metric_name in minimal_metrics:
+    for metric_name in requested_metrics:
         metric_start_elapsed = time.perf_counter() - qm_start
         log(
             "QUALITY_METRIC START "
@@ -286,7 +304,7 @@ def compute_quality_metrics_diagnostic(
                 warnings.simplefilter("always")
                 analyzer.compute(
                     "quality_metrics",
-                    metric_names=minimal_metrics,
+                    metric_names=[metric_name],
                     metrics_to_compute=[metric_name],
                     delete_existing_metrics=False,
                     save=False,
@@ -364,17 +382,16 @@ def compute_quality_metrics_diagnostic(
     total_runtime = round(time.perf_counter() - qm_start, 2)
     qm_ext = analyzer.get_extension("quality_metrics")
     computed_columns = qm_ext.get_data().columns.tolist() if qm_ext is not None else []
+    unitrefine_feature_audit = audit_unitrefine_features(analyzer, unitrefine_columns)
     diagnostic = {
         "spikeinterface_version": si.__version__,
         "available_quality_metrics": available_metrics,
-        "requested_quality_metrics": requested_metrics,
-        "minimal_required_quality_metrics": minimal_metrics,
-        "requested_but_not_required_quality_metrics": requested_but_not_required,
-        "required_but_not_requested_quality_metrics": required_but_not_requested,
+        "configured_quality_metrics": requested_metrics,
         "unitrefine_required_columns": unitrefine_columns,
         "unitrefine_required_quality_metrics": sorted(unitrefine_metrics),
         "unitrefine_non_quality_or_template_columns": unitrefine_non_quality_columns,
         "unitrefine_model_reports": unitrefine_model_reports,
+        "unitrefine_feature_audit": unitrefine_feature_audit,
         "bombcell_required_columns": sorted(bombcell_columns),
         "bombcell_required_quality_metrics": sorted(bombcell_metrics),
         "bombcell_non_quality_or_template_columns": bombcell_non_quality_columns,
@@ -395,6 +412,12 @@ def compute_quality_metrics_diagnostic(
         f"failed={[record['metric'] for record in failed_metrics]} "
         f"skipped={[record.get('metric') for record in skipped_metrics]} "
         f"total_runtime={total_runtime:.2f}s"
+    )
+    log(f"UNITREFINE FEATURE AUDIT missing={unitrefine_feature_audit['missing_features']}")
+    log(f"UNITREFINE FEATURE AUDIT all_nan={unitrefine_feature_audit['all_nan_features']}")
+    log(
+        "UNITREFINE FEATURE AUDIT successful="
+        f"{unitrefine_feature_audit['successfully_computed_features']}"
     )
     return diagnostic
 
@@ -442,6 +465,7 @@ def main() -> int:
         "noise_levels",
         "waveforms",
         "templates",
+        "spike_locations",
         "spike_amplitudes",
         "principal_components",
         "template_similarity",
