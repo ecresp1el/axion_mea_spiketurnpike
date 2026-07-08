@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote
 
 
 DEFAULT_AIND_RESULTS_ROOT = Path(
@@ -62,6 +63,23 @@ def main() -> None:
 
     import panel as pn
 
+    print(f"Found {len(analyzers)} Step 1 analyzers under {args.root_folder}", flush=True)
+    print(f"Open on the Mac via SSH tunnel: http://localhost:{args.port}", flush=True)
+    pn.serve(
+        {
+            "/": lambda: make_chooser_app(analyzers, args.curation_root, args.no_traces),
+            "/gui": lambda: make_gui_app(analyzers, args.curation_root, args.no_traces, args.verbose),
+        },
+        address=args.address,
+        port=args.port,
+        show=False,
+        title="Step 1 SortingAnalyzer Browser",
+    )
+
+
+def make_chooser_app(analyzers: list[dict[str, str]], curation_root: Path, no_traces_default: bool):
+    import panel as pn
+
     pn.extension()
 
     recordings = sorted({row["recording"] for row in analyzers})
@@ -79,21 +97,10 @@ def main() -> None:
         value=recordings[0],
         sizing_mode="stretch_width",
     )
-    well_select = pn.widgets.Select(name="Well", sizing_mode="fixed", width=120)
-    open_button = pn.widgets.Button(name="Open selected well", button_type="primary", width=170)
-    clear_button = pn.widgets.Button(name="Back to chooser", width=150)
-    no_traces_checkbox = pn.widgets.Checkbox(name="No traces", value=args.no_traces, width=120)
+    well_select = pn.widgets.Select(name="Well", width=140)
+    no_traces_checkbox = pn.widgets.Checkbox(name="No traces", value=no_traces_default, width=120)
     selected_path = pn.pane.Markdown("", sizing_mode="stretch_width")
-    status = pn.pane.Markdown("", sizing_mode="stretch_width")
-    gui_container = pn.Column(sizing_mode="stretch_both")
-    window_state: dict[str, Any] = {"window": None}
-
-    def update_wells(*_: Any) -> None:
-        rows = by_recording[recording_select.value]
-        options = {row["well"]: row["well"] for row in rows}
-        well_select.options = options
-        well_select.value = rows[0]["well"]
-        update_selected_path()
+    open_link = pn.pane.Markdown("", sizing_mode="stretch_width")
 
     def selected_row() -> dict[str, str]:
         for row in by_recording[recording_select.value]:
@@ -101,75 +108,98 @@ def main() -> None:
                 return row
         raise RuntimeError("Selected well is not in the analyzer list.")
 
+    def update_wells(*_: Any) -> None:
+        rows = by_recording[recording_select.value]
+        well_select.options = [row["well"] for row in rows]
+        well_select.value = rows[0]["well"]
+        update_selected_path()
+
     def update_selected_path(*_: Any) -> None:
         row = selected_row()
+        url = (
+            "/gui?"
+            f"recording={quote(row['recording'])}&"
+            f"well={quote(row['well'])}&"
+            f"no_traces={'true' if no_traces_checkbox.value else 'false'}"
+        )
         selected_path.object = (
             f"**Selected analyzer**  \n`{row['analyzer_path']}`  \n"
-            f"**Curation JSON**  \n`{default_curation_output(row, args.curation_root)}`"
+            f"**Curation JSON**  \n`{default_curation_output(row, curation_root)}`"
         )
-
-    def open_selected_well(_: Any) -> None:
-        row = selected_row()
-        analyzer_path = Path(row["analyzer_path"])
-        curation_output = default_curation_output(row, args.curation_root)
-        status.object = f"Loading `{row['recording']}` / `{row['well']}`..."
-        gui_container.clear()
-
-        import spikeinterface.full as si
-        from spikeinterface_gui.main import run_mainwindow
-
-        analyzer = si.load_sorting_analyzer(analyzer_path, load_extensions=False)
-
-        def save_curation(curation_data: dict[str, Any], output_json: Path) -> None:
-            output_json.parent.mkdir(parents=True, exist_ok=True)
-            tmp = output_json.with_suffix(output_json.suffix + ".tmp")
-            tmp.write_text(json.dumps(curation_data, indent=2, sort_keys=True) + "\n")
-            tmp.replace(output_json)
-            print(f"Saved Step 1 GUI curation JSON: {output_json}", flush=True)
-
-        win = run_mainwindow(
-            analyzer,
-            mode="web",
-            with_traces=not no_traces_checkbox.value,
-            curation=True,
-            curation_callback=save_curation,
-            curation_callback_kwargs={"output_json": curation_output},
-            layout=STEP1_LAYOUT,
-            displayed_unit_properties=STEP1_DISPLAYED_UNIT_PROPERTIES,
-            start_app=False,
-            panel_window_servable=False,
-            disable_save_settings_button=True,
-            verbose=args.verbose,
-        )
-        window_state["window"] = win
-        gui_container[:] = [win.main_layout]
-        status.object = (
-            f"Opened `{row['recording']}` / `{row['well']}`. "
-            f"Manual curation saves to `{curation_output}`."
-        )
-
-    def back_to_chooser(_: Any) -> None:
-        gui_container.clear()
-        window_state["window"] = None
-        status.object = "Choose another recording/well."
+        open_link.object = f"### [Open selected well]({url})"
 
     recording_select.param.watch(update_wells, "value")
     well_select.param.watch(update_selected_path, "value")
-    open_button.on_click(open_selected_well)
-    clear_button.on_click(back_to_chooser)
+    no_traces_checkbox.param.watch(update_selected_path, "value")
     update_wells()
 
-    controls = pn.Column(
-        pn.Row(recording_select, well_select, no_traces_checkbox, open_button, clear_button),
+    return pn.Column(
+        pn.pane.Markdown("# Step 1 SortingAnalyzer Browser"),
+        pn.Row(recording_select, well_select, no_traces_checkbox, sizing_mode="stretch_width"),
         selected_path,
-        status,
+        open_link,
         sizing_mode="stretch_width",
     )
-    app = pn.Column(controls, gui_container, sizing_mode="stretch_both")
 
-    print(f"Found {len(analyzers)} Step 1 analyzers under {args.root_folder}", flush=True)
-    print(f"Open on the Mac via SSH tunnel: http://localhost:{args.port}", flush=True)
-    pn.serve(app, address=args.address, port=args.port, show=False, title="Step 1 SortingAnalyzer Browser")
+
+def make_gui_app(
+    analyzers: list[dict[str, str]],
+    curation_root: Path,
+    no_traces_default: bool,
+    verbose: bool,
+):
+    import panel as pn
+
+    pn.extension()
+    args = pn.state.session_args
+    recording = unquote(args.get("recording", [b""])[0].decode("utf-8"))
+    well = unquote(args.get("well", [b""])[0].decode("utf-8"))
+    no_traces_arg = args.get("no_traces", [b"true" if no_traces_default else b"false"])[0].decode("utf-8")
+    no_traces = no_traces_arg.lower() == "true"
+
+    row = next((item for item in analyzers if item["recording"] == recording and item["well"] == well), None)
+    if row is None:
+        return pn.Column(
+            pn.pane.Markdown("# Unknown recording/well"),
+            pn.pane.Markdown(f"`recording={recording}`  \n`well={well}`"),
+            pn.pane.Markdown("[Back to chooser](/)"),
+        )
+
+    import spikeinterface.full as si
+    from spikeinterface_gui.main import run_mainwindow
+
+    analyzer_path = Path(row["analyzer_path"])
+    curation_output = default_curation_output(row, curation_root)
+    analyzer = si.load_sorting_analyzer(analyzer_path, load_extensions=False)
+
+    def save_curation(curation_data: dict[str, Any], output_json: Path) -> None:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        tmp = output_json.with_suffix(output_json.suffix + ".tmp")
+        tmp.write_text(json.dumps(curation_data, indent=2, sort_keys=True) + "\n")
+        tmp.replace(output_json)
+        print(f"Saved Step 1 GUI curation JSON: {output_json}", flush=True)
+
+    win = run_mainwindow(
+        analyzer,
+        mode="web",
+        with_traces=not no_traces,
+        curation=True,
+        curation_callback=save_curation,
+        curation_callback_kwargs={"output_json": curation_output},
+        layout=STEP1_LAYOUT,
+        displayed_unit_properties=STEP1_DISPLAYED_UNIT_PROPERTIES,
+        start_app=False,
+        panel_window_servable=False,
+        disable_save_settings_button=True,
+        verbose=verbose,
+    )
+
+    header = pn.Row(
+        pn.pane.Markdown(f"[Back to chooser](/)  \n**{recording} / {well}**"),
+        sizing_mode="stretch_width",
+    )
+    status = pn.pane.Markdown(f"Manual curation saves to `{curation_output}`", sizing_mode="stretch_width")
+    return pn.Column(header, status, win.main_layout, sizing_mode="stretch_both")
 
 
 def discover_analyzers(root: Path) -> list[dict[str, str]]:
