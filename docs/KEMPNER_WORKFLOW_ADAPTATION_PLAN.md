@@ -4332,7 +4332,7 @@ return-later checkpoint at 2026-07-07 15:59 EDT:
     metrics into `unified_well_status.csv` and also writes a compact sheet:
       /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_latest/unit_metrics_by_well.csv
     Current backing snapshot:
-      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260707_155848
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind_unified_status_20260707_160537
   Unit metric definitions:
     Unit metrics are read from each well's curated SpikeInterface output:
       results/aind/<recording>/<well>/curated/block0_None_recording1/
@@ -4360,6 +4360,86 @@ return-later checkpoint at 2026-07-07 15:59 EDT:
     could be misread as "noise was measured and found to be zero." The actual
     source is `curated/block0_None_recording1/properties/KSLabel.npy`, and no
     separate unit-classifier noise labels were found in the current AIND outputs.
+  Confirmed provenance at 2026-07-07 16:06 EDT:
+    The currently populated unit labels are Kilosort/Phy `KSLabel` values, not
+    AIND UnitRefine/Bombcell post-curation labels. Evidence:
+      - `spikesorted/.../properties/KSLabel.npy` and
+        `curated/.../properties/KSLabel.npy` are identical for inspected wells.
+      - the AIND curation task completed, but its log reports:
+        `No quality metrics found for block0_None_recording1. Skipping curation`.
+      - `processing.json` for inspected wells lists preprocessing, spike
+        sorting, postprocessing, and visualization; it does not include an
+        `Ephys curation` data process with UnitRefine/Bombcell output.
+      - no `unit_labels_<recording>.csv` file was found in the current result
+        folders for inspected wells.
+    Sheet correction:
+      `unit_metrics_by_well.csv` now includes explicit `kslabel_good_count`,
+      `kslabel_mua_count`, and `kslabel_noise_count` columns. The older
+      `unit_count_sua`, `unit_count_mua`, and `unit_count_noise` columns are
+      currently aliases of these KSLabel-derived counts and should not be
+      interpreted as independent classifier calls.
+    Latest corrected unit totals at 2026-07-07 16:06:28 EDT:
+      wells with unit metrics: 88
+      units total: 6627
+      kslabel_good_total: 854
+      kslabel_mua_total: 5773
+      kslabel_noise_total: 0
+      total sorted spikes across metric-populated wells: 741903432
+  Why UnitRefine/Bombcell did not run in the current jobs:
+    The current AIND postprocessing parameter set is intentionally lean. For
+    inspected completed wells, `repro/aind_params.json` requested only:
+      random_spikes, templates, spike_amplitudes, template_similarity,
+      correlograms, and unit_locations.
+    It did not request `quality_metrics` or `template_metrics`.
+    The AIND curation capsule requires `quality_metrics` to do default QC and
+    requires `template_metrics` to run UnitRefine/Bombcell unit classification.
+    Because those extensions were absent, the curation task exited cleanly but
+    skipped classification. This is why Slurm/Nextflow can say curation
+    COMPLETED while the output still has only KSLabel-derived labels.
+  How to address this without rerunning everything:
+    Do not rerun raw import, NWB export, SpikeInterface prep, or Kilosort for
+    wells that already have completed Kilosort/postprocessed outputs.
+    Add a targeted curation/classification recovery lane:
+      1. Select wells with existing completed analyzer output:
+           results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+         and/or curated sorting output:
+           results/aind/<recording>/<well>/curated/block0_None_recording1/
+      2. For each selected well, compute only the missing postprocessing
+         extensions on the existing sorting analyzer:
+           `quality_metrics`
+           `template_metrics`
+      3. Rerun only the AIND curation logic, or a small wrapper around the same
+         curation code, so UnitRefine/Bombcell can emit:
+           `unit_labels_<recording>.csv`
+           `curation_<recording>.json`
+      4. Do a one-well canary first. Confirm the recovery output produces real
+         `unitrefine_*` and/or `bombcell_*` labels before scaling to all completed
+         wells.
+      5. Keep the recovery outputs under a new timestamped provenance root, for
+         example:
+           jobs/aind_unit_classification_recovery_YYYYMMDD_HHMMSS/
+           results/aind_unit_classification_recovery/<recording>/<well>/
+         Do not overwrite the existing AIND results until the recovery lane has
+         been validated and joined back into the ledger.
+      6. Update `scripts/summarize_aind_current_well_ledger.py` after the canary
+         so the ledger prefers true curation labels when present, while keeping
+         KSLabel counts as separate provenance columns.
+    The recovered ledger should carry both sources explicitly:
+      KSLabel columns:
+        `kslabel_good_count`, `kslabel_mua_count`, `kslabel_noise_count`
+      UnitRefine/Bombcell columns, when recovery exists:
+        `unitrefine_sua_count`, `unitrefine_mua_count`,
+        `unitrefine_noise_count`, `bombcell_sua_count`, `bombcell_mua_count`,
+        `bombcell_noise_count`, `curation_label_source`,
+        `curation_recovery_status`
+    This is the reproducible middle path: it avoids a full expensive rerun, but
+    also avoids reporting KSLabel-only counts as postprocessing curation.
+  Future-run parameter decision:
+    For new submissions where true SUA/MUA/noise classification is required,
+    include `quality_metrics` and `template_metrics` in the AIND postprocessing
+    extension list before curation. This should be tested first on one completed
+    SixWell recording because it increases compute and may expose dependency or
+    metric-computation issues.
   Practical caveat:
     `unit_metrics_status=missing_curated_sorting` means the well has not yet
     produced curated sorting output or failed before that stage. Re-run the
