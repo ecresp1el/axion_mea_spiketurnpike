@@ -169,7 +169,6 @@ def resolve_plate_profile(args: argparse.Namespace) -> tuple[dict[str, str], Pla
     for label, provided, expected in [
         ("plate map", args.plate_map, profile.plate_map),
         ("electrode geometry", args.electrode_geometry, profile.electrode_geometry),
-        ("params template", args.params_template, profile.params_template),
     ]:
         if provided is None:
             continue
@@ -180,6 +179,8 @@ def resolve_plate_profile(args: argparse.Namespace) -> tuple[dict[str, str], Pla
                 f"Raw metadata selected {profile.family}, so {label} is locked to "
                 f"{expected_resolved}. Refusing mismatched {label}: {provided_resolved}"
             )
+    if args.params_template is not None and not args.params_template.expanduser().resolve().exists():
+        raise SystemExit(f"Params template does not exist: {args.params_template}")
     return metadata, profile
 
 
@@ -201,7 +202,11 @@ def main() -> None:
     profile_env = plate_profile.env_values()
     plate_map = plate_profile.plate_map.expanduser().resolve()
     electrode_geometry = plate_profile.electrode_geometry.expanduser().resolve()
-    params_template = plate_profile.params_template.expanduser().resolve()
+    params_template = (
+        args.params_template.expanduser().resolve()
+        if args.params_template is not None
+        else plate_profile.params_template.expanduser().resolve()
+    )
     export_duration_s = str(args.export_duration_s).strip() or "NaN"
     if args.selection_manifest is not None:
         selected = set(load_selected_wells(args.selection_manifest))
