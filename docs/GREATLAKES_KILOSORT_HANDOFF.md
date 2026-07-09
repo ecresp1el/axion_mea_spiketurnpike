@@ -548,8 +548,20 @@ Next handoff target:
 
 - Representative-unit plot waves should be built from the post-Step-1 unified
   unit/spike sources while preserving `KSLabel=good` as ground truth and linking
-  Step 2/QC assets as metadata. Use:
+  Step 2/QC assets as metadata. The immediate targets are GUI-equivalent static
+  panels for waveform/firing-rate stability over time, representative
+  auto/cross-correlograms for FS/RS units, and within-well spatial footprints
+  across neighboring electrodes, all rendered from the same Step 1 analyzer data
+  that the GUI visualizes. Use:
   `docs/HANDOFF_REPRESENTATIVE_UNITS_POST_STEP1_PLOTS.md`.
+- Wave 0 representative-unit indexing completed on 2026-07-09 16:22 EDT via
+  Slurm job `53201743`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_wave0_20260709_162201/`.
+  It recovered the locked denominator exactly: `276 / 276` Lumos geometry units
+  and `237 / 237` Cytoview dorsal/ventral units, all `KSLabel=good`, all with
+  Step 1 analyzers ready. Step 2 linked assets were `0` for this v5 denominator,
+  so A/B/C representative plots should use Step 1 analyzer-backed
+  GUI-equivalent data first.
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference

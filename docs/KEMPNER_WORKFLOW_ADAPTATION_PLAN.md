@@ -8132,10 +8132,53 @@ Canonical commands:
     those units, but do not use Step 2 classifier labels as replacement truth.
 
   Planned waves:
-    wave 0 reconciliation and asset linking; wave 1 Lumos optotag examples;
-    wave 2 Cytoview dorsal/ventral examples; wave 3 FS/RS and alignment
-    sensitivity examples; wave 4 QC/asset edge cases; wave 5 final
+    wave 0 reconciliation and asset linking; wave A waveform stability and
+    firing rate over time; wave B autocorrelogram/cross-correlogram FS/RS
+    examples; wave C within-well spatial footprints; wave 1 Lumos optotag
+    examples; wave 2 Cytoview dorsal/ventral examples; wave 3 FS/RS and
+    alignment sensitivity examples; wave 4 QC/asset edge cases; wave 5 final
     representative plot pack.
+
+  GUI-equivalent rendering rule:
+    numeric scripts should shortlist candidates, then render static panels from
+    the same Step 1 analyzer-backed data visualized by the GUI: waveform,
+    maintemplate, correlogram/ISI, trace, spikerate, probe, and similarity.
+    Interactive GUI review is optional spot-checking, not a required manual
+    gate for producing the plots.
+
+- [x] 2026-07-09 16:22 EDT - Wave 0 representative-unit index completed through
+  a targeted Slurm job package.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_wave0_20260709_162201/`
+
+  Completed job:
+    `53201743` `COMPLETED` in `00:00:09` on `gl3102`.
+
+  Infrastructure note:
+    first job `53201718` failed in `00:00:05` before analysis because the command
+    file used `set -u` around `conda activate`, triggering the known
+    `MKL_INTERFACE_LAYER` activation issue. `scripts/prepare_representative_unit_wave0_job.py`
+    was patched to use `set +u` only around `conda activate`; the corrected
+    resubmission completed.
+
+  Denominator result:
+    total index rows: `513`
+    Lumos geometry: `276 / 276` observed, all `KSLabel=good`, all Step 1
+      analyzers ready
+    Cytoview dorsal/ventral: `237 / 237` observed, all `KSLabel=good`, all Step
+      1 analyzers ready
+    Step 2 linked assets for this v5 representative denominator: `0`
+
+  Key outputs:
+    `representative_unit_index_20260709.csv`
+    `wave0_denominator_summary_20260709.csv`
+    `wave0_reconciliation_table_20260709.csv`
+    `wave0_missing_assets_20260709.csv`
+    `representative_unit_index_20260709_provenance.json`
+    `repro/python_command.sh`
+    `repro/submit_command.sh`
+    `repro/submitted_job.sbatch`
 
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
