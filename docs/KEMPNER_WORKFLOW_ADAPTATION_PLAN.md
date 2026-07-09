@@ -8309,6 +8309,33 @@ Canonical commands:
     selection, add a stricter pair-level minimum-spike floor or manually
     override sparse but technically clean pairs.
 
+- [x] 2026-07-09 18:22 EDT - Corrected Wave C spatial-footprint rendering to
+  show multichannel waveforms across electrodes.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_plot_pack_20260709_182100/`
+
+  Completed job:
+    `53215665` `COMPLETED` in `00:00:47` on `gl3118`.
+
+  Correction:
+    the earlier `20260709_175429` plot pack rendered Wave C as amplitude dot
+    maps. That did not satisfy the intended spatial-footprint/isolation figure.
+    The corrected Wave C panels now plot each selected unit's template waveform
+    at each electrode location in the well, highlight the strongest channels,
+    circle the best channel, and include a 20 uV / 1 ms scale cue.
+
+  Corrected counts:
+    total PNG panels: `48`
+    render errors: `0`
+    Wave C multichannel-template panels: `12`
+    manifest Wave C label:
+      `selection_panel=within_well_multichannel_template_footprints`
+
+  Use:
+    use the `20260709_182100` root for spatial-footprint inspection. Keep
+    `20260709_175429` only as provenance for the superseded dot-map version.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

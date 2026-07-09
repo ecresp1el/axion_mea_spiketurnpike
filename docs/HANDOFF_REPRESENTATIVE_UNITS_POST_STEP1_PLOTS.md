@@ -262,6 +262,49 @@ so some correlogram panels are visually thin. Before selecting publication
 examples, add a stricter pair-level minimum-spike floor or use a manual
 override table to prefer visually interpretable pairs.
 
+Correction for Wave C spatial-footprint panels:
+
+The first plot-pack Wave C panels showed amplitude footprint maps only. That is
+not enough for the intended isolation/representative-unit review. Wave C was
+updated to render multichannel templates laid out on the electrode geometry:
+each channel's template waveform is plotted at its electrode location, the
+strongest channels are highlighted, the best channel is circled, and a 20 uV /
+1 ms scale cue is drawn on each unit panel.
+
+Corrected multichannel plot pack:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_plot_pack_20260709_182100/
+```
+
+Completed corrected plot-pack job:
+
+```text
+job_id: 53215665
+state: COMPLETED
+elapsed: 00:00:47
+node: gl3118
+```
+
+Corrected render counts:
+
+| Selection group | Wave A stability panels | Wave B correlogram panels | Wave C multichannel-template panels |
+|---|---:|---:|---:|
+| Lumos geometry | 6 | 6 | 4 |
+| Cytoview dorsal | 6 | 6 | 4 |
+| Cytoview ventral | 6 | 6 | 4 |
+
+The corrected manifest has `48` rows, `48` PNGs, `0` render errors, and all
+`12` Wave C rows are marked:
+
+```text
+selection_panel = within_well_multichannel_template_footprints
+```
+
+Use this corrected `20260709_182100` plot-pack root for inspecting spatial
+footprints. Keep the earlier `20260709_175429` root only as provenance for the
+superseded dot-map version.
+
 ## Goal
 
 Build a unified, reproducible representative-unit selection layer for the next

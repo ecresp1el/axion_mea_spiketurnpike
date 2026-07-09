@@ -76,6 +76,7 @@ def main() -> int:
     parser.add_argument("--correlogram-window-ms", type=float, default=100.0)
     parser.add_argument("--correlogram-bin-ms", type=float, default=2.0)
     parser.add_argument("--max-units-per-footprint", type=int, default=8)
+    parser.add_argument("--highlight-channels-per-footprint", type=int, default=10)
     parser.add_argument("--limit-per-table", type=int, default=0, help="Debug limit; 0 renders all selected rows.")
     args = parser.parse_args()
 
@@ -144,6 +145,7 @@ def main() -> int:
             "correlogram_window_ms": args.correlogram_window_ms,
             "correlogram_bin_ms": args.correlogram_bin_ms,
             "max_units_per_footprint": args.max_units_per_footprint,
+            "highlight_channels_per_footprint": args.highlight_channels_per_footprint,
             "limit_per_table": args.limit_per_table,
         },
         "render_policy": {
@@ -326,7 +328,7 @@ def render_wave_c(row: dict[str, object], bundle: AnalyzerBundle, spatial_units:
     n_units = len(well_units)
     ncols = min(4, n_units)
     nrows = int(math.ceil(n_units / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(3.6 * ncols, 3.4 * nrows), squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4.6 * ncols, 4.1 * nrows), squeeze=False)
     for ax in axes.flat:
         ax.axis("off")
     for ax, unit_row in zip(axes.flat, well_units.to_dict("records"), strict=False):
@@ -334,40 +336,28 @@ def render_wave_c(row: dict[str, object], bundle: AnalyzerBundle, spatial_units:
         unit_idx = bundle.unit_index[str(unit_id)]
         template = bundle.templates[unit_idx]
         footprint = np.ptp(template, axis=0)
-        sizes = 25 + 210 * footprint / max(float(np.nanmax(footprint)), 1e-9)
-        scatter = ax.scatter(
-            bundle.channel_locations[:, 0],
-            bundle.channel_locations[:, 1],
-            c=footprint,
-            s=sizes,
-            cmap="viridis",
-            edgecolor="#222222",
-            linewidth=0.3,
+        best_ch, highlighted = plot_multichannel_template_on_probe(
+            ax,
+            template,
+            bundle.channel_locations,
+            bundle,
+            group_color=GROUP_COLORS.get(group, "#444444"),
+            highlight_channels=int(args.highlight_channels_per_footprint),
         )
-        best_ch = int(np.nanargmax(footprint))
-        ax.scatter(
-            [bundle.channel_locations[best_ch, 0]],
-            [bundle.channel_locations[best_ch, 1]],
-            s=45,
-            facecolor="none",
-            edgecolor="#ff4d00",
-            linewidth=1.5,
+        ax.set_title(
+            f"u{unit_row['unit_id']} {unit_row.get('fs_rs_cutoff_0p50_aligned', '')}\n"
+            f"best ch {best_ch}, max {np.nanmax(footprint):.1f} uV, highlighted {highlighted}",
+            fontsize=8,
         )
-        ax.set_aspect("equal", adjustable="box")
-        ax.axis("on")
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_title(f"u{unit_row['unit_id']} {unit_row.get('fs_rs_cutoff_0p50_aligned', '')}\nmax {np.nanmax(footprint):.1f} uV", fontsize=8)
-        fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.02)
     title = (
         f"{GROUP_LABELS.get(group, group)} Wave C rank {row.get('selection_rank_within_group')} | "
-        f"{row.get('well')} | plotted top {n_units} KSLabel=good footprints"
+        f"{row.get('well')} | top {n_units} KSLabel=good multichannel templates"
     )
     fig.suptitle(title, fontsize=11)
     fig.tight_layout()
     fig.savefig(figure_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
-    return panel_row(row, "C", figure_path, "within_well_spatial_footprints", unit_count=n_units)
+    return panel_row(row, "C", figure_path, "within_well_multichannel_template_footprints", unit_count=n_units)
 
 
 def panel_row(row: dict[str, object], wave: str, figure_path: Path, panel: str, *, unit_count: int) -> dict[str, object]:
@@ -431,6 +421,93 @@ def best_waveform(template: np.ndarray) -> tuple[np.ndarray, int]:
     footprint = np.ptp(template, axis=0)
     best_channel = int(np.nanargmax(footprint))
     return template[:, best_channel], best_channel
+
+
+def plot_multichannel_template_on_probe(
+    ax,
+    template: np.ndarray,
+    channel_locations: np.ndarray,
+    bundle: AnalyzerBundle,
+    *,
+    group_color: str,
+    highlight_channels: int,
+) -> tuple[int, int]:
+    locations = np.asarray(channel_locations[:, :2], dtype=float)
+    footprint = np.ptp(template, axis=0)
+    best_channel = int(np.nanargmax(footprint))
+    finite_footprint = footprint[np.isfinite(footprint)]
+    max_ptp = float(np.nanmax(finite_footprint)) if finite_footprint.size else 0.0
+    highlighted_channels = set(np.argsort(footprint)[-max(1, min(highlight_channels, footprint.size)) :].tolist())
+    highlighted_channels.add(best_channel)
+
+    dx, dy = geometry_spacing(locations)
+    x_half_width = 0.42 * dx
+    y_half_height = 0.34 * dy
+    local_time = np.linspace(-x_half_width, x_half_width, template.shape[0])
+    max_abs = float(np.nanmax(np.abs(np.apply_along_axis(baseline, 0, template))))
+    y_scale = y_half_height / max(max_abs, 1e-9)
+
+    ax.scatter(locations[:, 0], locations[:, 1], s=8, color="#b8b8b8", alpha=0.7, zorder=1)
+    for channel_index in np.argsort(footprint):
+        waveform = baseline(template[:, channel_index])
+        x0, y0 = locations[channel_index]
+        strength = 0.0 if max_ptp <= 0 else float(np.clip(footprint[channel_index] / max_ptp, 0.0, 1.0))
+        is_highlighted = channel_index in highlighted_channels
+        color = group_color if is_highlighted else "#777777"
+        alpha = 0.22 + 0.72 * strength if is_highlighted else 0.16 + 0.28 * strength
+        linewidth = 0.45 + 1.0 * strength if is_highlighted else 0.35
+        ax.plot(x0 + local_time, y0 + waveform * y_scale, color=color, alpha=alpha, linewidth=linewidth, zorder=2 + strength)
+
+    best_x, best_y = locations[best_channel]
+    ax.scatter(
+        [best_x],
+        [best_y],
+        s=58,
+        facecolor="none",
+        edgecolor="#ff4d00",
+        linewidth=1.4,
+        zorder=5,
+    )
+    draw_probe_scale(ax, locations, dx, dy, y_scale, bundle.sampling_frequency_hz, template.shape[0])
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(float(np.nanmin(locations[:, 0]) - 0.75 * dx), float(np.nanmax(locations[:, 0]) + 0.75 * dx))
+    ax.set_ylim(float(np.nanmin(locations[:, 1]) - 0.75 * dy), float(np.nanmax(locations[:, 1]) + 0.75 * dy))
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("Electrode x")
+    ax.set_ylabel("Electrode y")
+    return best_channel, len(highlighted_channels)
+
+
+def geometry_spacing(locations: np.ndarray) -> tuple[float, float]:
+    x_unique = np.unique(np.round(locations[:, 0], 6))
+    y_unique = np.unique(np.round(locations[:, 1], 6))
+    dxs = np.diff(np.sort(x_unique))
+    dys = np.diff(np.sort(y_unique))
+    dx = float(np.nanmedian(dxs[dxs > 0])) if np.any(dxs > 0) else 350.0
+    dy = float(np.nanmedian(dys[dys > 0])) if np.any(dys > 0) else dx
+    return dx, dy
+
+
+def draw_probe_scale(
+    ax,
+    locations: np.ndarray,
+    dx: float,
+    dy: float,
+    y_scale: float,
+    sampling_frequency_hz: float,
+    template_samples: int,
+) -> None:
+    x0 = float(np.nanmin(locations[:, 0]) - 0.55 * dx)
+    y0 = float(np.nanmin(locations[:, 1]) - 0.50 * dy)
+    time_ms = 1.0
+    template_duration_ms = max(template_samples * 1000.0 / sampling_frequency_hz, 1e-9)
+    time_axis_width = 0.84 * dx * time_ms / template_duration_ms
+    uv = 20.0
+    ax.plot([x0, x0 + time_axis_width], [y0, y0], color="#333333", linewidth=0.8, zorder=6)
+    ax.plot([x0, x0], [y0, y0 + uv * y_scale], color="#333333", linewidth=0.8, zorder=6)
+    ax.text(x0 + time_axis_width * 0.5, y0 - 0.10 * dy, "1 ms", ha="center", va="top", fontsize=6)
+    ax.text(x0 - 0.06 * dx, y0 + uv * y_scale * 0.5, "20 uV", ha="right", va="center", fontsize=6, rotation=90)
 
 
 def baseline(waveform: np.ndarray) -> np.ndarray:

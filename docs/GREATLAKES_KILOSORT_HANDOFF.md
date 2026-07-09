@@ -599,6 +599,17 @@ Next handoff target:
   Wave A/B/C panels. Caveat: some Wave B pairs are technically clean but sparse
   for publication-style correlogram examples; add a stricter pair-level
   minimum-spike floor or manual override before final figure selection.
+- Corrected Wave C multichannel-template plot pack completed on 2026-07-09
+  18:22 EDT via Slurm job `53215665`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_plot_pack_20260709_182100/`.
+  The previous Wave C panels were amplitude dot maps only. The corrected Wave C
+  panels now plot each unit's template waveform at each electrode location,
+  highlight the strongest channels, circle the best channel, and include a
+  20 uV / 1 ms scale cue. The corrected pack again rendered `48` PNG panels and
+  `0` errors, with all `12` Wave C rows marked
+  `selection_panel=within_well_multichannel_template_footprints`. Use the
+  `20260709_182100` root for spatial-footprint inspection; keep the
+  `20260709_175429` root only as provenance for the superseded dot-map version.
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference
