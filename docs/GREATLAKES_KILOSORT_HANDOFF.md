@@ -438,6 +438,14 @@ step1_v5_ground_truth_summary.json          # machine-readable current summary
 submitted_step1_v5_ground_truth_waves.tsv   # wave/batch submission labels
 lumos_gui_ready_trial_tag_screen_250pulse_jitterwin_20260709.csv
 lumos_manual_spike_sorting_guide_jitterwin_20260709.csv
+lumos_candidate_waveform_gallery_columns_compare_20260709.png
+lumos_candidate_waveform_best_channel_normalized_vs_unnormalized_20260709.png
+lumos_candidate_waveform_kslabel_summary_20260709.csv
+lumos_candidate_waveform_best_channel_traces_20260709.csv.gz
+lumos_candidate_waveform_full_templates_20260709.npz
+good_kslabel_ttp_distribution_template_best_ptp_20260709.png
+good_kslabel_ttp_distribution_template_best_ptp_20260709.csv
+good_kslabel_ttp_distribution_template_best_ptp_20260709_provenance.json
 ```
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
@@ -455,8 +463,8 @@ train-trial baseline: -10..-5 ms
 train-trial response: -5..+50 ms
 ```
 
-As of the refresh, the Lumos GUI-ready subset is 65 wells: 23 scored with
-usable stimulation metadata and 42 marked `stim_unavailable`.
+As of the latest 2026-07-09 refresh, the Lumos GUI-ready subset is 105 wells:
+63 scored with usable stimulation metadata and 42 marked `stim_unavailable`.
 
 The manual guide CSV keeps `D2` as a top-priority review case rather than
 treating it as a negative control, because the current working interpretation is
@@ -474,3 +482,159 @@ manual guide with:
 ```bash
 python scripts/refresh_lumos_optotag_analysis.py --date-label 20260709
 ```
+
+The waveform/KSLabel comparison gallery is generated with:
+
+```bash
+python scripts/plot_lumos_candidate_waveform_gallery.py --date-label 20260709
+```
+
+The current all-good-unit TTP distribution is generated with:
+
+```bash
+python scripts/plot_good_kslabel_ttp_distribution_from_templates.py --date-label 20260709
+```
+
+This TTP distribution intentionally replaces the older master-table waveform
+metric path for current rerun inspection. It scans the current GUI-ready Step 1
+analyzers, keeps `KSLabel=good`, loads `templates.average`, chooses the best
+peak-to-peak channel, then measures trough to post-trough rebound peak with the
+same landmark logic as the Lumos candidate waveform gallery. On 2026-07-09 it
+scanned 105 GUI-ready wells and plotted 197 good units: 12 `FS_like`, 25
+`borderline`, and 160 `RS_like`, median TTP 0.720 ms.
+
+That script reads the jitter-aware manual guide, takes the top signal-ranked
+`status == ok` rows from columns 4-8 and columns 1-3 separately, derives each
+analyzer path as:
+
+```text
+<AIND results root>/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+```
+
+For each candidate, it loads the persisted Step 1 `SortingAnalyzer`, pulls the
+curated sorting properties (`KSLabel`, `ContamPct`, `Amplitude`), loads
+`templates.average` from the analyzer `templates` extension, matches the guide
+`top_unit` to the analyzer unit order, and plots the full multi-channel template
+in grey with the best peak-to-peak channel in black.
+
+The downstream data contract is:
+
+```python
+analyzer = si.load_sorting_analyzer(analyzer_path, load_extensions=True)
+sorting = analyzer.sorting
+unit_ids = list(sorting.get_unit_ids())
+unit_id = match_unit_id(unit_ids, guide_row["top_unit"])
+unit_index = unit_ids.index(unit_id)
+templates = analyzer.get_extension("templates").get_data(operator="average")
+template = templates[unit_index]  # shape: n_template_samples x n_channels
+channel_ptp = np.ptp(template, axis=0)
+best_channel_index = int(np.nanargmax(channel_ptp))
+best_waveform = template[:, best_channel_index]
+trough_index = int(np.nanargmin(best_waveform))
+search_start = min(trough_index + 1, best_waveform.size - 1)
+rebound_peak_index = search_start + int(np.nanargmax(best_waveform[search_start:]))
+```
+
+Thus grey traces are `template[:, channel_index]` for every analyzer channel.
+The black trace is the channel with the largest `max - min` amplitude across the
+average template. The voltage peak/trough columns in the summary CSV are derived
+from this black trace and are template amplitudes, not Kilosort optotag metrics.
+The Kilosort/Phy-derived fields are the sorting properties such as `KSLabel`,
+`ContamPct`, and `Amplitude`.
+
+The trough/peak dots on the gallery use the same black trace: black dot =
+minimum/trough of `best_waveform`; orange dot = maximum rebound peak after the
+trough. Tentative FS/RS labels use the repo-wide conservative trough-to-peak rule:
+`FS_like <= 0.37 ms`, `borderline` between `0.37..0.53 ms`, and
+`RS_like >= 0.53 ms`. These labels are visual-review annotations only and should
+not be treated as Kilosort labels.
+
+The candidate summary also includes old SpikeTurnpike-style waveform metrics from
+`Hochgeschwender-Lab/SpikeTurnpike/ProcessSUA_main.m`, computed on the same black
+best-channel trace:
+
+```text
+spiketurnpike_amplitude_uV
+spiketurnpike_legacy_cell_type
+peak1_normalized_amplitude
+peak2_normalized_amplitude
+peak1_to_trough_ratio
+peak2_to_trough_ratio
+peak_to_peak_ratio
+spike_half_width_ms
+rep_fraction
+rep_threshold_uV
+rep_recovery_index
+rep_recovery_time_ms
+repolarization_time_ms
+```
+
+The old `UnNormalized_Template_Waveform` and `Normalized_Template_Waveform` are
+stored in long form in
+`lumos_candidate_waveform_best_channel_traces_20260709.csv.gz`; the full
+multi-channel template cache is in
+`lumos_candidate_waveform_full_templates_20260709.npz`. These cache files are the
+preferred starting point for later visual inspection because they avoid reopening
+the Step 1 analyzers. Do not add `waveform_asymmetry` or `repolarization_slope` to
+this artifact; those are canonical axion table metrics but were intentionally
+excluded from the SpikeTurnpike-style candidate view.
+
+REP is included as an optional recovery-time metric, not as a replacement for
+TTP. TTP is still the existing trough-to-rebound-peak time and continues to drive
+the tentative FS/RS label. REP is measured from the trough until the post-trough
+waveform first recovers to a configured fraction of the trough amplitude
+(`--rep-fraction 0.25`, `0.5`, or `0.63`; default `0.5`/REP50), with linear
+interpolation between samples. TTP and REP quantify different aspects of spike
+shape and should both be reported.
+
+For the NPZ arrays, dimensions mean:
+
+```text
+templates_uV: 24 candidates x 37 waveform samples x 16 analyzer channels
+best_waveforms_uV: 24 candidates x 37 waveform samples
+normalized_best_waveforms: 24 candidates x 37 waveform samples
+```
+
+The NPZ also stores REP arrays: `rep_fraction`, `rep_threshold_uV`,
+`rep_recovery_index`, `rep_recovery_time_ms`, and `repolarization_time_ms`.
+
+The normalized/unnormalized figure
+`lumos_candidate_waveform_best_channel_normalized_vs_unnormalized_20260709.png`
+shows the same black best-channel traces in both scales. Rows are columns 4-8 uV,
+columns 4-8 normalized, columns 1-3 uV, columns 1-3 normalized. Marker colors:
+blue = pre-trough peak, black = trough, orange = rebound peak, red-orange =
+half-width anchors.
+
+Landmark indices are detected on the unnormalized uV best-channel waveform:
+pre-peak/peak1 is the maximum before or at the trough, trough is the minimum, and
+rebound peak/peak2 is the maximum after the trough. The normalized waveform is
+`best_waveform / abs(min(best_waveform))`. Half-width anchors are measured on that
+normalized waveform at the closest samples to half the normalized trough
+amplitude on the pre-trough and post-trough slopes. The same landmark sample
+indices are displayed on both the uV and normalized rows. This is SpikeTurnpike
+logic adapted to Axion/SpikeInterface templates: same peak/trough/ratio/half-width
+definitions, but using the current gallery's best peak-to-peak analyzer channel
+and the analyzer sampling rate instead of the old 30 kHz conversion.
+
+REP uses the same trough index and the existing recovery side of the waveform:
+`rep_threshold_uV = trough_value_uV * rep_fraction`, then the first post-trough
+threshold crossing gives `repolarization_time_ms`. This does not change landmark
+detection or the existing TTP metric.
+
+Important amplitude interpretation: the plotted waveform values are uV-scaled
+Step 1 analyzer template amplitudes, not raw acquisition traces and not native
+Kilosort whitened/PCA templates. The templates are average snippets from the
+preprocessed analyzer recording using uV scaling. The comparison gallery keeps a
+shared y-axis scale across panels so columns 4-8 and columns 1-3 are visually
+comparable. In contrast, `review_sort_peak_raw_response_hz` is not voltage; it is
+the unsmoothed pulse-locked 1 ms PSTH peak firing rate in Hz.
+
+Current gallery summary: top 12 columns 4-8 candidates have 8 `KSLabel=good` and
+4 `KSLabel=mua`, median best-channel template PTP about 19.1 uV, and max
+pulse-locked raw response 44 Hz. Top 12 columns 1-3 comparison candidates have 9
+`KSLabel=good` and 3 `KSLabel=mua`, median best-channel template PTP about
+21.8 uV, and max pulse-locked raw response 20 Hz. Tentative TTP labels for this
+top-24 set are 11 RS-like/1 borderline/0 FS-like in columns 4-8 and
+10 RS-like/2 borderline/0 FS-like in columns 1-3. Several D2 column-2 candidates
+are clean `good` units with large PTP templates, so D2 should remain in the manual
+review set rather than being treated as automatically negative.

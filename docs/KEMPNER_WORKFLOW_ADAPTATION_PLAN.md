@@ -7311,6 +7311,93 @@ Canonical commands:
     final Lumos status counts after regenerating
     `scripts/summarize_step1_v5_ground_truth.py`
 
+- [x] 2026-07-09 11:00 EDT - Cytoview/SixWell priority decision for after Lumos
+  completes:
+    Do not retry all `198` Cytoview rows immediately.
+    After all Lumos standard batches finish, launch the plate-map-backed
+    dorsal/ventral Cytoview subset first.
+    Do not de-duplicate across non-LFP raw variants for this priority set.
+
+  Plate-map-backed Cytoview priority set:
+    `15` non-LFP recording variants
+    `6` wells per recording variant
+    total submission count: `90` well pipelines
+    region split from decoded plate maps:
+      ventral: `45` well pipelines (`A1`, `A2`, `A3`)
+      dorsal: `45` well pipelines (`B1`, `B2`, `B3`)
+
+  Submission policy:
+    Submit only after Lumos standard-route batches have drained.
+    Submit as watched Cytoview batches, not as one 90-well wave. At batch size
+    20, the planned sequence is `20 + 20 + 20 + 20 + 10`.
+    For the first Cytoview retry batch, confirm `job_dispatch` completion and at
+    least one downstream completed stage before submitting the next Cytoview
+    batch.
+
+- [x] 2026-07-09 11:05 EDT - Lumos batch-size experiment started after the
+  previous 20-well wave drained cleanly and the live Lumos/AIND queue was empty.
+
+  Submitted larger Lumos standard-route wave:
+    wave label: `lumos_timeout_resume_40_20260709_1105`
+    submitted rows: `40`
+    parent wrapper walltime: `12:00:00`
+    parent Slurm IDs: `53167697-53167736`
+    submitted timestamps from Slurm accounting: `2026-07-09T11:05:47` to
+    `2026-07-09T11:05:48`
+    immediate state after submission: `40` pending by Priority
+
+  Rationale:
+    The prior 20-well wave `lumos_timeout_resume_20_20260709_1043` fully
+    completed with per-well parent-wrapper timing:
+      min: `6m52s`
+      median: `13m27s`
+      mean: `12m14s`
+      max: `15m58s`
+    This supports trying a controlled `40`-well wave before the final `30`.
+
+  Remaining Lumos submission policy:
+    Do not submit the final `30` Lumos wells until this `40`-well wave drains or
+    is clearly progressing without recreating an idle-wrapper backlog.
+    After the `40`-well wave completes, regenerate
+    `scripts/summarize_step1_v5_ground_truth.py`, record per-well and total
+    batch timing, and then submit the final `30` not-ready Lumos rows if the
+    live queue is clean.
+
+- [x] 2026-07-09 11:23 EDT - Important timing warning for the 40-well Lumos
+  experiment:
+    The `40`-well wave is not yet a failure, but it is much slower to start than
+    the `20`-well waves and this should not be lost when deciding future batch
+    sizes.
+
+  Prior 20-well wave startup timing:
+    `lumos_timeout_resume_20_20260709_1015`:
+      submitted `2026-07-09T10:15:07`
+      all 20 parents started `2026-07-09T10:15:27`
+      start delay: about `20s`
+    `lumos_timeout_resume_20_20260709_1043`:
+      submitted `2026-07-09T10:42:34`
+      first 16 parents started `2026-07-09T10:42:49`
+      last 4 parents started `2026-07-09T10:43:21`
+      start delay: about `15-47s`
+
+  Current 40-well wave startup timing:
+    `lumos_timeout_resume_40_20260709_1105`:
+      submitted `2026-07-09T11:05:47` to `2026-07-09T11:05:48`
+      first parent started `2026-07-09T11:06:11`
+      next 8 parents started `2026-07-09T11:16:26`
+      state at about `2026-07-09T11:22`:
+        running parent wrappers: `9 / 40`
+        pending parent wrappers: `31 / 40`
+        pending `nf-job_dispatch` children: `9`
+        downstream stages visible: `0`
+
+  Interpretation:
+    The slowdown is currently parent-wrapper/dispatch scheduling latency, not
+    proven per-well processing slowness. However, the 40-well wave is worse for
+    wall-clock startup than the 20-well waves. Unless this wave drains very
+    cleanly, prefer submitting the final Lumos remainder as `20 + 10` rather
+    than one `30`-well wave, and use small watched Cytoview waves after Lumos.
+
 - [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
   with the prepared 20-well dry run, and confirm `job_dispatch` completion
   before submitting more Cytoview wells.
