@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import textwrap
 from datetime import datetime
@@ -39,8 +40,15 @@ from axion_mea.step3_repro import DEFAULT_STEP3_REPRO_DIR, write_command_repro
 
 DEFAULT_OUTPUT_DIR = CANONICAL_MASTER_UNIT_TABLE.parent / "figures" / "waveform_population"
 DEFAULT_OUTPUT_PDF = DEFAULT_OUTPUT_DIR / "figure__well_waveform_unit_grid_review.pdf"
+DEFAULT_PER_RECORDING_OUTPUT_DIR = DEFAULT_OUTPUT_DIR / "by_recording"
 DEFAULT_SUMMARY_CSV = CANONICAL_MASTER_UNIT_TABLE.with_name("well_waveform_unit_grid_review_summary.csv")
+DEFAULT_RECORDING_INDEX_CSV = CANONICAL_MASTER_UNIT_TABLE.with_name("recording_waveform_unit_grid_review_index.csv")
 DEFAULT_PROVENANCE_JSON = CANONICAL_MASTER_UNIT_TABLE.with_name("well_waveform_unit_grid_review_provenance.json")
+DEFAULT_LOGICAL_GROUPS_CSV = Path(
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/"
+    "axion_file_ground_truth_20260707_1134_final_refreshed_metadata/"
+    "logical_recording_groups_annotated.csv"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,8 +56,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-csv", type=Path, default=CANONICAL_MASTER_UNIT_TABLE)
     parser.add_argument("--manifest-csv", type=Path, default=DEFAULT_STEP2_MANIFEST)
     parser.add_argument("--output-pdf", type=Path, default=DEFAULT_OUTPUT_PDF)
+    parser.add_argument("--per-recording-output-dir", type=Path, default=DEFAULT_PER_RECORDING_OUTPUT_DIR)
     parser.add_argument("--summary-csv", type=Path, default=DEFAULT_SUMMARY_CSV)
+    parser.add_argument("--recording-index-csv", type=Path, default=DEFAULT_RECORDING_INDEX_CSV)
     parser.add_argument("--provenance-json", type=Path, default=DEFAULT_PROVENANCE_JSON)
+    parser.add_argument("--logical-groups-csv", type=Path, default=DEFAULT_LOGICAL_GROUPS_CSV)
+    parser.add_argument("--skip-combined-pdf", action="store_true")
+    parser.add_argument("--skip-per-recording-pdfs", action="store_true")
     parser.add_argument("--sampling-frequency-hz", type=float, default=12500.0)
     parser.add_argument("--baseline-samples", type=int, default=5)
     parser.add_argument("--time-min-ms", type=float, default=-2.0)
@@ -64,14 +77,30 @@ def main() -> None:
     table = load_canonical_master_unit_table(args.input_csv)
     manifest = load_step2_manifest(args.manifest_csv)
     source_lookup = {(row["recording"], row["well"]): row for _, row in manifest.iterrows()}
+    logical_group_lookup = build_logical_group_lookup(table["recording"].drop_duplicates(), args.logical_groups_csv)
     grouped = list(table.groupby(["recording", "well"], sort=False))
 
     args.output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    args.per_recording_output_dir.mkdir(parents=True, exist_ok=True)
     args.summary_csv.parent.mkdir(parents=True, exist_ok=True)
+    args.recording_index_csv.parent.mkdir(parents=True, exist_ok=True)
     args.provenance_json.parent.mkdir(parents=True, exist_ok=True)
 
     summary_rows = []
-    with PdfPages(args.output_pdf) as pdf:
+    per_recording_pdf_paths = build_per_recording_pdf_paths(table, logical_group_lookup, args.per_recording_output_dir)
+    per_recording_page_counts = table[["recording", "well"]].drop_duplicates().groupby("recording").size().to_dict()
+    per_recording_handles = {}
+    combined_pdf = None
+    try:
+        if not args.skip_combined_pdf:
+            combined_pdf = PdfPages(args.output_pdf)
+        if not args.skip_per_recording_pdfs:
+            for stale_pdf in args.per_recording_output_dir.glob("*__unit_grid_review.pdf"):
+                stale_pdf.unlink()
+            for recording, pdf_path in per_recording_pdf_paths.items():
+                pdf_path.parent.mkdir(parents=True, exist_ok=True)
+                per_recording_handles[recording] = PdfPages(pdf_path)
+
         for page_index, ((recording, well), well_units) in enumerate(grouped, start=1):
             if args.progress:
                 print(f"[{page_index}/{len(grouped)}] {recording} {well} units={len(well_units)}", flush=True)
@@ -96,15 +125,30 @@ def main() -> None:
                 waveforms=waveforms,
                 page_index=page_index,
                 page_count=len(grouped),
+                recording_page_index=int(len([row for row in summary_rows if row["recording"] == recording]) + 1),
+                recording_page_count=int(per_recording_page_counts[recording]),
+                recording_pdf_path=str(per_recording_pdf_paths.get(recording, "")),
+                logical_group=logical_group_lookup.get(recording, unmatched_logical_group(recording)),
                 filter_metadata=filter_metadata,
             )
             summary_rows.append(page_summary)
             fig = plot_well_page(page_summary, waveforms)
-            pdf.savefig(fig, bbox_inches="tight")
+            if combined_pdf is not None:
+                combined_pdf.savefig(fig, bbox_inches="tight")
+            recording_pdf = per_recording_handles.get(recording)
+            if recording_pdf is not None:
+                recording_pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
+    finally:
+        if combined_pdf is not None:
+            combined_pdf.close()
+        for pdf in per_recording_handles.values():
+            pdf.close()
 
     summary = pd.DataFrame(summary_rows)
     summary.to_csv(args.summary_csv, index=False)
+    recording_index = build_recording_index(summary)
+    recording_index.to_csv(args.recording_index_csv, index=False)
     command_repro = write_command_repro(
         repro_dir=args.repro_dir,
         stem="plot_well_waveform_population_validation_pdf",
@@ -115,10 +159,14 @@ def main() -> None:
         "question": "Do well-level grids of Kilosort-good unit mean/template waveforms look like reasonable extracellular spike waveforms?",
         "input_csv": str(args.input_csv),
         "manifest_csv": str(args.manifest_csv),
-        "output_pdf": str(args.output_pdf),
+        "output_pdf": "" if args.skip_combined_pdf else str(args.output_pdf),
+        "per_recording_output_dir": "" if args.skip_per_recording_pdfs else str(args.per_recording_output_dir),
         "summary_csv": str(args.summary_csv),
+        "recording_index_csv": str(args.recording_index_csv),
+        "logical_groups_csv": str(args.logical_groups_csv),
         "well_count": int(len(summary)),
         "unit_count": int(len(table)),
+        "recording_count": int(summary["recording"].nunique()) if not summary.empty else 0,
         "normalization": (
             "For each Kilosort-good unit, use the dominant-channel Step 1 templates.average waveform, "
             "subtract the median of the first baseline_samples, divide by absolute trough depth, "
@@ -126,7 +174,13 @@ def main() -> None:
         ),
         "layout": (
             "Each PDF page is one recording/well. Each subplot is one Kilosort-good unit's normalized "
-            "dominant-channel templates.average waveform. The grid dimensions are computed from the number of units."
+            "dominant-channel templates.average waveform. The grid dimensions are computed from the number of units. "
+            "The combined PDF contains all wells. Per-recording PDFs contain one page per well within that recording."
+        ),
+        "logical_group_tracking": (
+            "Logical raw-group metadata is copied from logical_recording_groups_annotated.csv when a specific "
+            "logical_recording_stem can be matched to the Step 3 recording name. Generic counter-only stems are "
+            "ignored to avoid false matches. Unmatched recordings are explicitly marked unmatched."
         ),
         "filtering_metadata": (
             "Filtering/preprocessing fields are copied from the Step 1 SortingAnalyzer sorting provenance and "
@@ -147,12 +201,27 @@ def main() -> None:
                 "kilosort_whitening_range",
             ]
         ].drop_duplicates().to_dict(orient="records"),
+        "logical_group_unique_rows": recording_index[
+            [
+                "recording",
+                "logical_match_status",
+                "logical_group_id",
+                "logical_scope",
+                "logical_folder_relative",
+                "logical_recording_stem",
+                "logical_manual_label",
+            ]
+        ].to_dict(orient="records"),
         "command_repro": command_repro,
     }
     args.provenance_json.write_text(json.dumps(provenance, indent=2, default=str) + "\n", encoding="utf-8")
 
-    print(f"Wrote waveform population PDF: {args.output_pdf}")
+    if not args.skip_combined_pdf:
+        print(f"Wrote waveform population PDF: {args.output_pdf}")
+    if not args.skip_per_recording_pdfs:
+        print(f"Wrote per-recording PDFs: {args.per_recording_output_dir}")
     print(f"Wrote well summary CSV: {args.summary_csv}")
+    print(f"Wrote recording index CSV: {args.recording_index_csv}")
     print(f"Wrote provenance JSON: {args.provenance_json}")
     print(f"Pages: {len(summary)}")
 
@@ -242,20 +311,178 @@ def summarize_well(
     waveforms: pd.DataFrame,
     page_index: int,
     page_count: int,
+    recording_page_index: int,
+    recording_page_count: int,
+    recording_pdf_path: str,
+    logical_group: dict[str, object],
     filter_metadata: dict[str, object],
 ) -> dict[str, object]:
     ttp = well_units["trough_to_peak_duration_ms"].dropna().astype(float)
     out = {
         "page_index": page_index,
         "page_count": page_count,
+        "recording_page_index": recording_page_index,
+        "recording_page_count": recording_page_count,
         "recording": recording,
         "well": well,
+        "recording_pdf_path": recording_pdf_path,
+        "logical_match_status": logical_group.get("logical_match_status", "unmatched"),
+        "logical_group_id": logical_group.get("logical_group_id", ""),
+        "logical_scope": logical_group.get("logical_scope", ""),
+        "logical_folder_relative": logical_group.get("logical_folder_relative", ""),
+        "logical_recording_stem": logical_group.get("logical_recording_stem", ""),
+        "logical_manual_label": logical_group.get("logical_manual_label", ""),
+        "logical_manual_note": logical_group.get("logical_manual_note", ""),
         "kilosort_good_unit_count": int(len(well_units)),
         "mean_trough_to_peak_duration_ms": float(ttp.mean()) if not ttp.empty else np.nan,
         "median_trough_to_peak_duration_ms": float(ttp.median()) if not ttp.empty else np.nan,
     }
     out.update(filter_metadata)
     return out
+
+
+def safe_slug(value: object, max_length: int = 96) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value)).strip("_")
+    return slug[:max_length].strip("_") or "unknown"
+
+
+def normalized_match_token(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def folder_suffix_tokens(folder: object) -> list[str]:
+    parts = [part for part in str(folder).split("/") if part and part not in {"incoming", "manny4tbum_20260706"}]
+    tokens = []
+    for start_index in range(len(parts)):
+        token = normalized_match_token("/".join(parts[start_index:]))
+        if token:
+            tokens.append(token)
+    return tokens
+
+
+def unmatched_logical_group(recording: str) -> dict[str, object]:
+    return {
+        "recording": recording,
+        "logical_match_status": "unmatched",
+        "logical_group_id": "",
+        "logical_scope": "",
+        "logical_folder_relative": "",
+        "logical_recording_stem": "",
+        "logical_manual_label": "",
+        "logical_manual_note": "",
+    }
+
+
+def build_logical_group_lookup(recordings: pd.Series, logical_groups_csv: Path) -> dict[str, dict[str, object]]:
+    lookup = {str(recording): unmatched_logical_group(str(recording)) for recording in recordings}
+    if not logical_groups_csv or not logical_groups_csv.exists():
+        return lookup
+
+    logical_groups = pd.read_csv(logical_groups_csv)
+    required = {"logical_recording_stem", "logical_folder_relative"}
+    if not required.issubset(logical_groups.columns):
+        return lookup
+
+    candidates = []
+    for _, row in logical_groups.iterrows():
+        stem = str(row.get("logical_recording_stem", ""))
+        stem_token = normalized_match_token(stem)
+        # Counter-only stems like "(000)" appear in unrelated folders and create false matches.
+        if len(stem_token) < 4 or stem_token.isdigit():
+            continue
+        folder = str(row.get("logical_folder_relative", ""))
+        folder_tokens = folder_suffix_tokens(folder)
+        group_id = f"{folder}::{stem}"
+        candidates.append(
+            {
+                "stem_token": stem_token,
+                "folder_tokens": folder_tokens,
+                "base_score": len(stem_token),
+                "logical_group_id": group_id,
+                "logical_scope": row.get("scope", ""),
+                "logical_folder_relative": folder,
+                "logical_recording_stem": stem,
+                "logical_manual_label": row.get("manual_label", ""),
+                "logical_manual_note": row.get("manual_note", ""),
+            }
+        )
+
+    for recording in lookup:
+        recording_token = normalized_match_token(recording)
+        matches = []
+        for candidate in candidates:
+            if candidate["stem_token"] not in recording_token:
+                continue
+            candidate = candidate.copy()
+            folder_score = max(
+                [len(token) for token in candidate.get("folder_tokens", []) if token and token in recording_token],
+                default=0,
+            )
+            candidate["score"] = int(candidate["base_score"]) + folder_score
+            matches.append(candidate)
+        if not matches:
+            continue
+        matches.sort(key=lambda candidate: candidate["score"], reverse=True)
+        if len(matches) > 1 and matches[0]["score"] == matches[1]["score"]:
+            lookup[recording].update(
+                {
+                    "logical_match_status": "ambiguous",
+                    "logical_group_id": ";".join(match["logical_group_id"] for match in matches if match["score"] == matches[0]["score"]),
+                }
+            )
+            continue
+        best = matches[0].copy()
+        best.pop("stem_token", None)
+        best.pop("folder_tokens", None)
+        best.pop("base_score", None)
+        best.pop("score", None)
+        lookup[recording].update(best)
+        lookup[recording]["logical_match_status"] = "matched_by_logical_recording_stem"
+    return lookup
+
+
+def build_per_recording_pdf_paths(
+    table: pd.DataFrame,
+    logical_group_lookup: dict[str, dict[str, object]],
+    output_dir: Path,
+) -> dict[str, Path]:
+    paths = {}
+    recordings = list(table["recording"].drop_duplicates())
+    width = max(2, len(str(len(recordings))))
+    for index, recording in enumerate(recordings, start=1):
+        logical_group = logical_group_lookup.get(str(recording), unmatched_logical_group(str(recording)))
+        logical_stem = logical_group.get("logical_recording_stem") or logical_group.get("logical_match_status") or "unmatched"
+        filename = f"{index:0{width}d}__{safe_slug(logical_stem, 48)}__{safe_slug(recording, 120)}__unit_grid_review.pdf"
+        paths[str(recording)] = output_dir / filename
+    return paths
+
+
+def build_recording_index(summary: pd.DataFrame) -> pd.DataFrame:
+    if summary.empty:
+        return pd.DataFrame()
+    first_cols = [
+        "recording",
+        "recording_pdf_path",
+        "recording_page_count",
+        "logical_match_status",
+        "logical_group_id",
+        "logical_scope",
+        "logical_folder_relative",
+        "logical_recording_stem",
+        "logical_manual_label",
+        "logical_manual_note",
+    ]
+    index = summary[first_cols].drop_duplicates("recording").copy()
+    counts = (
+        summary.groupby("recording", as_index=False)
+        .agg(
+            well_count=("well", "nunique"),
+            kilosort_good_unit_count=("kilosort_good_unit_count", "sum"),
+            mean_trough_to_peak_duration_ms=("mean_trough_to_peak_duration_ms", "mean"),
+            median_trough_to_peak_duration_ms=("median_trough_to_peak_duration_ms", "median"),
+        )
+    )
+    return index.merge(counts, on="recording", how="left")
 
 
 def plot_well_page(page_summary: dict[str, object], waveforms: pd.DataFrame) -> plt.Figure:
@@ -290,6 +517,11 @@ def plot_well_page(page_summary: dict[str, object], waveforms: pd.DataFrame) -> 
         f"Mean TTP: {page_summary['mean_trough_to_peak_duration_ms']:.3f} ms | "
         f"Median TTP: {page_summary['median_trough_to_peak_duration_ms']:.3f} ms"
     )
+    logical_line = (
+        f"Logical group: {page_summary.get('logical_match_status')} | "
+        f"{page_summary.get('logical_folder_relative')} | "
+        f"{page_summary.get('logical_recording_stem')}"
+    )
     filter_line = (
         f"Filter metadata: recording is_filtered={page_summary.get('recording_is_filtered')} | "
         f"skip KS preprocessing={page_summary.get('skip_kilosort_preprocessing')} | "
@@ -297,7 +529,7 @@ def plot_well_page(page_summary: dict[str, object], waveforms: pd.DataFrame) -> 
         f"do_CAR={page_summary.get('kilosort_do_CAR')} | "
         f"do_correction={page_summary.get('kilosort_do_correction')}"
     )
-    fig.suptitle(f"{title}\n{stats_line}\n{filter_line}", y=0.985, fontsize=8.5)
+    fig.suptitle(f"{title}\n{stats_line}\n{logical_line}\n{filter_line}", y=0.985, fontsize=8.2)
     fig.supxlabel("Time from detected trough (ms)", fontsize=8, y=0.025)
     fig.supylabel("Normalized amplitude", fontsize=8, x=0.015)
     fig.text(
@@ -309,7 +541,16 @@ def plot_well_page(page_summary: dict[str, object], waveforms: pd.DataFrame) -> 
         fontsize=7,
         color="#555555",
     )
-    top = max(0.74, 0.92 - max(0, len(title.splitlines()) - 1) * 0.025)
+    fig.text(
+        0.01,
+        0.015,
+        f"Recording page {page_summary['recording_page_index']} of {page_summary['recording_page_count']}",
+        ha="left",
+        va="bottom",
+        fontsize=7,
+        color="#555555",
+    )
+    top = max(0.70, 0.90 - max(0, len(title.splitlines()) - 1) * 0.025)
     fig.tight_layout(rect=(0.035, 0.04, 0.985, top), h_pad=0.45, w_pad=0.35)
     return fig
 
