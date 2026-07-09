@@ -587,6 +587,18 @@ Next handoff target:
   `variant_policy=preserve_all_raw_filter_broadband_variants_no_deduplication`;
   do not collapse primary, filtered, or broadband-processor variants when
   rendering the figures.
+- First-pass GUI-equivalent static representative plot pack completed on
+  2026-07-09 17:55 EDT via Slurm job `53213093`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_plot_pack_20260709_175429/`.
+  It rendered `48` PNG panels and `0` errors: for each of Lumos geometry,
+  Cytoview dorsal, and Cytoview ventral, `6` Wave A stability panels, `6`
+  Wave B correlogram panels, and `4` Wave C spatial-footprint panels. The
+  renderer consumes the frozen final-selection manifests and loads the Step 1
+  `SortingAnalyzer` data for spike trains, templates, correlograms when
+  available, and channel locations. Visual spot-checks confirmed nonblank
+  Wave A/B/C panels. Caveat: some Wave B pairs are technically clean but sparse
+  for publication-style correlogram examples; add a stricter pair-level
+  minimum-spike floor or manual override before final figure selection.
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference

@@ -201,6 +201,67 @@ Selected rows include multiple raw/filter families (`primary_raw`,
 `filter_200Hz-3kHz`, and `broadband_processor`). This is intentional. Do not
 collapse those variants during representative selection or plotting.
 
+First-pass GUI-equivalent static plot pack was then rendered from the frozen
+final-selection manifests:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_plot_pack_20260709_175429/
+```
+
+Completed plot-pack job:
+
+```text
+job_id: 53213093
+state: COMPLETED
+elapsed: 00:00:41
+node: gl3184
+```
+
+The plot-pack job wrote `48` PNG panels and `0` errors:
+
+| Selection group | Wave A stability panels | Wave B correlogram panels | Wave C spatial panels |
+|---|---:|---:|---:|
+| Lumos geometry | 6 | 6 | 4 |
+| Cytoview dorsal | 6 | 6 | 4 |
+| Cytoview ventral | 6 | 6 | 4 |
+
+Plot-pack outputs:
+
+```text
+representative_unit_plot_pack_manifest_20260709.csv
+representative_unit_plot_pack_errors_20260709.csv
+representative_unit_plot_pack_provenance_20260709.json
+lumos/
+  waveA_stability/
+  waveB_correlograms/
+  waveC_spatial_footprints/
+cytoview_dorsal/
+  waveA_stability/
+  waveB_correlograms/
+  waveC_spatial_footprints/
+cytoview_ventral/
+  waveA_stability/
+  waveB_correlograms/
+  waveC_spatial_footprints/
+repro/
+  project_config.env
+  python_command.sh
+  submit_command.sh
+  submitted_job.sbatch
+```
+
+The renderer consumes only the frozen final-selection manifests plus the
+Wave C unit-score table, then loads each Step 1 `SortingAnalyzer` for
+templates, spike trains, correlograms when available, and channel locations.
+It does not change ranking, labels, or denominator membership.
+
+Visual sanity checks passed for representative Wave A, Wave B, and Wave C
+panels. One scoring caveat is now visible: the top Lumos Wave B pair is clean
+by duplicate-risk/distance criteria but includes a sparse unit (`23` spikes),
+so some correlogram panels are visually thin. Before selecting publication
+examples, add a stricter pair-level minimum-spike floor or use a manual
+override table to prefer visually interpretable pairs.
+
 ## Goal
 
 Build a unified, reproducible representative-unit selection layer for the next
@@ -921,6 +982,8 @@ scripts/score_representative_unit_candidates.py
 scripts/prepare_representative_unit_abc_scoring_job.py
 scripts/build_representative_figure_selection_manifests.py
 scripts/prepare_representative_figure_selection_job.py
+scripts/plot_representative_unit_pack_from_manifests.py
+scripts/prepare_representative_plot_pack_job.py
 scripts/plot_representative_unit_pack.py
 ```
 

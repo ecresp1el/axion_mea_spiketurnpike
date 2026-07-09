@@ -8268,6 +8268,47 @@ Canonical commands:
     `final_selection_cytoview_ventral_waveB_correlogram_pairs_20260709.csv`
     `final_selection_cytoview_ventral_waveC_spatial_wells_20260709.csv`
 
+- [x] 2026-07-09 17:55 EDT - First-pass representative plot pack rendered from
+  the frozen final-selection manifests.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_plot_pack_20260709_175429/`
+
+  Completed job:
+    `53213093` `COMPLETED` in `00:00:41` on `gl3184`.
+
+  Rendered outputs:
+    total PNG panels: `48`
+    render errors: `0`
+    Lumos: `6` Wave A stability panels, `6` Wave B correlogram panels, `4`
+      Wave C spatial-footprint panels
+    Cytoview dorsal: `6` Wave A stability panels, `6` Wave B correlogram
+      panels, `4` Wave C spatial-footprint panels
+    Cytoview ventral: `6` Wave A stability panels, `6` Wave B correlogram
+      panels, `4` Wave C spatial-footprint panels
+
+  Key outputs:
+    `representative_unit_plot_pack_manifest_20260709.csv`
+    `representative_unit_plot_pack_errors_20260709.csv`
+    `representative_unit_plot_pack_provenance_20260709.json`
+    `lumos/waveA_stability/*.png`
+    `lumos/waveB_correlograms/*.png`
+    `lumos/waveC_spatial_footprints/*.png`
+    `cytoview_dorsal/waveA_stability/*.png`
+    `cytoview_dorsal/waveB_correlograms/*.png`
+    `cytoview_dorsal/waveC_spatial_footprints/*.png`
+    `cytoview_ventral/waveA_stability/*.png`
+    `cytoview_ventral/waveB_correlograms/*.png`
+    `cytoview_ventral/waveC_spatial_footprints/*.png`
+
+  Visual spot-check:
+    Wave A stability, Wave B correlogram, and Wave C spatial-footprint panels
+    are nonblank and readable. The first Lumos Wave B pair is very sparse
+    because one selected unit has only `23` spikes, even though the pair is
+    clean by duplicate-risk/distance ranking. Before publication-grade figure
+    selection, add a stricter pair-level minimum-spike floor or manually
+    override sparse but technically clean pairs.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 
