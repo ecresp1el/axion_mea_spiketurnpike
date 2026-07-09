@@ -21,10 +21,22 @@ RECORDING_NAME = "block0_None_recording1"
 STEP1_LAYOUT = {
     "zone1": ["curation", "spikelist"],
     "zone2": ["unitlist", "merge"],
-    "zone3": ["trace", "spikerate"],
-    "zone4": ["probe", "waveform", "maintemplate", "correlogram", "isi"],
-    "zone5": ["similarity", "mainsettings"],
+    "zone3": ["trace", "spikerate", "probe", "similarity", "mainsettings"],
+    "zone5": ["waveform"],
+    "zone6": ["maintemplate"],
+    "zone7": ["correlogram", "isi"],
 }
+
+STEP1_GUI_REMINDER = """\
+### Step 1 GUI reminder
+
+- This is early per-well QC/curation for completed Step 1 analyzers only.
+- Step 2, Step 3, and full recording completion are not assumed.
+- Use **Merge** and **Delete** from the unit list; use the curation panel to **Restore**, **Unmerge**, or **Unsplit**.
+- Save with **Save curation**. The Step 1 analyzer stays frozen; decisions are written to the external JSON shown below.
+- **Download JSON** is optional; this launcher redirects it to the same external JSON path instead of the repo.
+- Treat saved decisions as per-well notes until the rest of the rerun finishes.
+"""
 
 STEP1_DISPLAYED_UNIT_PROPERTIES = [
     "KSLabel",
@@ -80,12 +92,19 @@ def main() -> None:
         raise SystemExit(f"No Step 1 analyzers found under {args.root_folder}{prefix_text}")
 
     patch_probe_view_for_bokeh_compatibility()
+    patch_curation_download_export_path()
 
     import panel as pn
 
     print(f"Found {len(analyzers)} Step 1 analyzers under {args.root_folder}", flush=True)
     if args.recording_prefix:
         print(f"Recording prefix filter: {', '.join(args.recording_prefix)}", flush=True)
+    print(
+        "GUI reminder: inspect only completed Step 1 analyzers; save with "
+        "'Save curation' to external JSON; do not treat partial rerun review as "
+        "full Step 2/Step 3 completion.",
+        flush=True,
+    )
     print(f"Open on the Mac via SSH tunnel: http://localhost:{args.port}", flush=True)
     pn.serve(
         {
@@ -157,6 +176,7 @@ def make_chooser_app(analyzers: list[dict[str, str]], curation_root: Path, no_tr
 
     return pn.Column(
         pn.pane.Markdown("# Step 1 SortingAnalyzer Browser"),
+        pn.pane.Markdown(STEP1_GUI_REMINDER, sizing_mode="stretch_width"),
         pn.Row(recording_select, well_select, no_traces_checkbox, sizing_mode="stretch_width"),
         selected_path,
         open_link,
@@ -220,7 +240,12 @@ def make_gui_app(
         pn.pane.Markdown(f"[Back to chooser](/)  \n**{recording} / {well}**"),
         sizing_mode="stretch_width",
     )
-    status = pn.pane.Markdown(f"Manual curation saves to `{curation_output}`", sizing_mode="stretch_width")
+    status = pn.pane.Markdown(
+        f"{STEP1_GUI_REMINDER}\n**Manual curation JSON**  \n`{curation_output}`",
+        sizing_mode="stretch_width",
+    )
+    print(f"Opened Step 1 GUI: {recording} / {well}", flush=True)
+    print(f"Manual curation JSON: {curation_output}", flush=True)
     return pn.Column(header, status, win.main_layout, sizing_mode="stretch_both")
 
 
@@ -298,6 +323,30 @@ def patch_probe_view_for_bokeh_compatibility() -> None:
 
     ProbeView._panel_compute_unit_glyph_patches = patched_panel_compute_unit_glyph_patches
     ProbeView._axion_step1_probe_patch = True
+
+
+def patch_curation_download_export_path() -> None:
+    """Keep the web JSON download from creating repo-local curation.json files."""
+    from spikeinterface_gui.curationview import CurationView
+
+    if getattr(CurationView, "_axion_step1_download_patch", False):
+        return
+
+    def patched_panel_generate_json(self):
+        callback_kwargs = getattr(self.controller, "curation_callback_kwargs", None) or {}
+        export_path = Path(callback_kwargs.get("output_json", "curation.json"))
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+
+        curation_model = self.controller.construct_final_curation()
+        with export_path.open("w") as f:
+            f.write(curation_model.model_dump_json(indent=4))
+
+        self.controller.current_curation_saved = True
+        self.refresh()
+        return export_path
+
+    CurationView._panel_generate_json = patched_panel_generate_json
+    CurationView._axion_step1_download_patch = True
 
 
 if __name__ == "__main__":

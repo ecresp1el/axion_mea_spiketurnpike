@@ -76,6 +76,22 @@ rerun, completed wells are appearing under recording folders that begin with
 `step1_nonlfp_th5_20260708_`; the browser should list only wells from those
 folders while Step 1 is still partially complete.
 
+The browser prints and displays the active assumptions when it starts:
+
+- review only completed per-well Step 1 analyzers,
+- do not assume Step 2, Step 3, or full recording completion,
+- save decisions with `Save curation`, which writes external JSON under
+  `results/step1_gui_curation`,
+- use `Download JSON` only as an optional browser copy; the launcher redirects
+  that export to the same external JSON path instead of a repo-local
+  `curation.json`,
+- keep saved decisions as per-well review notes until the rerun finishes.
+
+The default layout groups the detailed unit-shape evidence along the bottom:
+`waveform`, `maintemplate`, and `correlogram`/`isi`. The top row keeps the
+curation table, unit list, merge list, traces, probe, similarity, and settings
+available for context.
+
 ## Runtime Boundary
 
 There are two separate Great Lakes runtime lanes:
