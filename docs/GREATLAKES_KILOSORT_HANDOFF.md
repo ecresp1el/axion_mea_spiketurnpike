@@ -595,6 +595,43 @@ waveform workflow only. They are not dorsal/ventral biological comparisons,
 because the dorsal/ventral grouping logic belongs to the Cytoview plate-map
 track below.
 
+The Lumos geometry counterpart, generated 2026-07-09 15:49 EDT, uses the same
+paired waveform alignment audit and the same cutoff/alignment math as the
+Cytoview composite, but groups wells by Lumos plate-column geometry:
+`columns_1_3_compare` and `columns_4_8_prior`. These are geometry/opto-review
+groups, not dorsal/ventral biological labels.
+
+```bash
+python scripts/plot_lumos_geometry_alignment_cutoff_composite.py
+```
+
+Outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_geometry_alignment_cutoff_composite_20260709/
+lumos_geometry_alignment_cutoff_composite_20260709.png
+lumos_geometry_alignment_cutoff_composite_20260709_classified_units_long.csv
+lumos_geometry_alignment_cutoff_composite_20260709_summary.csv
+lumos_geometry_alignment_cutoff_composite_20260709_provenance.json
+```
+
+This one-page Lumos figure has four rows (`0.37 ms unaligned`,
+`0.37 ms aligned`, `0.50 ms unaligned`, `0.50 ms aligned`) and columns for
+overall FS/RS counts, geometry-group FS/RS fractions, geometry-group counts,
+TTP by geometry, pooled uV waveforms, individual uV traces with class means,
+pooled trough-normalized waveforms, and half-width versus REP50. It uses the
+same `276` paired Lumos `KSLabel=good` units as the alignment audit:
+`127` units from columns `1-3` and `149` units from columns `4-8`.
+
+Current Lumos geometry counts:
+
+| Cutoff | Alignment state | Overall FS | Overall RS | Columns 1-3 FS | Columns 1-3 RS | Columns 4-8 FS | Columns 4-8 RS |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| `0.37 ms` | unaligned | 16 | 260 | 10 | 117 | 6 | 143 |
+| `0.37 ms` | aligned | 24 | 252 | 12 | 115 | 12 | 137 |
+| `0.50 ms` | unaligned | 56 | 220 | 36 | 91 | 20 | 129 |
+| `0.50 ms` | aligned | 85 | 191 | 45 | 82 | 40 | 109 |
+
 Current four-condition counts:
 
 | Cutoff | Alignment state | FS_like | RS_like | Unknown |

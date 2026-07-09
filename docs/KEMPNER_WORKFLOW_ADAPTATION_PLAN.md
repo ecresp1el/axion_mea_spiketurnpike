@@ -7995,6 +7995,47 @@ Canonical commands:
     cutoff `0.50 ms`, unaligned: `56` FS_like / `220` RS_like
     cutoff `0.50 ms`, aligned: `85` FS_like / `191` RS_like
 
+- [x] 2026-07-09 15:49 EDT - Lumos geometry cutoff x alignment composite
+  generated with the same waveform math as the Cytoview dorsal/ventral
+  composite.
+
+  Command:
+    `python scripts/plot_lumos_geometry_alignment_cutoff_composite.py`
+
+  Output folder:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_geometry_alignment_cutoff_composite_20260709/`
+
+  Final figure:
+    `lumos_geometry_alignment_cutoff_composite_20260709.png`
+
+  Interpretation:
+    this is the Lumos/opto-track geometry version of the waveform
+    cutoff/alignment figure. Lumos wells are not dorsal/ventral in this analysis;
+    they are grouped by well-column geometry: columns `1-3` comparison wells and
+    columns `4-8` prior wells. The same paired audit metrics are used:
+    unaligned rows use `before_*` metrics and `before_unaligned_average_uV`,
+    aligned rows use `after_*` metrics and `after_aligned_average_uV`, and both
+    use the same TTP cutoff rules.
+
+  Unit population:
+    `276` paired Lumos `KSLabel=good` units total;
+    `127` units from columns `1-3`;
+    `149` units from columns `4-8`.
+
+  Counts:
+    cutoff `0.37 ms`, unaligned: overall `16` FS / `260` RS;
+      columns `1-3`: `10` FS / `117` RS;
+      columns `4-8`: `6` FS / `143` RS
+    cutoff `0.37 ms`, aligned: overall `24` FS / `252` RS;
+      columns `1-3`: `12` FS / `115` RS;
+      columns `4-8`: `12` FS / `137` RS
+    cutoff `0.50 ms`, unaligned: overall `56` FS / `220` RS;
+      columns `1-3`: `36` FS / `91` RS;
+      columns `4-8`: `20` FS / `129` RS
+    cutoff `0.50 ms`, aligned: overall `85` FS / `191` RS;
+      columns `1-3`: `45` FS / `82` RS;
+      columns `4-8`: `40` FS / `109` RS
+
 - [x] 2026-07-09 15:31 EDT - Final Cytoview dorsal/ventral cutoff x alignment
   composite generated after restoring the dorsal/ventral logic.
 
