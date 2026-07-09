@@ -356,7 +356,7 @@ def make_gui_app(
         f"{STEP1_GUI_REMINDER}\n**Manual curation JSON**  \n`{curation_output}`",
         sizing_mode="stretch_width",
     )
-    tab_items = []
+    tab_items = [("Curation", win.main_layout)]
     if stim_response_enabled:
         from axion_mea.gui_stim_response import make_stim_response_panel
 
@@ -368,7 +368,6 @@ def make_gui_app(
             raw_roots=stim_raw_roots,
         )
         tab_items.append(("Stim raster/PSTH", stim_panel))
-    tab_items.append(("Curation", win.main_layout))
     tabs = pn.Tabs(
         *tab_items,
         sizing_mode="stretch_both",

@@ -111,7 +111,7 @@ class PsthBuilder:
 
 
 DEFAULT_TRAIN_WINDOW = AnalysisWindow(pre_ms=200.0, post_ms=800.0)
-DEFAULT_PULSE_WINDOW = PulseWindow(pre_ms=25.0, post_ms=100.0)
+DEFAULT_PULSE_WINDOW = PulseWindow(pre_ms=25.0, post_ms=50.0)
 DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=20.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0,))
 DEFAULT_STIM_RAW_ROOTS = (
@@ -849,7 +849,6 @@ def make_stim_response_panel(
 ):
     """Create a Panel tab for unit-level train/pulse response review."""
 
-    import matplotlib.pyplot as plt
     import panel as pn
 
     pn.extension()
@@ -902,8 +901,8 @@ def make_stim_response_panel(
     )
     refresh_button = pn.widgets.Button(name="Refresh", button_type="primary", width=110)
     summary = pn.pane.Markdown("", sizing_mode="stretch_width")
-    train_plot = pn.pane.Matplotlib(sizing_mode="stretch_width", tight=True)
-    pulse_plot = pn.pane.Matplotlib(sizing_mode="stretch_width", tight=True)
+    train_area = pn.Column(sizing_mode="stretch_width")
+    pulse_area = pn.Column(sizing_mode="stretch_width")
 
     def selected_units() -> list[object]:
         labels = unit_selector.value or [default_label]
@@ -911,23 +910,46 @@ def make_stim_response_panel(
 
     def redraw(*_: object) -> None:
         units = selected_units()
-        response = builder.build(units)
-        summary.object = _format_response_summary(response, resolution)
-        train_plot.object = plot_train_response(response, builder)
-        if response.pulse_structure.pulse_tab_enabled and not response.pulse_trials.empty:
-            pulse_plot.object = plot_pulse_response(response, builder)
-        else:
-            fig, axis = plt.subplots(figsize=(9, 2.5))
-            axis.axis("off")
-            axis.text(
-                0.02,
-                0.65,
-                f"Pulse view disabled: {response.pulse_structure.message}",
-                transform=axis.transAxes,
-                ha="left",
-                va="center",
+        unit_responses = [builder.build([unit_id]) for unit_id in units]
+        summary.object = _format_multi_unit_summary(unit_responses, resolution)
+
+        train_items = [
+            pn.pane.Matplotlib(
+                plot_train_response(response, builder),
+                sizing_mode="stretch_width",
+                tight=True,
             )
-            pulse_plot.object = fig
+            for response in unit_responses
+        ]
+        train_area.objects = [
+            pn.GridBox(*train_items, ncols=2, sizing_mode="stretch_width")
+            if train_items
+            else pn.pane.Markdown("No units selected.")
+        ]
+
+        pulse_items = []
+        for response in unit_responses:
+            if response.pulse_structure.pulse_tab_enabled and not response.pulse_trials.empty:
+                pulse_items.append(
+                    pn.pane.Matplotlib(
+                        plot_pulse_response(response, builder),
+                        sizing_mode="stretch_width",
+                        tight=True,
+                    )
+                )
+            else:
+                pulse_items.append(
+                    pn.pane.Markdown(
+                        f"### Unit {_unit_label(response.selected_unit_ids[0])}\n"
+                        f"Pulse view disabled: {response.pulse_structure.message}",
+                        sizing_mode="stretch_width",
+                    )
+                )
+        pulse_area.objects = [
+            pn.GridBox(*pulse_items, ncols=2, sizing_mode="stretch_width")
+            if pulse_items
+            else pn.pane.Markdown("No units selected.")
+        ]
 
     refresh_button.on_click(redraw)
     unit_selector.param.watch(redraw, "value")
@@ -935,15 +957,16 @@ def make_stim_response_panel(
 
     controls = pn.Row(unit_selector, refresh_button, sizing_mode="stretch_width")
     tabs = pn.Tabs(
-        ("Train locked", pn.Column(summary, train_plot, sizing_mode="stretch_width")),
-        ("Pulse locked", pn.Column(pulse_plot, sizing_mode="stretch_width")),
+        ("Train locked", pn.Column(summary, train_area, sizing_mode="stretch_width")),
+        ("Pulse locked", pn.Column(pulse_area, sizing_mode="stretch_width")),
         sizing_mode="stretch_width",
     )
     return pn.Column(
         pn.pane.Markdown(
             "## Stim raster/PSTH\n"
             "- Train locked: raster/PSTH aligned to stimulation train onset at x = 0 ms.\n"
-            "- Pulse locked: raster/PSTH aligned to each pulse onset at x = 0 ms.",
+            "- Pulse locked: raster/PSTH aligned to each pulse onset at x = 0 ms; window is -25 to +50 ms.\n"
+            "- Each selected unit is plotted in its own panel.",
             sizing_mode="stretch_width",
         ),
         status,
@@ -954,7 +977,7 @@ def make_stim_response_panel(
 
 
 def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBuilder):
-    """Render train-locked waveform, raster, and PSTH for selected units."""
+    """Render train-locked command, raster, and PSTH for one selected unit."""
 
     import matplotlib.pyplot as plt
 
@@ -966,6 +989,7 @@ def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBui
         gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
         constrained_layout=True,
     )
+    unit_label = _unit_label(response.selected_unit_ids[0]) if response.selected_unit_ids else ""
     _draw_train_waveform_axis(axes[0], builder)
     _draw_train_raster_axis(axes[1], response, builder)
     _draw_psth_axis(
@@ -977,11 +1001,12 @@ def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBui
     )
     axes[2].set_xlabel("ms from train onset")
     axes[2].set_xlim(builder.train_window.start_ms, builder.train_window.end_ms)
+    fig.suptitle(f"Unit {unit_label}: train locked", fontsize=12)
     return fig
 
 
 def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBuilder):
-    """Render pooled pulse-locked raster and PSTH for selected units."""
+    """Render pulse-locked command, raster, and PSTH for one selected unit."""
 
     import matplotlib.pyplot as plt
 
@@ -993,6 +1018,7 @@ def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBui
         gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
         constrained_layout=True,
     )
+    unit_label = _unit_label(response.selected_unit_ids[0]) if response.selected_unit_ids else ""
     _draw_pulse_waveform_axis(axes[0], response, builder)
     _draw_pulse_raster_axis(axes[1], response, builder)
     _draw_psth_axis(
@@ -1004,6 +1030,7 @@ def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBui
     )
     axes[2].set_xlabel("ms from pulse onset")
     axes[2].set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
+    fig.suptitle(f"Unit {unit_label}: pulse locked", fontsize=12)
     return fig
 
 
@@ -1145,6 +1172,33 @@ def _format_response_summary(response: UnitStimResponse, resolution: StimSidecar
         f"**Pulse-aligned spikes:** {len(response.pulse_aligned_spikes)}  \n"
         f"**Stimulated wells:** `{', '.join(resolution.eligibility.stimulated_wells)}`"
     )
+
+
+def _format_multi_unit_summary(
+    responses: Sequence[UnitStimResponse],
+    resolution: StimSidecarResolution,
+) -> str:
+    if not responses:
+        return "No units selected."
+
+    rows = [
+        "| Unit | train spikes | pulse spikes | pulse pseudo-trials |",
+        "|---|---:|---:|---:|",
+    ]
+    for response in responses:
+        unit_label = _unit_label(response.selected_unit_ids[0]) if response.selected_unit_ids else ""
+        rows.append(
+            f"| `{unit_label}` | {len(response.train_aligned_spikes)} | "
+            f"{len(response.pulse_aligned_spikes)} | {len(response.pulse_trials)} |"
+        )
+    first = responses[0]
+    header = (
+        f"**Units selected:** {len(responses)}  \n"
+        f"**Train trials:** {len(first.train_trials)}  \n"
+        f"**Pulse mode:** {first.pulse_structure.status}  \n"
+        f"**Stimulated wells:** `{', '.join(resolution.eligibility.stimulated_wells)}`"
+    )
+    return header + "\n\n" + "\n".join(rows)
 
 
 def _unit_label(unit_id: object) -> str:
