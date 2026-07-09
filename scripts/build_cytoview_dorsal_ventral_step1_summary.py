@@ -490,6 +490,28 @@ def _region_summary(units: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _per_well_class_fraction_summary(well_summary: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    eligible = well_summary.loc[well_summary["good_unit_count"].gt(0)].copy()
+    for region in REGION_ORDER:
+        subset = eligible.loc[eligible["region_call"].eq(region)].copy()
+        if subset.empty and region == "unknown":
+            continue
+        row: dict[str, object] = {
+            "region_call": region,
+            "well_count_with_good_units": int(len(subset)),
+            "total_good_units": int(subset["good_unit_count"].sum()) if not subset.empty else 0,
+        }
+        for label in ["FS_like", "borderline", "RS_like"]:
+            values = pd.to_numeric(subset[f"good_{label}_fraction"], errors="coerce").dropna()
+            row[f"{label}_mean_per_well_fraction"] = _mean(values)
+            row[f"{label}_sem_per_well_fraction"] = _sem(values)
+            row[f"{label}_well_n"] = int(values.size)
+            row[f"{label}_unit_count"] = int(subset[f"good_{label}_count"].sum()) if not subset.empty else 0
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def _plot_current_good_units(plt, units: pd.DataFrame, output_path: Path) -> None:
     good = units.loc[units["KSLabel"].astype(str).str.lower().eq("good")].copy()
     if good.empty:
@@ -498,23 +520,47 @@ def _plot_current_good_units(plt, units: pd.DataFrame, output_path: Path) -> Non
     region_colors = {"dorsal": "#2a9d8f", "ventral": "#6a4c93", "unknown": "#888888"}
     region_summary = _region_summary(units)
     well_summary = _well_summary(units, good)
+    per_well_fraction_summary = _per_well_class_fraction_summary(well_summary)
     region_summary = region_summary.loc[region_summary["region_call"].isin(REGION_ORDER)].copy()
+    per_well_fraction_summary = per_well_fraction_summary.loc[
+        per_well_fraction_summary["region_call"].isin(region_summary["region_call"])
+    ].copy()
 
     fig, axes = plt.subplots(2, 2, figsize=(12.8, 9.2))
     axes = axes.ravel()
 
-    # FS/borderline/RS proportions among KSLabel=good units.
+    # FS/borderline/RS proportions averaged per well among KSLabel=good units.
     x = np.arange(len(region_summary))
     bottom = np.zeros(len(region_summary))
     for label in ["FS_like", "borderline", "RS_like"]:
-        values = region_summary[f"{label}_fraction"].fillna(0.0).to_numpy()
+        values = per_well_fraction_summary[f"{label}_mean_per_well_fraction"].fillna(0.0).to_numpy()
+        sem_values = per_well_fraction_summary[f"{label}_sem_per_well_fraction"].fillna(0.0).to_numpy()
         axes[0].bar(x, values, bottom=bottom, color=colors[label], label=label)
-        for xi, yi, bi, count in zip(x, values, bottom, region_summary[f"{label}_count"], strict=False):
+        for xi, yi, bi, sem, count in zip(
+            x,
+            values,
+            bottom,
+            sem_values,
+            per_well_fraction_summary[f"{label}_unit_count"],
+            strict=False,
+        ):
+            if yi > 0 and np.isfinite(sem) and sem > 0:
+                center = bi + yi / 2.0
+                axes[0].errorbar(
+                    xi,
+                    center,
+                    yerr=sem,
+                    color="black",
+                    capsize=3,
+                    linewidth=0.9,
+                    marker=None,
+                    zorder=5,
+                )
             if yi >= 0.055:
                 axes[0].text(
                     xi,
                     bi + yi / 2.0,
-                    f"{int(count)}\n{yi:.0%}",
+                    f"{yi:.0%}\nSEM {sem:.0%}",
                     ha="center",
                     va="center",
                     fontsize=8,
@@ -524,13 +570,13 @@ def _plot_current_good_units(plt, units: pd.DataFrame, output_path: Path) -> Non
     axes[0].set_xticks(
         x,
         [
-            f"{row.region_call}\n{int(row.good_unit_count)} good units\n{int(row.well_count)} wells"
-            for row in region_summary.itertuples()
+            f"{row.region_call}\n{int(row.total_good_units)} good units\n{int(row.well_count_with_good_units)} wells"
+            for row in per_well_fraction_summary.itertuples()
         ],
     )
     axes[0].set_ylim(0, 1)
-    axes[0].set_ylabel("Fraction of KSLabel=good units")
-    axes[0].set_title("FS/borderline/RS proportions")
+    axes[0].set_ylabel("Mean per-well fraction")
+    axes[0].set_title("FS/borderline/RS mean per-well proportions ± SEM")
     axes[0].legend(frameon=False, fontsize=8)
 
     # Good-unit yield per GUI-ready well.
@@ -676,6 +722,13 @@ def _median(values: pd.Series) -> float:
 def _mean(values: pd.Series) -> float:
     values = pd.to_numeric(values, errors="coerce").dropna()
     return float(values.mean()) if not values.empty else np.nan
+
+
+def _sem(values: pd.Series) -> float:
+    values = pd.to_numeric(values, errors="coerce").dropna()
+    if values.size <= 1:
+        return np.nan
+    return float(values.std(ddof=1) / np.sqrt(values.size))
 
 
 if __name__ == "__main__":

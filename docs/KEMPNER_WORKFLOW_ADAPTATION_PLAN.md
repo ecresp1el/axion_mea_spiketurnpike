@@ -7888,6 +7888,55 @@ Canonical commands:
     all `90 / 90` plate-map-backed Cytoview dorsal/ventral priority wells have
     now been submitted in clean watched waves.
 
+- [x] 2026-07-09 14:42 EDT - Final Cytoview/SixWell plate-map-backed
+  dorsal/ventral Step 1 priority waves drained and canonical ledger refreshed.
+
+  Live Slurm:
+    No active AIND/Lumos/Cytoview Step 1 jobs remain in `squeue`. The only
+    visible job was unrelated and held:
+    `51848144_[0-7] siletti-div90-xfer-3d PENDING (JobHeldUser)`.
+
+  Final wave:
+    `cytoview_platemap_dv_priority_10_20260709_1420`
+    parent wrapper jobs `53187232-53187241` all completed with exit `0`.
+    Runtime range: approximately `5m16s` to `10m57s`.
+    Direct artifact result from the final 10:
+      `6 / 10` produced full GUI/unit assets
+      `4 / 10` completed without analyzer/unit assets
+
+  Final plate-map-backed Cytoview dorsal/ventral priority outcome:
+    total backed priority wells: `90`
+    all clean-submitted/reran: `90 / 90`
+    GUI/analyzer-ready with full Step 1 assets: `52 / 90`
+    completed standard but no analyzer/unit assets: `36 / 90`
+    sparse Kilosort fallback candidates: `2 / 90`
+
+  Region split:
+    dorsal: `27 / 45` GUI/analyzer-ready, `18 / 45` completed without
+      analyzer/unit assets, `0 / 45` sparse Kilosort failures
+    ventral: `25 / 45` GUI/analyzer-ready, `18 / 45` completed without
+      analyzer/unit assets, `2 / 45` sparse Kilosort failures
+
+  Plate and region split:
+    `133-1555` dorsal: `6 / 18` GUI-ready, `12 / 18` no analyzer/unit assets
+    `133-1555` ventral: `4 / 18` GUI-ready, `12 / 18` no analyzer/unit assets,
+      `2 / 18` sparse Kilosort failures
+    `134-0150` dorsal: `21 / 27` GUI-ready, `6 / 27` no analyzer/unit assets
+    `134-0150` ventral: `21 / 27` GUI-ready, `6 / 27` no analyzer/unit assets
+
+  Global Step 1 v5 GUI-ready count after refresh:
+    `202` total GUI-ready wells
+    `150` Lumos GUI-ready wells
+    `52` Cytoview plate-map-backed priority GUI-ready wells
+
+  What did not run in this prioritized cleanup:
+    the remaining `108` Cytoview/SixWell rows outside the `90`
+    plate-map-backed dorsal/ventral priority rows were not clean-resubmitted.
+    They remain `not_ready_or_not_started` under the older canceled
+    all-Cytoview wave `cytoview_remaining_all_20260709_0214`. This was
+    intentional so the backed dorsal/ventral set could finish first without
+    mixing in unprioritized rows.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

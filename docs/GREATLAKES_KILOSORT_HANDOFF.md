@@ -642,10 +642,11 @@ rate 1.077 Hz, max firing rate 3.432 Hz, and max pulse-locked raw response
 Several columns 1-3 candidates remain clean `good` units, so outside-prior wells
 should stay in manual review rather than being treated as automatically negative.
 
-## Step 1 Ground Truth Snapshot, 2026-07-09 14:13 EDT
+## Step 1 Ground Truth Snapshot, 2026-07-09 14:42 EDT
 
 Use this Step 1 ledger as the current single source of truth for what is ready,
-running, failed, or still not started:
+completed without analyzer assets, failed, or intentionally not run in the
+current priority pass:
 
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/step1_v5_well_ground_truth.csv
@@ -680,16 +681,22 @@ Cytoview/SixWell status, all current Cytoview rows:
 
 | Status | Count |
 |---|---:|
-| `gui_ready_standard` | 39 |
-| `completed_standard_no_gui_analyzer_yet` | 29 |
-| `running_standard` | 10 |
-| `not_ready_or_not_started` | 118 |
+| `gui_ready_standard` | 52 |
+| `completed_standard_no_gui_analyzer_yet` | 36 |
+| `not_ready_or_not_started` | 108 |
 | `standard_failed_sparse_fallback_candidate` | 2 |
 
 Interpretation: Cytoview/SixWell is the dorsal/ventral Step 1 track. Do not use
 Lumos opto assumptions here. The current biological Step 1 summaries should use
 `KSLabel=good` units, TTP-based FS/borderline/RS designation, firing rate, and
 ISI metrics computed directly from Step 1 SortingAnalyzer spike trains/templates.
+
+Priority scope: only the 90 plate-map-backed dorsal/ventral Cytoview/SixWell
+rows were clean-rerun in this cleanup. All 90 priority rows were submitted in
+watched waves and drained. The remaining 108 Cytoview/SixWell rows were not
+rerun here because they are outside the backed dorsal/ventral priority set; they
+remain `not_ready_or_not_started` under the older canceled all-Cytoview wave
+`cytoview_remaining_all_20260709_0214`.
 
 Cytoview wave-label cross-reference:
 
@@ -703,10 +710,11 @@ Cytoview wave-label cross-reference:
 | `cytoview_platemap_dv_priority_20_20260709_1330` | `gui_ready_standard` | 11 |
 | `cytoview_platemap_dv_priority_20_20260709_1330` | `completed_standard_no_gui_analyzer_yet` | 8 |
 | `cytoview_platemap_dv_priority_20_20260709_1330` | `standard_failed_sparse_fallback_candidate` | 1 |
-| `cytoview_platemap_dv_priority_20_20260709_1408` | `gui_ready_standard` | 5 |
-| `cytoview_platemap_dv_priority_20_20260709_1408` | `completed_standard_no_gui_analyzer_yet` | 5 |
-| `cytoview_platemap_dv_priority_20_20260709_1408` | `running_standard` | 10 |
-| `cytoview_remaining_all_20260709_0214` | `not_ready_or_not_started` | 118 |
+| `cytoview_platemap_dv_priority_20_20260709_1408` | `gui_ready_standard` | 12 |
+| `cytoview_platemap_dv_priority_20_20260709_1408` | `completed_standard_no_gui_analyzer_yet` | 8 |
+| `cytoview_platemap_dv_priority_10_20260709_1420` | `gui_ready_standard` | 6 |
+| `cytoview_platemap_dv_priority_10_20260709_1420` | `completed_standard_no_gui_analyzer_yet` | 4 |
+| `cytoview_remaining_all_20260709_0214` | `not_ready_or_not_started` | 108 |
 
 The dorsal/ventral plate-map plan is:
 
@@ -730,6 +738,14 @@ final-labeled as `ventral` even though the default B-row rule would label them
 as dorsal. This is treated as human-notes ground truth for current Step 1
 summaries.
 
+Final priority outcome: `52 / 90` plate-map-backed dorsal/ventral priority
+wells are GUI/analyzer-ready, `36 / 90` completed the standard route but did not
+produce analyzer/unit assets, and `2 / 90` are sparse Kilosort fallback
+candidates. Region split: dorsal `27 / 45` GUI-ready, `18 / 45` completed
+without analyzer/unit assets, `0 / 45` sparse failures; ventral `25 / 45`
+GUI-ready, `18 / 45` completed without analyzer/unit assets, `2 / 45` sparse
+failures.
+
 Current Step 1-only Cytoview dorsal/ventral snapshot was generated with:
 
 ```bash
@@ -748,6 +764,7 @@ Outputs:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_unit_metrics.csv
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_well_summary.csv
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_region_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_per_well_class_fraction_summary.csv
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_asset_status.csv
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_current_good_units.png
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_provenance.json
@@ -757,25 +774,103 @@ Current snapshot contents:
 
 | Metric | Value |
 |---|---:|
-| GUI-ready Cytoview wells scanned | 39 |
+| GUI-ready Cytoview wells scanned | 52 |
 | Analyzer load errors | 0 |
-| All sorted unit rows measured | 870 |
-| `KSLabel=good` unit rows measured | 164 |
+| All sorted unit rows measured | 1342 |
+| `KSLabel=good` unit rows measured | 237 |
 | Region override rules loaded | 2 |
 | Unit rows with region override | 156 |
-| Ready dorsal wells | 17 |
-| Ready ventral wells | 22 |
+| Ready dorsal wells | 23 |
+| Ready ventral wells | 29 |
 
 Current `KSLabel=good` Cytoview regional summary, GUI-ready wells only:
 
 | Region | Good units | Wells | Median firing rate Hz | Mean firing rate Hz | Median ISI ms | Median TTP ms | FS_like | Borderline | RS_like |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| dorsal | 73 | 16 | 0.4034 | 0.6907 | 548.32 | 0.96 | 4 | 3 | 66 |
-| ventral | 91 | 21 | 1.4105 | 1.7765 | 197.20 | 1.04 | 3 | 8 | 80 |
+| dorsal | 113 | 22 | 0.5047 | 0.8129 | 599.84 | 0.88 | 6 | 4 | 103 |
+| ventral | 124 | 28 | 1.4010 | 1.7603 | 201.32 | 0.96 | 3 | 9 | 112 |
+
+The unit counts above are pooled across all current `KSLabel=good` units in each
+region. The stacked FS/borderline/RS panel in
+`cytoview_dorsal_ventral_step1_20260709_current_good_units.png` now uses the
+average of per-well proportions with SEM, so each well contributes one
+observation to the composition estimate.
+
+Current per-well mean composition:
+
+| Region | Wells with good units | Good units | FS_like mean ± SEM | Borderline mean ± SEM | RS_like mean ± SEM |
+|---|---:|---:|---:|---:|---:|
+| dorsal | 22 | 113 | 0.0535 ± 0.0246 | 0.0286 ± 0.0164 | 0.9180 ± 0.0327 |
+| ventral | 28 | 124 | 0.0298 ± 0.0173 | 0.0563 ± 0.0205 | 0.9139 ± 0.0298 |
+
+Alternate cutoff sensitivity, requested 2026-07-09: separate Step 1-only views
+reclassify `KSLabel=good` units as `FS_like` when
+`trough_to_peak_duration_ms <= cutoff` and `RS_like` otherwise. This does not
+modify the production SpikeTurnpike classifier in the main unit metrics.
+
+Alternate cutoff outputs are now grouped in one folder, with one file set per
+cutoff label:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_ttp_cutoff_sensitivity/
+```
+
+Current file sets:
+
+```text
+ttp_fs_cutoff_0p50_current_good_units.png
+ttp_fs_cutoff_0p50_classified_good_units.csv
+ttp_fs_cutoff_0p50_well_summary.csv
+ttp_fs_cutoff_0p50_region_summary.csv
+ttp_fs_cutoff_0p50_per_well_class_fraction_summary.csv
+ttp_fs_cutoff_0p50_class_firing_rate_summary.csv
+
+ttp_fs_cutoff_0p37_current_good_units.png
+ttp_fs_cutoff_0p37_classified_good_units.csv
+ttp_fs_cutoff_0p37_well_summary.csv
+ttp_fs_cutoff_0p37_region_summary.csv
+ttp_fs_cutoff_0p37_per_well_class_fraction_summary.csv
+ttp_fs_cutoff_0p37_class_firing_rate_summary.csv
+```
+
+Each cutoff figure now includes FS/RS firing-rate panels: one panel pooled
+across regions and one panel stratified by dorsal/ventral.
+
+Alternate 0.50 ms cutoff pooled counts:
+
+| Region | Good units | FS_like | RS_like | FS_like fraction |
+|---|---:|---:|---:|---:|
+| dorsal | 113 | 10 | 103 | 0.0885 |
+| ventral | 124 | 12 | 112 | 0.0968 |
+
+Alternate 0.50 ms cutoff per-well mean composition:
+
+| Region | Wells with good units | Good units | FS_like mean ± SEM | RS_like mean ± SEM |
+|---|---:|---:|---:|---:|
+| dorsal | 22 | 113 | 0.0820 ± 0.0327 | 0.9180 ± 0.0327 |
+| ventral | 28 | 124 | 0.0861 ± 0.0298 | 0.9139 ± 0.0298 |
+
+Alternate 0.50 ms cutoff firing rate by class:
+
+| Scope | Class | Units | Median FR Hz | Mean FR Hz |
+|---|---|---:|---:|---:|
+| overall | FS_like | 22 | 0.5454 | 0.9405 |
+| overall | RS_like | 215 | 0.8154 | 1.3462 |
+| dorsal | FS_like | 10 | 0.4098 | 0.4196 |
+| dorsal | RS_like | 103 | 0.5602 | 0.8511 |
+| ventral | FS_like | 12 | 1.0997 | 1.3746 |
+| ventral | RS_like | 112 | 1.4329 | 1.8016 |
+
+For comparison, the 0.37 ms cutoff file set is also present in the same folder.
+With `FS_like = TTP <= 0.37 ms`, pooled counts are dorsal 6 FS/107 RS and
+ventral 3 FS/121 RS.
 
 Treat this as a current Step 1 readiness/inspection snapshot, not a final
-dorsal/ventral biological result, because additional Cytoview wells are still
-running or not yet GUI-ready.
+dorsal/ventral biological result. All 90 backed priority wells have drained,
+but only the 52 GUI-ready wells have analyzer/unit assets for current Step 1
+unit-level summaries; the 36 completed-without-analyzer rows and 2 sparse
+failure rows are excluded from unit-level biological plots until usable assets
+exist.
 
 ### Cytoview B1/B2 Firing-Rate Audit, 2026-07-09
 
