@@ -6018,6 +6018,74 @@ controlled AIND wave Kilosort state:
   pending by Slurm priority: 14
 ```
 
+Controlled scale-up decision at 2026-07-09 00:20 EDT:
+
+The first 20-well Lumos wave proved that the wrapper/Nextflow bottleneck was
+resolved. The wave reached Kilosort and downstream stages. Before scaling up,
+the failed Kilosort tasks were checked directly.
+
+Observed first-wave Kilosort result:
+
+```text
+wave-1 submitted wells: 20
+job_dispatch completed: 20 / 20
+preprocessing completed: 20 / 20
+nwb_ecephys completed: 20 / 20
+spikesort_kilosort4 completed: 16 / 20
+spikesort_kilosort4 failed: 4 / 20
+```
+
+Failed Kilosort wells in wave 1:
+
+```text
+recording:
+  step1_nonlfp_th5_20260708_2_25_2026_129-8447_test(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+failed wells:
+  C7, E8, F1
+
+recording:
+  step1_nonlfp_th5_20260708_2_25_2026_129-8447_test(000)_broadband_processor_raw
+failed wells:
+  C7
+```
+
+The failed Kilosort errors were low-spike/template-initialization failures, not
+wrapper, Slurm, or Nextflow submission failures. Representative errors:
+
+```text
+ValueError: n_samples=1 should be >= n_clusters=6.
+ValueError: n_samples=2 should be >= n_clusters=6.
+ValueError: Found array with 0 sample(s) (shape=(0, 31)) while a minimum of 1 is required by TruncatedSVD.
+```
+
+Interpretation: these wells reached Kilosort but had too few detected clips for
+Kilosort's PCA/template initialization under the TH=5 settings. This is a
+per-well data-yield/sorting outcome, not evidence that the staged AIND
+submission strategy is broken.
+
+Based on that distinction, the next Lumos continuation wave was submitted at a
+controlled size of 40 wells, not 100:
+
+```text
+wave-2 submitted wells: 40
+wave-2 continuation job IDs: 53137582-53137621
+total Lumos continuation jobs submitted so far: 60
+wave-2 immediate Slurm state: 40 pending by Priority
+submission ledger:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/submitted_lumos_aind_wave.tsv
+```
+
+Scaling rule from this point:
+
+```text
+Continue Lumos in controlled waves.
+Use 40-well waves while Kilosort/downstream stages are actively draining.
+Do not jump to 100 until the queue shows that GPU Kilosort and downstream CPU
+stages are clearing without a growing backlog of live wrappers.
+Treat low-spike Kilosort failures as per-well outcomes to record, not as a
+reason to stop submission for other pickup-ready wells.
+```
+
 The 204 original AIND jobs that never created a Nextflow trace should not be
 treated as lost biological outputs. They did not produce AIND assets, but they
 can still be advanced once their wells pass the pickup boundary above. The
