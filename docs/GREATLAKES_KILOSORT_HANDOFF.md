@@ -1343,10 +1343,12 @@ suffix and a new output root:
 ```
 
 V2 keeps the original units `8;11;30` and improves row B local waveform
-visibility using horizontal multiplier `1.7` and vertical multiplier `1.75`
-after the same one-per-unit best-channel PTP normalization. Neighboring
-channels are not independently normalized. Row C remains the raw-count ACG, row
-D is now `Autocorrelogram — probability`, and row E is amplitude stability.
+visibility using horizontal multiplier `1.2`, base vertical multiplier `1.75`,
+and auto-selected uniform local waveform display gain `1.527973` after the same
+one-per-unit best-channel PTP normalization. Neighboring channels are not
+independently normalized and relative channel amplitudes are preserved. Row C
+remains the raw-count ACG, row D is now `Autocorrelogram — probability` with
+dashed `-2 ms` and `+2 ms` boundary lines, and row E is amplitude stability.
 
 Probability ACG normalization:
 

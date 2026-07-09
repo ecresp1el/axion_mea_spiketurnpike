@@ -8460,11 +8460,13 @@ Canonical commands:
     `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_20260709_203000/`
 
   V2 changes:
-    row B local waveform panels use horizontal multiplier `1.7` and vertical
-    multiplier `1.75` after the same unit-level best-channel PTP normalization;
-    neighboring channels are not independently normalized. A second ACG row was
-    added: row C remains raw counts, row D is probability per bin, and row E is
-    amplitude stability.
+    row B local waveform panels use horizontal multiplier `1.2`, base vertical
+    multiplier `1.75`, and auto-selected uniform local waveform display gain
+    `1.527973` after the same unit-level best-channel PTP normalization;
+    neighboring channels are not independently normalized and relative channel
+    amplitudes are preserved. A second ACG row was added: row C remains raw
+    counts, row D is probability per bin with dashed `-2 ms` and `+2 ms`
+    boundary lines, and row E is amplitude stability.
 
   Probability equation:
     `p_i = count_i / sum(count_j for displayed bins j with center != 0 ms)`.

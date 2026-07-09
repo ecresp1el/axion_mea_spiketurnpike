@@ -1236,13 +1236,16 @@ Implementation order:
   ```
 
   Changes relative to v1:
-  row B local waveform panels use horizontal display multiplier `1.7` and
-  vertical display multiplier `1.75` after the same within-unit best-channel
+  row B local waveform panels use horizontal display multiplier `1.2`, base
+  vertical display multiplier `1.75`, and an auto-selected uniform local
+  waveform display gain of `1.527973` after the same within-unit best-channel
   PTP normalization. Neighboring channels are still not normalized
-  independently. The individual sampled-spike cloud remains only on the best
-  channel and was lightened for readability. A new row D shows
-  probability-normalized autocorrelograms under the existing count ACG row.
-  Amplitude stability is now row E.
+  independently; the uniform glyph gain affects every channel trace equally and
+  preserves relative channel amplitudes. The individual sampled-spike cloud
+  remains only on the best channel and was lightened for readability. A new row
+  D shows probability-normalized autocorrelograms under the existing count ACG
+  row, with dashed boundary lines at `-2 ms` and `+2 ms` instead of a filled
+  refractory box. Amplitude stability is now row E.
 
   Probability ACG equation:
 
