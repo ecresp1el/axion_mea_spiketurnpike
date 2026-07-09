@@ -7334,6 +7334,68 @@ Canonical commands:
     least one downstream completed stage before submitting the next Cytoview
     batch.
 
+- [x] 2026-07-09 12:35 EDT - Built the concrete Cytoview/SixWell
+  plate-map-backed dorsal/ventral priority submission ledger for use after
+  Lumos completes.
+
+  Current Cytoview universe in Step 1 v5:
+    physical Cytoview/SixWell plate IDs: `2`
+      `133-1555`: `8` recording variants, `48` well pipelines
+      `134-0150`: `25` recording variants, `150` well pipelines
+    total Cytoview rows: `198`
+    current Cytoview status: all `198` are `not_ready_or_not_started`
+
+  Priority subset:
+    plate-map-backed dorsal/ventral rows: `90`
+    non-LFP recording variants: `15`
+    physical plate split:
+      `133-1555`: `6` recording variants, `36` well pipelines
+      `134-0150`: `9` recording variants, `54` well pipelines
+    region split:
+      dorsal: `45`
+      ventral: `45`
+    by physical plate and region:
+      `133-1555` dorsal: `18`
+      `133-1555` ventral: `18`
+      `134-0150` dorsal: `27`
+      `134-0150` ventral: `27`
+
+  Priority files:
+    submit ledger:
+      `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709.csv`
+    human batch plan:
+      `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709_batch_plan.csv`
+    summary:
+      `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709_summary.txt`
+
+  Planned priority waves:
+    `20 + 20 + 20 + 20 + 10`
+    Each 20-row wave is balanced as:
+      `133-1555` dorsal: `4`
+      `133-1555` ventral: `4`
+      `134-0150` dorsal: `6`
+      `134-0150` ventral: `6`
+    Final 10-row wave is balanced as:
+      `133-1555` dorsal: `2`
+      `133-1555` ventral: `2`
+      `134-0150` dorsal: `3`
+      `134-0150` ventral: `3`
+
+  Dry-run command for the first Cytoview priority wave:
+    python scripts/submit_next_step1_v5_ground_truth_wave.py \
+      --ledger /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709.csv \
+      --status not_ready_or_not_started \
+      --plate-family cytoview_6well \
+      --limit 20 \
+      --allow-resubmit \
+      --wave-label cytoview_platemap_dv_priority_20_DRYRUN_20260709
+
+  Dry-run result:
+    `planned_count=20`
+    first wave interleaves physical plates and dorsal/ventral wells.
+    Use `--submit --sbatch-time 12:00:00` only after Lumos standard-route
+    submissions are fully drained and the live queue is clean.
+
 - [x] 2026-07-09 11:05 EDT - Lumos batch-size experiment started after the
   previous 20-well wave drained cleanly and the live Lumos/AIND queue was empty.
 
@@ -7397,6 +7459,27 @@ Canonical commands:
     wall-clock startup than the 20-well waves. Unless this wave drains very
     cleanly, prefer submitting the final Lumos remainder as `20 + 10` rather
     than one `30`-well wave, and use small watched Cytoview waves after Lumos.
+
+- [x] 2026-07-09 12:23 EDT - Proceeded with the safer final Lumos pattern after
+  the 40-well wave drained and the live Lumos/AIND queue was empty.
+
+  Refreshed Lumos-only status before submission:
+    `gui_ready_standard`: `130`
+    `standard_failed_sparse_fallback_candidate`: `88`
+    `not_ready_or_not_started`: `30`
+    `export_failed`: `8`
+
+  Submitted next Lumos wave:
+    wave label: `lumos_timeout_resume_20_20260709_1223`
+    submitted rows: `20`
+    parent wrapper walltime: `12:00:00`
+    parent Slurm IDs: `53178518-53178537`
+    immediate queue state: `20 / 20` parent wrappers running within seconds
+
+  Remaining Lumos submission policy:
+    Hold the final `10` Lumos not-ready rows until
+    `lumos_timeout_resume_20_20260709_1223` drains and the canonical summary is
+    regenerated. Then submit the last `10` if the live queue is clean.
 
 - [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
   with the prepared 20-well dry run, and confirm `job_dispatch` completion
