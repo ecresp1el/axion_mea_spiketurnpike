@@ -392,3 +392,30 @@ The Kempner/AIND ephys workflow was evaluated as a possible shortcut. The
 current recommendation is to keep that repository as an external reference and
 adapt only its orchestration ideas, not vendor the full repo here. See
 `docs/KEMPNER_WORKFLOW_ADAPTATION_PLAN.md`.
+
+## Axion Filter Metadata Rule
+
+Updated 2026-07-08: the Great Lakes handoff must preserve the full Axion filter
+metadata parsed from raw `dataset_description`. The old simplified extraction
+was insufficient because repeated keys such as `High Pass Filter` and
+`Low Pass Filter` can occur inside multiple named filter blocks.
+
+The parser and pass-through patches are:
+
+```text
+src/axion_mea/filter_metadata.py
+scripts/audit_axion_file_ground_truth.py
+scripts/build_aind_recordings_manifest.py
+scripts/prepare_aind_recording_batches.py
+scripts/prepare_aind_well_batch.py
+src/axion_mea/well_selection.py
+```
+
+Every future CSV handoff should preserve `filter_block_names`,
+`filter_blocks_json`, derived cutoff frequency fields, and the section-specific
+`digital_filter_settings_*` / `broadband_processor_*` columns. The corrected
+audit root is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/
+```

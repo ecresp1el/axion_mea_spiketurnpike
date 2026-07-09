@@ -16,6 +16,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from axion_mea.filter_metadata import parse_axion_filter_metadata
 from axion_mea.plate_profiles import PlateProfile, profile_from_metadata
 
 PROJECT_CONFIG = REPO_ROOT / "config" / "greatlakes_project.env"
@@ -196,6 +197,7 @@ def main() -> None:
     project_root = args.project_root.expanduser().resolve()
     recording_stem = args.recording_stem
     source_metadata_row, plate_profile = resolve_plate_profile(args)
+    filter_fields = parse_axion_filter_metadata(source_metadata_row)
     profile_env = plate_profile.env_values()
     plate_map = plate_profile.plate_map.expanduser().resolve()
     electrode_geometry = plate_profile.electrode_geometry.expanduser().resolve()
@@ -364,8 +366,7 @@ def main() -> None:
                 "",
             ]
         )
-        manifest_rows.append(
-            {
+        manifest_row = {
                 "recording_stem": recording_stem,
                 "well": well,
                 "selection_manifest": str(args.selection_manifest.expanduser().resolve()) if args.selection_manifest else "",
@@ -397,8 +398,9 @@ def main() -> None:
                 "electrode_dimensions": source_metadata_row.get("electrode_dimensions", ""),
                 "num_channels": source_metadata_row.get("num_channels", ""),
                 "export_duration_s": export_duration_s,
-            }
-        )
+        }
+        manifest_row.update(filter_fields)
+        manifest_rows.append(manifest_row)
 
     submit_script = batch_root / "submit_all_wells.sh"
     batch_root.mkdir(parents=True, exist_ok=True)

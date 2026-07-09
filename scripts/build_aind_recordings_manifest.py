@@ -19,6 +19,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from axion_mea.filter_metadata import parse_axion_filter_metadata
 from axion_mea.plate_profiles import profile_from_metadata
 
 DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
@@ -111,44 +112,8 @@ def raw_variant_label(row: dict[str, str]) -> str:
     return "_".join(piece for piece in ["primary_raw", analog] if piece)
 
 
-def dataset_description_setting(row: dict[str, str], setting_name: str) -> str:
-    description = row.get("dataset_description", "")
-    for line in re.split(r"[\r\n]+", description):
-        parts = [part.strip() for part in line.split(",")]
-        if parts and parts[0].lower() == setting_name.lower():
-            return ",".join(parts[1:]).strip()
-    return ""
-
-
-def filter_value(value: str) -> str:
-    return value.strip() if value and value.strip() else "<blank>"
-
-
 def filter_metadata_fields(row: dict[str, str]) -> dict[str, str]:
-    values = {
-        "acquisition_analog_mode_setting": (
-            dataset_description_setting(row, "Analog Mode Setting")
-            or row.get("metadata_analog_mode", "")
-        ),
-        "acquisition_digital_high_pass_filter": dataset_description_setting(
-            row, "Digital High Pass Filter"
-        ),
-        "acquisition_digital_low_pass_filter": dataset_description_setting(
-            row, "Digital Low Pass Filter"
-        ),
-        "derived_high_pass_filter": dataset_description_setting(row, "High Pass Filter"),
-        "derived_low_pass_filter": dataset_description_setting(row, "Low Pass Filter"),
-    }
-    values["filter_metadata_signature"] = " | ".join(
-        [
-            f"analog={filter_value(values['acquisition_analog_mode_setting'])}",
-            f"acquisition_hp={filter_value(values['acquisition_digital_high_pass_filter'])}",
-            f"acquisition_lp={filter_value(values['acquisition_digital_low_pass_filter'])}",
-            f"derived_hp={filter_value(values['derived_high_pass_filter'])}",
-            f"derived_lp={filter_value(values['derived_low_pass_filter'])}",
-        ]
-    )
-    return values
+    return parse_axion_filter_metadata(row)
 
 
 def loader_dataset_for_variant(row: dict[str, str]) -> str:
@@ -268,6 +233,7 @@ def main() -> None:
             "whitening_range": str(profile.whitening_range) if profile else "",
             "duration_s": row.get("duration_s", ""),
         }
+        manifest_row.update(filter_fields)
         manifest_rows.append(manifest_row)
         summary[f"status_{scale_status}"] += 1
         summary[f"plate_{row.get('plate_type_name', 'unknown')}"] += 1

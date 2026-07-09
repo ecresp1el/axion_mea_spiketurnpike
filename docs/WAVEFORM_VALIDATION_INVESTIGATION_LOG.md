@@ -111,6 +111,120 @@ A unit-grid waveform review PDF now exists for all completed wells. The
 experiment did not classify units, flag units, or interpret biological validity.
 ```
 
+### Experiment: PV Reporter Filter-Variant Waveform Review Setup
+
+Question tested:
+
+```text
+Can we produce one comparable unit-grid waveform PDF per filtering variant for
+the same biological recording:
+pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)?
+```
+
+Expected result:
+
+```text
+Four filtering conditions should be represented:
+primary Neural Broadband, BroadbandProcessor, Filter(1Hz-200Hz), and
+Filter(200Hz-3kHz). Each condition should ultimately have a per-recording PDF
+with one page per reviewed well and one subplot per Kilosort-good unit.
+```
+
+Experiment:
+
+```text
+Checked existing AIND/Step 1 outputs for the four raw variants.
+Submitted a targeted AIND Step 1 lane for the three missing variants only.
+Wells submitted for each missing variant:
+  A2, A3, B1, B2, B3
+```
+
+Result:
+
+```text
+The primary Neural Broadband condition already has completed Step 1 outputs and
+an existing waveform PDF. The three derived/filter variants did not yet have
+completed Kilosort/Step 1 analyzer outputs, so true sorted-unit waveform PDFs
+cannot be produced for them until those jobs finish.
+
+Submitted missing Step 1 work on 2026-07-08:
+  3 filtering variants x 5 wells = 15 well pipelines
+
+Submitted variants:
+  filterreview_pv_5_28_cl23_exp17_2_000_broadband_processor
+  filterreview_pv_5_28_cl23_exp17_2_000_filter_1hz_200hz
+  filterreview_pv_5_28_cl23_exp17_2_000_filter_200hz_3khz
+```
+
+Saved command inputs and follow-up scripts:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/pv_reporter_cl23_exp17_2_filter_variant_recordings_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/recording_batch_plan/recording_batch_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/recording_batch_plan/submitted_recording_batches.tsv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/build_filter_variant_waveform_pdfs_after_step1.sh
+```
+
+Readiness outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/filter_variant_step1_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/filter_variant_logical_groups.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/filter_variant_missing_step1_outputs.csv
+```
+
+Confirmed finding from this experiment:
+
+```text
+The existing waveform PDF for this biological recording represents only the
+already completed primary/Neural Broadband AIND Step 1 output. The desired
+per-filter waveform PDFs require independent Kilosort/Step 1 outputs for each
+raw filter variant. Those missing Step 1 jobs have been submitted but are not
+complete yet.
+```
+
+## Metadata Provenance Correction
+
+Question tested:
+
+```text
+Are the numeric Axion filter settings for the PV reporter raw variants present
+only in filenames, or are they present in raw metadata that should be parsed and
+passed through the CSV handoffs?
+```
+
+Expected result:
+
+```text
+If Axion stored the values in `dataset_description`, the pipeline should parse
+and carry them as structured columns instead of relying on filename labels.
+```
+
+Result:
+
+```text
+The values are present in `dataset_description`. The previous simplified
+extraction kept only first repeated `High Pass Filter`/`Low Pass Filter` labels
+and lost cutoff/pole values plus the second BroadbandProcessor filter block.
+```
+
+Confirmed finding from this experiment:
+
+```text
+Axion filter metadata must be treated as first-class provenance. The corrected
+parser is `src/axion_mea/filter_metadata.py`, and the corrected audit output is:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/
+```
+
+For `pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)`, the parsed metadata is:
+
+```text
+primary .raw: Neural Broadband, acquisition high-pass 0.1 Hz IIR, low-pass None
+_BroadbandProcessor.raw: 200 Hz to 5 kHz Butterworth plus 1 Hz to 200 Hz Median DownSampler
+_Filter(1Hz-200Hz).raw: 1 Hz to 200 Hz Butterworth
+_Filter(200Hz-3kHz).raw: 200 Hz to 3 kHz Butterworth
+```
+
 ## Open Questions
 
 ### Biological Validity Of Current Step 1 Template Features
@@ -145,4 +259,36 @@ Current status:
 
 ```text
 Not started
+```
+
+### PV Reporter Filter-Variant Waveform Comparison
+
+Question:
+
+```text
+How do Kilosort-good unit waveforms differ across the primary Neural Broadband,
+BroadbandProcessor, Filter(1Hz-200Hz), and Filter(200Hz-3kHz) variants of
+pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)?
+```
+
+Why it is important:
+
+```text
+The current biological-validity review depends on the waveform representation
+used by Step 1. This targeted comparison will show whether the observed waveform
+morphology depends strongly on the upstream Axion filtering variant.
+```
+
+Single experiment that will answer it:
+
+```text
+After the submitted Step 1 jobs complete, run:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/build_filter_variant_waveform_pdfs_after_step1.sh
+```
+
+Current status:
+
+```text
+Running. The missing Step 1/Kilosort jobs have been submitted; waveform PDFs for
+the three derived/filter variants do not exist yet.
 ```

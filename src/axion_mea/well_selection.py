@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 
+from .filter_metadata import parse_axion_filter_metadata
 from .plate_maps import read_csv_rows
 
 
@@ -460,6 +461,7 @@ def inventory_selection_assets(
             raw_file,
             recording_stem,
         )
+        filter_fields = parse_axion_filter_metadata(raw_metadata)
         status = _asset_status(
             raw_file=raw_file,
             plate_map_csv=plate_map_resolved or Path(""),
@@ -519,6 +521,7 @@ def inventory_selection_assets(
             "duration_s": raw_metadata.get("duration_s"),
             "spike_counts_csv": str(spike_counts_csv),
             "spike_list_csv": str(spike_list_csv),
+            **filter_fields,
             **{
                 key: status[key]
                 for key in [

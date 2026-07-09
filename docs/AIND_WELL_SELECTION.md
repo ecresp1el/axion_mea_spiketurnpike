@@ -140,6 +140,42 @@ wells are worth exporting, and the later per-well export creates the canonical
 `channel_mapping.csv` used by NWB, ProbeInterface, Kilosort/AIND params, and
 source-data remapping.
 
+## Filter Metadata Provenance
+
+As of 2026-07-08, well selection and AIND batch preparation must preserve the
+structured Axion filter metadata parsed from `dataset_description`. Do not rely
+only on the raw filename or the old single `metadata_high_pass_filter` /
+`metadata_high_pass_cutoff` fields.
+
+The inventory and batch manifests now pass through:
+
+```text
+filter_metadata_signature
+filter_block_count
+filter_block_names
+filter_blocks_json
+derived_high_pass_cutoff_freqs
+derived_low_pass_cutoff_freqs
+digital_filter_settings_* columns
+broadband_processor_high_frequency_digital_filter_* columns
+broadband_processor_low_frequency_median_filter_* columns
+```
+
+These fields are produced by:
+
+```text
+src/axion_mea/filter_metadata.py
+src/axion_mea/well_selection.py
+scripts/prepare_aind_recording_batches.py
+scripts/prepare_aind_well_batch.py
+```
+
+The refreshed ground-truth audit containing the corrected columns is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/
+```
+
 ## Plate-Type Boundary
 
 The current AIND scale-up route is validated for `FortyEightWellLumos` only:

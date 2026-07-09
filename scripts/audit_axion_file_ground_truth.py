@@ -25,6 +25,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from axion_mea.filter_metadata import (
+    FILTER_METADATA_COLUMNS,
+    FILTER_METADATA_VALUE_COUNT_FIELDS,
+    parse_axion_filter_metadata,
+)
 from axion_mea.io import AxionStimFile
 
 
@@ -175,43 +180,8 @@ def truthy(value: str) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
 
 
-def dataset_description_setting(meta: dict[str, str] | None, setting_name: str) -> str:
-    description = meta_value(meta, "dataset_description")
-    for line in re.split(r"[\r\n]+", description):
-        parts = [part.strip() for part in line.split(",")]
-        if parts and parts[0].lower() == setting_name.lower():
-            return ",".join(parts[1:]).strip()
-    return ""
-
-
-FILTER_METADATA_FIELDS = (
-    "acquisition_analog_mode_setting",
-    "acquisition_digital_high_pass_filter",
-    "acquisition_digital_low_pass_filter",
-    "derived_high_pass_filter",
-    "derived_low_pass_filter",
-)
-
-
 def filter_value(value: str) -> str:
     return value.strip() if value and value.strip() else "<blank>"
-
-
-def filter_metadata_signature(
-    analog_mode_setting: str,
-    digital_high_pass_filter: str,
-    digital_low_pass_filter: str,
-    derived_high_pass_filter: str,
-    derived_low_pass_filter: str,
-) -> str:
-    parts = [
-        ("analog", analog_mode_setting),
-        ("acquisition_hp", digital_high_pass_filter),
-        ("acquisition_lp", digital_low_pass_filter),
-        ("derived_hp", derived_high_pass_filter),
-        ("derived_lp", derived_low_pass_filter),
-    ]
-    return " | ".join(f"{key}={filter_value(value)}" for key, value in parts)
 
 
 def standard_export_block_reasons(
@@ -231,7 +201,7 @@ def standard_export_block_reasons(
 
 def add_group_value(group: dict[str, Any], key: str, value: str) -> None:
     if value:
-        group[key].add(value)
+        group.setdefault(key, set()).add(value)
 
 
 def numeric_values(values: set[str]) -> list[float]:
@@ -526,24 +496,28 @@ def main() -> None:
             add_group_value(group, "standard_export_allowed_values", str(standard_export_allowed).lower())
             for reason in export_block_reasons:
                 add_group_value(group, "standard_export_block_reasons", reason)
-            analog_mode_setting = dataset_description_setting(meta, "Analog Mode Setting") or meta_value(meta, "metadata_analog_mode")
-            digital_high_pass_filter = dataset_description_setting(meta, "Digital High Pass Filter")
-            digital_low_pass_filter = dataset_description_setting(meta, "Digital Low Pass Filter")
-            derived_high_pass_filter = dataset_description_setting(meta, "High Pass Filter")
-            derived_low_pass_filter = dataset_description_setting(meta, "Low Pass Filter")
-            filter_signature = filter_metadata_signature(
-                analog_mode_setting,
-                digital_high_pass_filter,
-                digital_low_pass_filter,
-                derived_high_pass_filter,
-                derived_low_pass_filter,
+            filter_fields = parse_axion_filter_metadata(meta)
+            filter_signature = filter_fields["filter_metadata_signature"]
+            add_group_value(
+                group,
+                "acquisition_analog_mode_settings",
+                filter_fields["acquisition_analog_mode_setting"],
             )
-            add_group_value(group, "acquisition_analog_mode_settings", analog_mode_setting)
-            add_group_value(group, "acquisition_digital_high_pass_filters", digital_high_pass_filter)
-            add_group_value(group, "acquisition_digital_low_pass_filters", digital_low_pass_filter)
-            add_group_value(group, "derived_high_pass_filters", derived_high_pass_filter)
-            add_group_value(group, "derived_low_pass_filters", derived_low_pass_filter)
+            add_group_value(
+                group,
+                "acquisition_digital_high_pass_filters",
+                filter_fields["acquisition_digital_high_pass_filter"],
+            )
+            add_group_value(
+                group,
+                "acquisition_digital_low_pass_filters",
+                filter_fields["acquisition_digital_low_pass_filter"],
+            )
+            add_group_value(group, "derived_high_pass_filters", filter_fields["derived_high_pass_filter"])
+            add_group_value(group, "derived_low_pass_filters", filter_fields["derived_low_pass_filter"])
             add_group_value(group, "filter_metadata_signatures", filter_signature)
+            for field_name in FILTER_METADATA_COLUMNS:
+                add_group_value(group, f"{field_name}_values", filter_fields.get(field_name, ""))
             group["stim_parse_statuses"][str(stim_summary["stim_parse_status"])] += 1
             add_group_value(group, "stim_parse_errors", str(stim_summary["stim_parse_error"]))
             add_group_value(group, "stim_event_counts", str(stim_summary["stim_event_count"]))
@@ -598,12 +572,7 @@ def main() -> None:
                 "block_vector_warning_messages": meta.get("block_vector_warning_messages", "") if meta else "",
                 "standard_export_allowed": standard_export_allowed,
                 "standard_export_block_reasons": ";".join(export_block_reasons),
-                "acquisition_analog_mode_setting": analog_mode_setting,
-                "acquisition_digital_high_pass_filter": digital_high_pass_filter,
-                "acquisition_digital_low_pass_filter": digital_low_pass_filter,
-                "derived_high_pass_filter": derived_high_pass_filter,
-                "derived_low_pass_filter": derived_low_pass_filter,
-                "filter_metadata_signature": filter_signature,
+                **filter_fields,
             }
             raw_row.update(stim_summary)
             raw_rows.append(raw_row)
@@ -754,6 +723,12 @@ def main() -> None:
             "same_stem_folder_count": len(stem_locations[duplicate_key]),
             "issues": ";".join(issues),
         }
+        row.update(
+            {
+                f"{field_name}_values": joined_values(group.get(f"{field_name}_values", set()))
+                for field_name in FILTER_METADATA_COLUMNS
+            }
+        )
         group_rows.append(row)
         for issue in issues:
             issue_rows.append(
@@ -774,8 +749,7 @@ def main() -> None:
             (row["logical_folder_relative"], row["logical_recording_stem"]) for row in rows
         }
         first = rows[0]
-        filter_metadata_signature_rows.append(
-            {
+        signature_row = {
                 "filter_metadata_signature": signature,
                 "raw_file_count": len(rows),
                 "logical_group_count": len(groups_with_signature),
@@ -789,11 +763,12 @@ def main() -> None:
                 "acquisition_digital_low_pass_filter": first["acquisition_digital_low_pass_filter"],
                 "derived_high_pass_filter": first["derived_high_pass_filter"],
                 "derived_low_pass_filter": first["derived_low_pass_filter"],
-            }
-        )
+        }
+        signature_row.update({field_name: first.get(field_name, "") for field_name in FILTER_METADATA_COLUMNS})
+        filter_metadata_signature_rows.append(signature_row)
 
     filter_metadata_value_rows: list[dict[str, Any]] = []
-    for field in FILTER_METADATA_FIELDS:
+    for field in FILTER_METADATA_VALUE_COUNT_FIELDS:
         values = sorted({filter_value(str(row.get(field, ""))) for row in raw_rows})
         for value in values:
             rows = [row for row in raw_rows if filter_value(str(row.get(field, ""))) == value]

@@ -8,11 +8,18 @@ import csv
 import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from axion_mea.filter_metadata import FILTER_METADATA_COLUMNS
+
 PROJECT_CONFIG = REPO_ROOT / "config" / "greatlakes_project.env"
 DEFAULT_PROJECT_ROOT = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder")
 DEFAULT_PLATE_MAP = REPO_ROOT / "metadata" / "plate_maps" / "axion_48_well_opto_plate_map.csv"
@@ -317,8 +324,7 @@ def main() -> None:
             prepare_lines.append(f"echo 'Skipping disabled recording {recording_stem}'")
             supervisor_lines.append(f"echo 'Skipping disabled recording {recording_stem}'")
 
-        planned_rows.append(
-            {
+        planned_row = {
                 "enabled": str(enabled).lower(),
                 "recording_stem": recording_stem,
                 "raw_file": str(raw_file),
@@ -351,8 +357,10 @@ def main() -> None:
                 "prepare_submit_script": str(submit_script),
                 "submitted_jobs": str(submitted_jobs),
                 "supervisor_output_dir": str(supervisor_output_dir),
-            }
-        )
+        }
+        for field_name in FILTER_METADATA_COLUMNS:
+            planned_row[field_name] = field(row, field_name)
+        planned_rows.append(planned_row)
 
     prepare_script = output_dir / "prepare_all_recordings.sh"
     submit_script = output_dir / "submit_all_recordings.sh"
@@ -378,12 +386,7 @@ def main() -> None:
         "plate_family",
         "raw_variant_label",
         "raw_file_kind",
-        "filter_metadata_signature",
-        "acquisition_analog_mode_setting",
-        "acquisition_digital_high_pass_filter",
-        "acquisition_digital_low_pass_filter",
-        "derived_high_pass_filter",
-        "derived_low_pass_filter",
+        *FILTER_METADATA_COLUMNS,
         "raw_metadata_inventory",
         "aind_input",
         "allow_aind_overwrite",

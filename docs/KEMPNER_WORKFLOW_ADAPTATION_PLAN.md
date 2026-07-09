@@ -5320,3 +5320,58 @@ config/kempner_kilosort4_axion_lumos_params.json
 The useful pieces to reuse are the paths, provenance habits, Axion settings, and
 container-pull lessons. The workflow target should now be current AIND
 `main_multi_backend.nf`.
+
+## 2026-07-08 Axion Filter Metadata Correction
+
+The Axion file ground-truth and AIND scale-up handoffs now parse structured
+filter blocks from raw `dataset_description` text. This is a major provenance
+boundary: numeric filter cutoffs and poles are metadata, not just filename
+labels.
+
+The old simplified extraction collapsed repeated settings such as
+`High Pass Filter` and `Low Pass Filter`, which lost the difference between:
+
+```text
+primary Neural Broadband acquisition high-pass/low-pass settings
+BroadbandProcessor high-frequency digital filter
+BroadbandProcessor low-frequency median filter
+Filter(1Hz-200Hz) digital filter settings
+Filter(200Hz-3kHz) digital filter settings
+```
+
+Code paths updated:
+
+```text
+src/axion_mea/filter_metadata.py
+scripts/audit_axion_file_ground_truth.py
+scripts/build_aind_recordings_manifest.py
+scripts/prepare_aind_recording_batches.py
+scripts/prepare_aind_well_batch.py
+src/axion_mea/well_selection.py
+```
+
+Corrected audit output:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/
+```
+
+CSV handoffs that should carry these columns:
+
+```text
+raw_files.csv
+logical_recording_groups.csv
+filter_metadata_signatures.csv
+filter_metadata_value_counts.csv
+recordings_manifest.csv
+recording_batch_manifest.csv
+well_batch_manifest.csv
+aind_selection_asset_inventory.csv
+```
+
+Required columns include `filter_block_count`, `filter_block_names`,
+`filter_blocks_json`, `derived_high_pass_cutoff_freqs`,
+`derived_low_pass_cutoff_freqs`, and the section-specific
+`digital_filter_settings_*`,
+`broadband_processor_high_frequency_digital_filter_*`, and
+`broadband_processor_low_frequency_median_filter_*` fields.

@@ -1191,3 +1191,137 @@ Builds the table rows for one well.
    per-spike amplitudes are persisted.
 9. If a future analysis requires a missing derived asset, that should be a
    separate downstream analysis cache decision, not a recovery-pipeline change.
+
+## Targeted Filter-Variant Waveform Review
+
+A targeted comparison was started for one biological recording with multiple
+Axion raw filtering variants:
+
+```text
+pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)
+```
+
+The existing canonical Step 3 waveform PDF includes only the completed
+primary/Neural Broadband AIND Step 1 output:
+
+```text
+sixwell_manual_primary_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)
+```
+
+The BroadbandProcessor, Filter(1Hz-200Hz), and Filter(200Hz-3kHz) raw variants
+did not have corresponding completed Step 1 SortingAnalyzer outputs, so true
+sorted-unit waveform PDFs could not be produced for those variants directly
+from the current canonical Step 3 dataset.
+
+Targeted Step 1 jobs submitted on 2026-07-08:
+
+```text
+filterreview_pv_5_28_cl23_exp17_2_000_broadband_processor
+filterreview_pv_5_28_cl23_exp17_2_000_filter_1hz_200hz
+filterreview_pv_5_28_cl23_exp17_2_000_filter_200hz_3khz
+```
+
+Each variant was submitted for wells:
+
+```text
+A2, A3, B1, B2, B3
+```
+
+Saved command inputs and job tables:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/pv_reporter_cl23_exp17_2_filter_variant_recordings_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/recording_batch_plan/recording_batch_manifest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/recording_batch_plan/submitted_recording_batches.tsv
+```
+
+After those Step 1 jobs complete, run:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/filter_variant_waveform_review_20260708/build_filter_variant_waveform_pdfs_after_step1.sh
+```
+
+That follow-up script builds a comparison-specific manifest and master waveform
+metrics table, then writes:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/filter_variant_master_waveform_metrics_table.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/figures/filter_variant_waveform_unit_grid_review__combined.pdf
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/figures/by_filtering/
+```
+
+As of setup, the readiness check reports missing Step 1 outputs for the 15
+newly submitted derived/filter variant recording-well rows:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/downstream/filter_variant_waveform_review_20260708/filter_variant_missing_step1_outputs.csv
+```
+
+## Axion Filter Metadata Pass-Through
+
+Corrected on 2026-07-08: Axion numeric filter settings are present in the raw
+`dataset_description` text and must be parsed into every CSV handoff. It is not
+enough to keep only `derived_high_pass_filter=Butterworth`, because that loses
+the distinction between `Filter(1Hz-200Hz)`, `Filter(200Hz-3kHz)`, and the two
+separate BroadbandProcessor outputs.
+
+The shared parser is:
+
+```text
+src/axion_mea/filter_metadata.py
+```
+
+The corrected producer paths now pass these fields through:
+
+```text
+scripts/audit_axion_file_ground_truth.py
+scripts/build_aind_recordings_manifest.py
+scripts/prepare_aind_recording_batches.py
+scripts/prepare_aind_well_batch.py
+src/axion_mea/well_selection.py
+```
+
+The refreshed audit CSVs are:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/raw_files.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/logical_recording_groups.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/filter_metadata_signatures.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/filter_metadata_value_counts.csv
+```
+
+New canonical pass-through columns include:
+
+```text
+filter_block_count
+filter_block_names
+filter_blocks_json
+derived_high_pass_cutoff_freqs
+derived_low_pass_cutoff_freqs
+digital_filter_settings_high_pass_cutoff_freq
+digital_filter_settings_low_pass_cutoff_freq
+broadband_processor_high_frequency_digital_filter_high_pass_cutoff_freq
+broadband_processor_high_frequency_digital_filter_low_pass_cutoff_freq
+broadband_processor_low_frequency_median_filter_high_pass_cutoff_freq
+broadband_processor_low_frequency_median_filter_low_pass_cutoff_freq
+```
+
+For `pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)`, the corrected parsed
+metadata is:
+
+```text
+primary .raw:
+  Analog Mode Setting = Neural Broadband
+  Digital High Pass Filter = 0.1 Hz IIR
+  Digital Low Pass Filter = None
+
+_BroadbandProcessor.raw:
+  Broadband Processor High Frequency Digital Filter = 200 Hz to 5 kHz Butterworth
+  Broadband Processor Low Frequency Median Filter = 1 Hz to 200 Hz Median DownSampler
+
+_Filter(1Hz-200Hz).raw:
+  Digital Filter Settings = 1 Hz to 200 Hz Butterworth
+
+_Filter(200Hz-3kHz).raw:
+  Digital Filter Settings = 200 Hz to 3 kHz Butterworth
+```
