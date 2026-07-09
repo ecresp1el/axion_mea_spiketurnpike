@@ -6086,6 +6086,44 @@ Treat low-spike Kilosort failures as per-well outcomes to record, not as a
 reason to stop submission for other pickup-ready wells.
 ```
 
+Required automatic sparse-Kilosort fallback behavior:
+
+```text
+1. Let the standard KS4 route run first.
+2. Collect standard KS4 failures caused by sparse template-learning clips, e.g.
+   n_samples < n_clusters=6 or empty clip/PCA initialization failures.
+3. Submit those wells automatically to the labeled sparse fallback route:
+     low_activity_ks4_nt2_npcs2
+4. The fallback route must keep outputs separate from standard AIND outputs.
+5. The collector/status table must mark rescued wells as fallback_completed,
+   not standard_completed.
+6. Do not globally lower standard KS4 template/PCA settings to rescue sparse
+   wells. The sparse route is an explicit fallback, not the default sorter.
+```
+
+This fallback behavior was already proven earlier in the project. The validated
+fallback changes are:
+
+```text
+n_templates = 2
+nearest_templates = 2
+n_pcs = 2
+```
+
+The fallback is implemented by:
+
+```text
+scripts/prepare_aind_low_activity_fallback.py
+scripts/run_aind_recording_supervisor.py
+```
+
+Current recovery caveat: the Lumos continuation waves are being submitted by the
+lightweight continuation script, not the recording supervisor. Therefore standard
+KS4 sparse failures are being observed but are not automatically routed through
+`low_activity_ks4_nt2_npcs2` unless the fallback supervisor logic is run or
+integrated into this continuation workflow. That integration is required before
+calling the rerun fully automated.
+
 The 204 original AIND jobs that never created a Nextflow trace should not be
 treated as lost biological outputs. They did not produce AIND assets, but they
 can still be advanced once their wells pass the pickup boundary above. The
@@ -6103,8 +6141,11 @@ Future operational policy:
 5. Submit AIND/Kilosort in controlled waves, not all ready wells at once.
 6. After each wave starts, confirm that inner Nextflow job_dispatch,
    preprocessing, nwb_ecephys, and spikesort_kilosort4 actually begin.
-7. Only then submit the next wave.
-8. Keep a reconciliation table linking original export/NWB/SI/AIND job IDs to
+7. Automatically route sparse standard KS4 failures to the labeled
+   low_activity_ks4_nt2_npcs2 fallback and mark rescued wells as
+   fallback_completed.
+8. Only then submit the next wave.
+9. Keep a reconciliation table linking original export/NWB/SI/AIND job IDs to
    any continuation AIND job IDs.
 ```
 
@@ -6131,6 +6172,12 @@ errors. Those require well-selection correction or explicit exclusion.
 Do not flood Slurm with hundreds of AIND wrappers and then wait for their inner
 Nextflow jobs to compete for resources. This recreates the idle-wrapper
 bottleneck.
+
+Do not treat sparse KS4 template-learning failures as ordinary terminal
+failures before the labeled low_activity_ks4_nt2_npcs2 fallback has been tried.
+
+Do not overwrite standard outputs with fallback outputs. Fallback outputs must
+remain separate and explicitly labeled.
 ```
 
 How to submit safely next time:
