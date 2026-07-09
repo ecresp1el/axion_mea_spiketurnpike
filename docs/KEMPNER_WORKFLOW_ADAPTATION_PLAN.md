@@ -8119,6 +8119,24 @@ Canonical commands:
     all excluded units with reasons, and final FS/borderline/RS or FS/RS counts
     before any biological interpretation of the histograms.
 
+- [x] 2026-07-09 16:08 EDT - New representative-unit plot-wave handoff created
+  for the next major figure pass.
+
+  Handoff:
+    `docs/HANDOFF_REPRESENTATIVE_UNITS_POST_STEP1_PLOTS.md`
+
+  Intent:
+    build representative-unit manifests from the unified post-Step-1 analyzer
+    sources while keeping `KSLabel=good` as the ground-truth unit inclusion.
+    Link Step 2/QC/classification-recovery assets as metadata/features around
+    those units, but do not use Step 2 classifier labels as replacement truth.
+
+  Planned waves:
+    wave 0 reconciliation and asset linking; wave 1 Lumos optotag examples;
+    wave 2 Cytoview dorsal/ventral examples; wave 3 FS/RS and alignment
+    sensitivity examples; wave 4 QC/asset edge cases; wave 5 final
+    representative plot pack.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

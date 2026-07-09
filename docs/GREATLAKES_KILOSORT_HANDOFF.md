@@ -544,6 +544,13 @@ Historical/prototype status:
   screens for top optotag candidates, but they are not the current denominator
   reconciliation for all good units.
 
+Next handoff target:
+
+- Representative-unit plot waves should be built from the post-Step-1 unified
+  unit/spike sources while preserving `KSLabel=good` as ground truth and linking
+  Step 2/QC assets as metadata. Use:
+  `docs/HANDOFF_REPRESENTATIVE_UNITS_POST_STEP1_PLOTS.md`.
+
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference
 batch 1 vs batch 2 vs batch 3. Do not infer batch membership from recording
