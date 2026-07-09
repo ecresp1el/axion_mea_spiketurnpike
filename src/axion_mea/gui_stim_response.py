@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
+import re
 
 import numpy as np
 import pandas as pd
@@ -113,6 +114,10 @@ DEFAULT_TRAIN_WINDOW = AnalysisWindow(pre_ms=200.0, post_ms=800.0)
 DEFAULT_PULSE_WINDOW = PulseWindow(pre_ms=25.0, post_ms=100.0)
 DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=20.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0,))
+DEFAULT_STIM_RAW_ROOTS = (
+    Path("/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/manny4tbum_20260706"),
+    Path("/nfs/turbo/umms-parent/axion_mea_files_directory"),
+)
 
 
 @dataclass(frozen=True)
@@ -187,11 +192,49 @@ class UnitStimResponse:
     pulse_structure: PulseStructureReport
 
 
+@dataclass(frozen=True)
+class StimSidecarResolution:
+    """Resolved raw/stim metadata for one recording opened in the GUI."""
+
+    inputs: StimResponseInputs
+    stim_events: pd.DataFrame | None
+    pulse_structure: PulseStructureReport | None
+    eligibility: StimResponseEligibility
+    message: str
+
+
 def load_stim_events_csv(path: str | Path) -> pd.DataFrame:
     """Load and normalize a stimulation event CSV."""
 
     stim_events = pd.read_csv(Path(path))
     return normalize_stim_events(stim_events)
+
+
+def stim_events_from_raw(raw_file: str | Path) -> pd.DataFrame:
+    """Parse one Axion raw file and return normalized stimulation events."""
+
+    stim_file = AxionStimFile(Path(raw_file))
+    stim_file.parse()
+    rows = []
+    for summary in stim_file.summarize_stimulation_events():
+        rows.append(
+            {
+                "event_time_s": summary.event_time_s,
+                "event_time_sample": summary.event_time_sample,
+                "sequence_number": summary.sequence_number,
+                "source_kind": summary.source_kind,
+                "stimulation_duration_s": summary.stimulation_duration_s,
+                "artifact_elimination_duration_s": summary.artifact_elimination_duration_s,
+                "event_description": summary.event_description,
+                "event_data_id": summary.event_data_id,
+                "waveform_tag_guid": summary.waveform_tag_guid,
+                "channels_tag_guid": summary.channels_tag_guid,
+                "stimulated_wells": ";".join(summary.stimulated_wells),
+                "led_count": len(summary.led_positions),
+                "channel_mapping_count": len(summary.channel_mappings),
+            }
+        )
+    return normalize_stim_events(pd.DataFrame(rows))
 
 
 def normalize_stim_events(stim_events: pd.DataFrame) -> pd.DataFrame:
@@ -279,6 +322,100 @@ def load_pulse_epochs_from_raw(raw_file: str | Path) -> list[PulseEpoch]:
     stim_file = AxionStimFile(Path(raw_file))
     stim_file.parse()
     return build_pulse_epochs(stim_file.opto_on_intervals_ms())
+
+
+def resolve_stim_sidecars(
+    recording_name: str,
+    well: str,
+    *,
+    analyzer_path: Path | None = None,
+    raw_roots: Sequence[Path] = DEFAULT_STIM_RAW_ROOTS,
+    stim_events_csv: Path | None = None,
+    raw_file: Path | None = None,
+    plate_family: str = "",
+    plate_type_name: str = "",
+) -> StimSidecarResolution:
+    """Resolve and parse stim sidecars for a GUI-opened recording/well."""
+
+    resolved_raw = raw_file.expanduser().resolve() if raw_file is not None else None
+    if resolved_raw is None:
+        resolved_raw = find_matching_raw_file(recording_name, raw_roots)
+
+    inferred_plate_family = plate_family
+    inferred_plate_type = plate_type_name
+    if not inferred_plate_family and not inferred_plate_type:
+        if _looks_like_lumos_recording(recording_name, resolved_raw):
+            inferred_plate_family = "lumos_48well"
+
+    inputs = StimResponseInputs(
+        analyzer_path=analyzer_path,
+        recording_name=recording_name,
+        well=well,
+        plate_family=inferred_plate_family,
+        plate_type_name=inferred_plate_type,
+        stim_events_csv=stim_events_csv,
+        raw_file=resolved_raw,
+    )
+
+    stim_events: pd.DataFrame | None = None
+    pulse_structure: PulseStructureReport | None = None
+    parse_status = "ok"
+    message_parts: list[str] = []
+
+    try:
+        if stim_events_csv is not None and stim_events_csv.exists():
+            stim_events = load_stim_events_csv(stim_events_csv)
+            message_parts.append(f"Loaded stim events: {stim_events_csv}")
+        elif resolved_raw is not None and resolved_raw.exists():
+            stim_events = stim_events_from_raw(resolved_raw)
+            message_parts.append(f"Parsed stim events from raw: {resolved_raw}")
+        else:
+            message_parts.append("No matching raw/stim-event sidecar was resolved.")
+
+        if stim_events is not None and resolved_raw is not None and resolved_raw.exists():
+            pulse_epochs = load_pulse_epochs_from_raw(resolved_raw)
+            pulse_structure = inspect_pulse_structure(stim_events, pulse_epochs)
+        elif stim_events is not None:
+            pulse_structure = inspect_pulse_structure(stim_events, [])
+    except Exception as exc:  # noqa: BLE001 - GUI should show parse failure, not crash
+        parse_status = f"{type(exc).__name__}: {exc}"
+        message_parts.append(f"Stim sidecar parse failed: {parse_status}")
+
+    eligibility = assess_stim_response_eligibility(
+        inputs,
+        stim_events=stim_events,
+        pulse_structure=pulse_structure,
+        parse_status=parse_status,
+    )
+    return StimSidecarResolution(
+        inputs=inputs,
+        stim_events=stim_events,
+        pulse_structure=pulse_structure,
+        eligibility=eligibility,
+        message="\n".join(message_parts + [eligibility.message]),
+    )
+
+
+def find_matching_raw_file(recording_name: str, raw_roots: Sequence[Path]) -> Path | None:
+    """Find the most likely Axion raw file for a Step 1 recording folder name."""
+
+    recording_key = _normalized_match_text(recording_name)
+    candidates: list[tuple[int, int, Path]] = []
+    for root in raw_roots:
+        root = root.expanduser()
+        if not root.exists():
+            continue
+        for path in root.rglob("*.raw"):
+            stem = _raw_base_stem(path)
+            key = _normalized_match_text(stem)
+            if not key or key not in recording_key:
+                continue
+            suffix_penalty = _raw_variant_penalty(path)
+            candidates.append((len(key), -suffix_penalty, path.resolve()))
+
+    if not candidates:
+        return None
+    return sorted(candidates, reverse=True)[0][2]
 
 
 def inspect_pulse_structure(
