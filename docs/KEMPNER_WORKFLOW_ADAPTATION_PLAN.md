@@ -7718,6 +7718,73 @@ Canonical commands:
   `job_dispatch` tasks, number of completed preprocessing tasks, and whether
   any trace has task rows. Do not rely on parent wrapper `RUNNING` alone.
 
+- [x] 2026-07-09 13:53 EDT - Cytoview priority wave 3 drained; no AIND jobs are
+  currently live in Slurm.
+
+  Live Slurm:
+    No active/pending AIND, Lumos, or Cytoview Step 1 jobs were present in
+    `squeue`. The only visible job was unrelated and held:
+    `51848144_[0-7] siletti-div90-xfer-3d PENDING (JobHeldUser)`.
+
+  Wave 3 submission:
+    wave label: `cytoview_platemap_dv_priority_20_20260709_1330`
+    submitted parent wrappers: `20`
+    completed parent wrappers: `19`
+    failed parent wrappers: `1`
+    parent runtime range for the completed/failed wave: approximately
+    `5m16s` to `12m20s`.
+
+  Wave 3 failure:
+    parent wrapper: `53181528`
+    recording:
+      `step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_filter_200Hz-3kHz`
+    well: `A1`
+    failed stage: `spikesort_kilosort4`
+    error class: sparse Kilosort clips
+    error text:
+      `ValueError: n_samples=1 should be >= n_clusters=6.`
+
+  Refreshed canonical Step 1 ledger:
+    generated at: `2026-07-09T13:53:41`
+    total rows: `454`
+    GUI-ready total: `184`
+    plate-family GUI-ready split:
+      Lumos: `150`
+      Cytoview: `34`
+
+  Cytoview all-row status after wave 3:
+    `gui_ready_standard`: `34`
+    `completed_standard_no_gui_analyzer_yet`: `24`
+    `standard_failed_sparse_fallback_candidate`: `2`
+    `not_ready_or_not_started`: `138`
+
+  Plate-map-backed dorsal/ventral Cytoview priority subset:
+    total priority wells: `90`
+    submitted in clean priority waves: `60`
+    still left from the earlier cancelled all-Cytoview wave: `30`
+    current statuses inside the 90:
+      `gui_ready_standard`: `34`
+      `completed_standard_no_gui_analyzer_yet`: `24`
+      `standard_failed_sparse_fallback_candidate`: `2`
+      `not_ready_or_not_started`: `30`
+
+  Per clean priority wave:
+    `cytoview_platemap_dv_priority_20_20260709_1308`:
+      `11` GUI-ready, `8` completed without GUI analyzer marker yet, `1` sparse
+      Kilosort failure
+    `cytoview_platemap_dv_priority_20_20260709_1311`:
+      `12` GUI-ready, `8` completed without GUI analyzer marker yet, `0` sparse
+      failures
+    `cytoview_platemap_dv_priority_20_20260709_1330`:
+      `11` GUI-ready, `8` completed without GUI analyzer marker yet, `1` sparse
+      Kilosort failure
+
+  Next operational decision:
+    Do not assume the 24 `completed_standard_no_gui_analyzer_yet` wells are GUI
+    usable yet. Before launching the remaining `20 + 10`, either confirm why
+    those completed wrappers lack the expected analyzer directory, or accept that
+    these are completed AIND runs but not yet GUI-ready assets.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 
