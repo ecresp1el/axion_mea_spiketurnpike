@@ -356,10 +356,7 @@ def make_gui_app(
         f"{STEP1_GUI_REMINDER}\n**Manual curation JSON**  \n`{curation_output}`",
         sizing_mode="stretch_width",
     )
-    tabs = pn.Tabs(
-        ("Curation", win.main_layout),
-        sizing_mode="stretch_both",
-    )
+    tab_items = []
     if stim_response_enabled:
         from axion_mea.gui_stim_response import make_stim_response_panel
 
@@ -370,7 +367,12 @@ def make_gui_app(
             analyzer_path=analyzer_path,
             raw_roots=stim_raw_roots,
         )
-        tabs.append(("Stim response", stim_panel))
+        tab_items.append(("Stim raster/PSTH", stim_panel))
+    tab_items.append(("Curation", win.main_layout))
+    tabs = pn.Tabs(
+        *tab_items,
+        sizing_mode="stretch_both",
+    )
 
     print(f"Opened Step 1 GUI: {recording} / {well}", flush=True)
     print(f"Manual curation JSON: {curation_output}", flush=True)

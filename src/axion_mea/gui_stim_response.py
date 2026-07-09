@@ -940,7 +940,12 @@ def make_stim_response_panel(
         sizing_mode="stretch_width",
     )
     return pn.Column(
-        pn.pane.Markdown("## Stim response"),
+        pn.pane.Markdown(
+            "## Stim raster/PSTH\n"
+            "- Train locked: raster/PSTH aligned to stimulation train onset at x = 0 ms.\n"
+            "- Pulse locked: raster/PSTH aligned to each pulse onset at x = 0 ms.",
+            sizing_mode="stretch_width",
+        ),
         status,
         controls,
         tabs,
