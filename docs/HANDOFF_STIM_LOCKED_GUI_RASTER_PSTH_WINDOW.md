@@ -85,11 +85,10 @@ Important current behavior:
   pseudo-trials with `pulse_aligned_time_ms`.
 - `PsthBuilder` creates PSTH tables with raw counts, Hz rates, and optionally
   smoothed rates.
-- `OptoWaveformModel.step_trace()` and `sampled_proxy()` reconstruct the
-  command waveform from parsed `.raw` XML micro-ops.
-- The plotted waveform is a reconstructed command/opto proxy, not a measured
-  analog voltage trace. The handoff should preserve that distinction in code and
-  labels, even if the user-facing shorthand is "analog" or "smoothed analog".
+- `OptoWaveformModel.step_trace()` reconstructs the command timing from parsed
+  `.raw` XML micro-ops.
+- There is no measured analog signal in this GUI view. Labels should call this
+  a reconstructed opto command, not analog and not a smoothed analog trace.
 
 ## Key Design Decision
 
@@ -131,12 +130,12 @@ Recommended structure:
 ```text
 Stim response window
 |-- Tab: Train locked
-|   |-- reconstructed/smoothed opto command trace
+|   |-- reconstructed opto command trace
 |   |-- raster, rows = stimulation train trials
 |   `-- PSTH, denominator = number of train trials
 `-- Tab: Pulse locked
     |-- mode control: by pulse position / pooled pulses
-    |-- reconstructed/smoothed single-pulse command trace
+    |-- reconstructed single-pulse command trace
     |-- raster
     |   |-- by pulse position: rows = train trials, columns/facets = P1..PN
     |   `-- pooled pulses: rows = pulse pseudo-trials in appearance order
@@ -288,15 +287,16 @@ spike_frames = sorting.get_unit_spike_train(unit_id=unit_id)
 spike_times_s = spike_frames / sampling_frequency_hz
 ```
 
-For merged candidate views, the simplest display rule is:
+For multi-unit inspection, do not pool selected units into one raster by
+default. Render a small per-unit panel for each selected unit:
 
 ```text
-selected-unit view = union of spike times across selected units
+selected units = one raster/PSTH panel per unit id
 ```
 
 If the GUI exposes a finalized curation model with merged/split unit ids, a
 later version can render the post-curation unit train directly. The first pass
-can still be useful if it updates from the current selected units.
+can still be useful if it updates from the current selected units in a grid.
 
 ### Train-Locked Tab
 
@@ -435,7 +435,7 @@ Visual/manual tests:
 - compare GUI pulse-locked pooled view against existing
   `figure__pulse_response_all_pulses.png`;
 - confirm selected units with no spikes show an empty but well-scaled plot;
-- confirm selected multi-unit/merge candidate views render the union of spikes;
+- confirm selected multi-unit/merge candidate views render one panel per unit;
 - confirm no file is written inside the Step 1 analyzer Zarr.
 
 ## Open Questions
@@ -444,8 +444,8 @@ These should be resolved before implementation:
 
 1. What canonical manifest should map Step 1 analyzer recordings to the Axion
    `.raw` and stim-event sidecars?
-2. Should the first GUI version render only the selected unit, or the union of
-   all visible/selected units in the merge panel?
+2. Should the first GUI version render only manually selected units, or all
+   visible/selected units from the merge panel once live sync is available?
 3. For splits, should the response panel show the pre-split original unit, the
    proposed split children, or both? This depends on what split state
    `spikeinterface-gui` exposes during editing.
