@@ -49,6 +49,15 @@ def main() -> None:
     )
     parser.add_argument("--root-folder", type=Path, default=DEFAULT_AIND_RESULTS_ROOT)
     parser.add_argument("--curation-root", type=Path, default=DEFAULT_CURATION_ROOT)
+    parser.add_argument(
+        "--recording-prefix",
+        action="append",
+        default=[],
+        help=(
+            "Only show analyzers whose recording folder starts with this prefix. "
+            "May be supplied more than once."
+        ),
+    )
     parser.add_argument("--address", default="localhost")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--no-traces", action="store_true")
@@ -56,14 +65,27 @@ def main() -> None:
     args = parser.parse_args()
 
     analyzers = discover_analyzers(args.root_folder.expanduser().resolve())
+    if args.recording_prefix:
+        analyzers = [
+            row
+            for row in analyzers
+            if any(row["recording"].startswith(prefix) for prefix in args.recording_prefix)
+        ]
     if not analyzers:
-        raise SystemExit(f"No Step 1 analyzers found under {args.root_folder}")
+        prefix_text = (
+            f" matching prefix(es): {', '.join(args.recording_prefix)}"
+            if args.recording_prefix
+            else ""
+        )
+        raise SystemExit(f"No Step 1 analyzers found under {args.root_folder}{prefix_text}")
 
     patch_probe_view_for_bokeh_compatibility()
 
     import panel as pn
 
     print(f"Found {len(analyzers)} Step 1 analyzers under {args.root_folder}", flush=True)
+    if args.recording_prefix:
+        print(f"Recording prefix filter: {', '.join(args.recording_prefix)}", flush=True)
     print(f"Open on the Mac via SSH tunnel: http://localhost:{args.port}", flush=True)
     pn.serve(
         {

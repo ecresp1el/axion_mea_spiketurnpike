@@ -6188,6 +6188,7 @@ conda activate "${CONDA_ENV}"
 
 python scripts/launch_step1_sorting_analyzer_browser.py \
   --root-folder /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind \
+  --recording-prefix step1_nonlfp_th5_20260708_ \
   --curation-root /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation \
   --address localhost \
   --port 18765

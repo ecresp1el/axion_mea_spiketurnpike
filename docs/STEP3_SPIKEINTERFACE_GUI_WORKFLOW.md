@@ -58,6 +58,7 @@ conda activate "${CONDA_ENV}"
 
 python scripts/launch_step1_sorting_analyzer_browser.py \
   --root-folder /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind \
+  --recording-prefix step1_nonlfp_th5_20260708_ \
   --curation-root /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation \
   --address localhost \
   --port 18765
@@ -68,6 +69,12 @@ Recommended early Step 1 curation root:
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation/<recording>/<well>/
 ```
+
+The `--recording-prefix` filter is important during reruns because the shared
+`results/aind` root also contains older analyzers. For the 2026-07-08 TH=5
+rerun, completed wells are appearing under recording folders that begin with
+`step1_nonlfp_th5_20260708_`; the browser should list only wells from those
+folders while Step 1 is still partially complete.
 
 ## Runtime Boundary
 
