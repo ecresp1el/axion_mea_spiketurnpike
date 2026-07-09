@@ -5944,6 +5944,80 @@ controlled AIND continuation Nextflow traces: 20 header-only
 controlled AIND continuation task rows: 0
 ```
 
+Controlled AIND wave update at 2026-07-09 00:06 EDT:
+
+```text
+submitted controlled AIND continuation wave: 20 jobs
+controlled AIND wrapper state: 20 running
+job_dispatch completed: 20 / 20
+
+inner Nextflow jobs now submitted:
+  preprocessing pending by Slurm priority: 16
+  nwb_ecephys pending by Slurm priority: 15
+```
+
+Interpretation: the targeted Lumos continuation wave is no longer blocked at
+wrapper startup. Slurm held the wrappers in `PENDING Reason=Priority` until
+about 00:04 EDT, then started them. The original failure mode has not recurred:
+the wrappers launched Nextflow and `job_dispatch` completed for the full 20-job
+wave. The next checkpoint is whether `preprocessing`, `nwb_ecephys`, and then
+`spikesort_kilosort4` complete cleanly.
+
+Live original-batch accounting at 2026-07-09 after upstream stages progressed:
+
+```text
+original well chains: 454
+upstream pickup-ready wells: 446
+not pickup-ready wells: 8
+
+pickup-ready means all four of the following exist:
+  exported binary
+  interim NWB
+  AIND SpikeInterface env
+  AIND SpikeInterface params JSON
+```
+
+The 8 not-pickup-ready wells are the known Axion export failures, not hidden
+AIND/Kilosort failures:
+
+```text
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+failed wells:
+  B6, C7, D7, E6
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_filter_200Hz-3kHz
+failed wells:
+  B6, C7, D7, E6
+```
+
+For each of these 8 wells:
+
+```text
+exported binary: false
+interim NWB: false
+AIND SpikeInterface env: false
+AIND SpikeInterface params JSON: false
+```
+
+Therefore the original batch is not `454/454` successful at the upstream
+boundary. It is `446/454` pickup-ready plus 8 known export failures. Those 8
+should not be submitted to AIND/Kilosort unless the well-selection logic is
+corrected and binary export succeeds.
+
+Controlled AIND wave status at this snapshot:
+
+```text
+controlled AIND wave submitted: 20 / 446 pickup-ready wells
+controlled AIND wave job_dispatch completed: 20 / 20
+controlled AIND wave preprocessing completed: 16 / 20
+controlled AIND wave nwb_ecephys completed: 17 / 20
+controlled AIND wave Kilosort state:
+  running: 2
+  pending by Slurm priority: 14
+```
+
 The 204 original AIND jobs that never created a Nextflow trace should not be
 treated as lost biological outputs. They did not produce AIND assets, but they
 can still be advanced once their wells pass the pickup boundary above. The
@@ -5954,13 +6028,15 @@ Future operational policy:
 
 ```text
 1. Submit export, export-to-NWB, and SI-prep stages first.
-2. Build an AIND continuation manifest only from wells passing the four pickup
+2. Wait for those upstream stages to complete or fail.
+3. Build an AIND continuation manifest only from wells passing the four pickup
    checks above.
-3. Submit AIND/Kilosort in controlled waves, not all ready wells at once.
-4. After each wave starts, confirm that inner Nextflow job_dispatch and
-   preprocessing tasks actually begin.
-5. Only then submit the next wave.
-6. Keep a reconciliation table linking original export/NWB/SI/AIND job IDs to
+4. Exclude known export failures from the AIND continuation manifest.
+5. Submit AIND/Kilosort in controlled waves, not all ready wells at once.
+6. After each wave starts, confirm that inner Nextflow job_dispatch,
+   preprocessing, nwb_ecephys, and spikesort_kilosort4 actually begin.
+7. Only then submit the next wave.
+8. Keep a reconciliation table linking original export/NWB/SI/AIND job IDs to
    any continuation AIND job IDs.
 ```
 
@@ -5968,3 +6044,41 @@ This staged handoff is required for future large Step 1 reruns. It prevents
 hundreds of idle AIND wrappers from occupying Slurm resources while their inner
 Nextflow jobs wait in priority, and it preserves one auditable lineage from the
 original manifest row to the final AIND/Kilosort result.
+
+What not to do:
+
+```text
+Do not submit one AIND wrapper for every manifest row immediately after export
+submission.
+
+Do not submit AIND wrappers for wells that lack exported binary, interim NWB,
+SpikeInterface env, or SpikeInterface params.
+
+Do not interpret missing Nextflow traces from cancelled wrappers as missing
+biological outputs. Check the upstream pickup boundary instead.
+
+Do not silently retry wells that failed Axion export with missing-waveform
+errors. Those require well-selection correction or explicit exclusion.
+
+Do not flood Slurm with hundreds of AIND wrappers and then wait for their inner
+Nextflow jobs to compete for resources. This recreates the idle-wrapper
+bottleneck.
+```
+
+How to submit safely next time:
+
+```text
+1. Start from the full manifest and submit only export -> interim NWB -> SI-prep.
+2. Generate a pickup-ready audit table from filesystem checks.
+3. Generate an AIND continuation manifest from pickup-ready wells only.
+4. Submit a small AIND wave, e.g. 20 wells.
+5. Confirm:
+     job_dispatch completed
+     preprocessing submitted or completed
+     nwb_ecephys submitted or completed
+     spikesort_kilosort4 submitted or running
+6. If clean, submit the next controlled wave.
+7. Repeat until all pickup-ready wells are submitted.
+8. Keep failed-export wells in a separate failure ledger with recording, well,
+   failure stage, and error text.
+```
