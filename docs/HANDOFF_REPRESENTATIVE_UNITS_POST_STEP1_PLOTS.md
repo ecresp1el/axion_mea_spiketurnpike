@@ -1153,6 +1153,70 @@ Implementation order:
 7. Expand to the full representative plot pack only after the manifests look
    correct.
 
+## Same-Well Hybrid Spatial QC Smoke Test, 2026-07-09
+
+- [x] 2026-07-09 19:12 EDT - Added and smoke-rendered the hybrid same-well
+  spatial QC layout for the existing Cytoview ventral B2 example.
+
+  This pass did not reselect, rerank, substitute, or filter units. It reused the
+  existing `spatial_isolation_1x3` B2 selection exactly:
+
+  ```text
+  selection_group=cytoview_ventral
+  well=B2
+  unit_ids=8;11;30
+  analyzer_path=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B2/postprocessed/block0_None_recording1.zarr
+  ```
+
+  New output root:
+
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500/
+  ```
+
+  Rendered outputs:
+
+  ```text
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc.png
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc.pdf
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc.svg
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc_companion_manifest.csv
+  spatial_isolation_hybrid_qc_manifest_20260709.csv
+  spatial_isolation_hybrid_qc_errors_20260709.csv
+  spatial_isolation_hybrid_qc_provenance_20260709.json
+  ```
+
+  Figure layout:
+  A, combined physical electrode map with all selected units and their
+  multichannel mean waveforms; B, one local multichannel waveform footprint per
+  unit using best electrode plus the eight nearest electrodes; C, one
+  autocorrelogram per unit; D, sampled best-channel spike-PTP stability over
+  recording time.
+
+  Normalization rule:
+  for display only, traces are divided once per unit by that unit's absolute
+  best-channel template PTP. Neighboring channels are never normalized
+  independently, waveform polarity is preserved, and no RS/FS labels are shown.
+
+  Companion-manifest audit values:
+
+  | Unit | Spike count | Best channel | Local channel IDs | Best-channel PTP uV | Amplitude source |
+  |---:|---:|---:|---|---:|---|
+  | 8 | 1932 | 50 | `50;51;42;49;58;57;41;43;59` | 53.402 | persisted `random_spikes` best-channel snippet PTP |
+  | 11 | 3930 | 28 | `28;29;20;27;36;19;35;21;37` | 14.218 | persisted `random_spikes` best-channel snippet PTP |
+  | 30 | 663 | 53 | `53;54;45;52;61;60;44;46;62` | 19.457 | persisted `random_spikes` best-channel snippet PTP |
+
+  Analyzer inspection found a `spike_amplitudes` extension with
+  `params={'peak_sign': 'neg'}`. It was not used for panel D because the hybrid
+  QC figure requires best-channel peak-to-peak amplitude so positive- and
+  negative-going waveforms are handled consistently.
+
+  The previous preferred 1x3 output root was not overwritten:
+
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/
+  ```
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.

@@ -1291,3 +1291,43 @@ Interpretation for now: the active Step 1 truth is that
 `134-0150 exp17_2(001)` `B1/B2` are ventral. Do not interpret those wells as
 dorsal in Cytoview dorsal/ventral summaries unless the override CSV is
 explicitly changed.
+
+### Same-Well Hybrid Spatial QC Smoke Test, 2026-07-09
+
+The existing same-well `spatial_isolation_1x3` code was extended with a new
+`hybrid_qc` layout and smoke-tested on only the current Cytoview ventral B2
+example. This is not a new unit-selection pass.
+
+Output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500/
+```
+
+Exact smoke-test population:
+
+```text
+selection_group=cytoview_ventral
+well=B2
+units=8;11;30
+```
+
+The new figure contains a combined same-well physical electrode map, per-unit
+local multichannel waveform footprints, per-unit autocorrelograms, and per-unit
+sampled best-channel spike-PTP stability. Display normalization is one scale
+factor per unit, the absolute best-channel template PTP; channels are not
+independently normalized and polarity is preserved.
+
+Companion-manifest audit:
+
+| Unit | Spike count | Best channel | Local channel IDs | Best-channel PTP uV |
+|---:|---:|---:|---|---:|
+| 8 | 1932 | 50 | `50;51;42;49;58;57;41;43;59` | 53.402 |
+| 11 | 3930 | 28 | `28;29;20;27;36;19;35;21;37` | 14.218 |
+| 30 | 663 | 53 | `53;54;45;52;61;60;44;46;62` | 19.457 |
+
+Panel D uses persisted `random_spikes` snippets and computes best-channel PTP in
+uV. The analyzer has `spike_amplitudes` with `peak_sign='neg'`, but that was not
+used because it is not the positive/negative-safe PTP measurement requested for
+this QC view. The previous `spatial_isolation_1x3_20260709_183800` output root
+was not overwritten.

@@ -8416,6 +8416,43 @@ Canonical commands:
     `cytoview_dorsal/*.png`
     `cytoview_ventral/*.png`
 
+- [x] 2026-07-09 19:12 EDT - Hybrid same-well spatial QC layout added and
+  smoke-rendered for the existing Cytoview ventral B2 1x3 example only.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500/`
+
+  Render status:
+    one B2 panel rendered, errors `0`, with PNG/PDF/SVG plus a per-unit
+    companion manifest.
+
+  Exact units:
+    `cytoview_ventral`, well `B2`, units `8;11;30`; no new selection,
+    reranking, deduplication, substitution, or filtering was performed.
+
+  Layout:
+    A, combined same-well electrode map with all selected multichannel
+    waveforms; B, per-unit local waveform footprint on best channel plus eight
+    nearest electrodes; C, per-unit autocorrelogram; D, sampled best-channel
+    spike-PTP stability over recording time.
+
+  Amplitude-stability source:
+    persisted `random_spikes` snippets were reopened from the same analyzer and
+    best-channel PTP was calculated in uV. The analyzer also has
+    `spike_amplitudes` with `peak_sign='neg'`, but that is not the requested
+    positive/negative-safe PTP measurement and was not used for panel D.
+
+  Companion-manifest values:
+    unit `8`: spike count `1932`, best channel `50`, local channels
+    `50;51;42;49;58;57;41;43;59`, best-channel PTP `53.402 uV`.
+    unit `11`: spike count `3930`, best channel `28`, local channels
+    `28;29;20;27;36;19;35;21;37`, best-channel PTP `14.218 uV`.
+    unit `30`: spike count `663`, best channel `53`, local channels
+    `53;54;45;52;61;60;44;46;62`, best-channel PTP `19.457 uV`.
+
+  Existing preferred 1x3 root remains intact and separate:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/`
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

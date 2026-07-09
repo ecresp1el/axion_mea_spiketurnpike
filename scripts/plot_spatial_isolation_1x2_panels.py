@@ -41,10 +41,15 @@ class AnalyzerBundle:
     analyzer: object
     unit_ids: list[object]
     unit_index: dict[str, int]
+    channel_ids: list[object]
     sampling_frequency_hz: float
     templates: np.ndarray
     nbefore: int
+    nafter: int
     channel_locations: np.ndarray
+    random_spikes: np.ndarray | None
+    loaded_extension_names: list[str]
+    spike_amplitudes_params: dict[str, object] | None
 
 
 def main() -> int:
@@ -58,8 +63,13 @@ def main() -> int:
     parser.add_argument("--footprint-threshold", type=float, default=0.12)
     parser.add_argument("--correlogram-window-ms", type=float, default=80.0)
     parser.add_argument("--correlogram-bin-ms", type=float, default=2.0)
-    parser.add_argument("--layout", choices=["1x2", "1x3"], default="1x2")
+    parser.add_argument("--layout", choices=["1x2", "1x3", "hybrid_qc"], default="1x2")
     parser.add_argument("--highlight-channels-per-unit", type=int, default=8)
+    parser.add_argument("--only-selection-group", default="")
+    parser.add_argument("--only-well", default="")
+    parser.add_argument("--required-unit-ids", default="")
+    parser.add_argument("--snippet-cloud-max", type=int, default=100)
+    parser.add_argument("--amplitude-max-points", type=int, default=1000)
     parser.add_argument("--limit-per-group", type=int, default=0)
     args = parser.parse_args()
 
@@ -72,19 +82,25 @@ def main() -> int:
 
     spatial_units = pd.read_csv(score_root / f"waveC_spatial_footprint_unit_scores_{args.date_label}.csv")
     spatial_units = add_selection_group(spatial_units)
+    required_unit_ids = parse_required_unit_ids(args.required_unit_ids)
     bundle_cache: dict[str, AnalyzerBundle] = {}
     rows: list[dict[str, object]] = []
     errors: list[dict[str, object]] = []
 
     for group in GROUPS:
+        if args.only_selection_group and group != args.only_selection_group:
+            continue
         selected_path = selection_root / f"final_selection_{group}_waveC_spatial_wells_{args.date_label}.csv"
         if not selected_path.exists():
             continue
         selected_wells = pd.read_csv(selected_path)
+        if args.only_well:
+            selected_wells = selected_wells.loc[selected_wells["well"].astype(str).eq(args.only_well)].copy()
         if args.limit_per_group > 0:
             selected_wells = selected_wells.head(args.limit_per_group)
         for well_row in selected_wells.to_dict("records"):
             try:
+                well_row["selection_group"] = group
                 bundle = get_bundle(si, bundle_cache, well_row["analyzer_path"])
                 unit_rows = spatial_units.loc[
                     spatial_units["recording"].astype(str).eq(str(well_row["recording"]))
@@ -93,8 +109,11 @@ def main() -> int:
                 ].copy()
                 if unit_rows.empty:
                     raise ValueError("no spatial unit rows matched selected well")
-                selected_units, subset_metrics = choose_unit_subset(unit_rows, bundle, args)
+                selected_units, subset_metrics = choose_unit_subset(unit_rows, bundle, args, required_unit_ids=required_unit_ids)
                 figure_path = render_panel(well_row, selected_units, subset_metrics, bundle, output_dir, args)
+                hybrid_manifest_path = ""
+                if args.layout == "hybrid_qc":
+                    hybrid_manifest_path = str(write_hybrid_companion_manifest(well_row, selected_units, subset_metrics, bundle, output_dir, args))
                 rows.append(
                     {
                         "selection_group": group,
@@ -104,6 +123,7 @@ def main() -> int:
                         "figure_path": str(figure_path),
                         "unit_ids": ";".join(str(row["unit_id"]) for row in selected_units),
                         "unit_count": len(selected_units),
+                        "hybrid_companion_manifest": hybrid_manifest_path,
                         **subset_metrics,
                     }
                 )
@@ -141,11 +161,17 @@ def main() -> int:
             "correlogram_bin_ms": args.correlogram_bin_ms,
             "layout": args.layout,
             "highlight_channels_per_unit": args.highlight_channels_per_unit,
+            "only_selection_group": args.only_selection_group,
+            "only_well": args.only_well,
+            "required_unit_ids": args.required_unit_ids,
+            "snippet_cloud_max": args.snippet_cloud_max,
+            "amplitude_max_points": args.amplitude_max_points,
             "limit_per_group": args.limit_per_group,
         },
         "selection_logic": (
             "Within each selected Wave C well, choose a subset of good units that balances spike count, "
-            "best-channel distance, and low normalized template-footprint cosine overlap."
+            "best-channel distance, and low normalized template-footprint cosine overlap, unless "
+            "--required-unit-ids is supplied; required units are then rendered exactly in the requested order."
         ),
         "panel_logic": panel_logic_description(args.layout),
         "outputs": {
@@ -177,16 +203,27 @@ def get_bundle(si, cache: dict[str, AnalyzerBundle], analyzer_path: str) -> Anal
         analyzer=analyzer,
         unit_ids=unit_ids,
         unit_index=unit_index,
+        channel_ids=list(analyzer.recording.channel_ids),
         sampling_frequency_hz=float(analyzer.recording.get_sampling_frequency()),
         templates=templates_average(templates_ext),
         nbefore=int(getattr(templates_ext, "nbefore", 0)),
+        nafter=int(getattr(templates_ext, "nafter", 0)),
         channel_locations=np.asarray(analyzer.recording.get_channel_locations(), dtype=float),
+        random_spikes=random_spikes_data(analyzer),
+        loaded_extension_names=list(analyzer.get_loaded_extension_names()),
+        spike_amplitudes_params=spike_amplitudes_params(analyzer),
     )
     cache[analyzer_path] = bundle
     return bundle
 
 
-def choose_unit_subset(unit_rows: pd.DataFrame, bundle: AnalyzerBundle, args) -> tuple[list[dict[str, object]], dict[str, object]]:
+def choose_unit_subset(
+    unit_rows: pd.DataFrame,
+    bundle: AnalyzerBundle,
+    args,
+    *,
+    required_unit_ids: list[str] | None = None,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
     candidates = []
     for row in unit_rows.to_dict("records"):
         unit_id = unit_id_for_sorting(row["unit_id"], bundle)
@@ -208,6 +245,16 @@ def choose_unit_subset(unit_rows: pd.DataFrame, bundle: AnalyzerBundle, args) ->
             }
         )
         candidates.append(row)
+    if required_unit_ids:
+        by_id = {str(row["unit_id"]): row for row in candidates}
+        missing = [unit_id for unit_id in required_unit_ids if str(unit_id) not in by_id]
+        if missing:
+            raise ValueError(f"required unit ids not present in matched rows: {','.join(missing)}")
+        required_subset = tuple(by_id[str(unit_id)] for unit_id in required_unit_ids)
+        metrics = subset_metrics(required_subset)
+        metrics["subset_score"] = np.nan
+        metrics["selection_mode"] = "required_unit_ids"
+        return list(required_subset), metrics
     if len(candidates) < 2:
         raise ValueError("need at least two units for spatial isolation panel")
 
@@ -225,6 +272,7 @@ def choose_unit_subset(unit_rows: pd.DataFrame, bundle: AnalyzerBundle, args) ->
             + 0.10 * min(metrics["mean_template_ptp_max_uV"] / 40.0, 1.0)
         )
         metrics["subset_score"] = float(score)
+        metrics["selection_mode"] = "ranked_subset"
         if best_metrics is None or score > best_metrics["subset_score"]:
             best_subset = subset
             best_metrics = metrics
@@ -261,8 +309,11 @@ def render_panel(
     group = str(well_row.get("selection_group", "unknown"))
     panel_dir = output_dir / group
     panel_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{int(well_row.get('selection_rank_within_group', 0)):02d}_{safe_slug(well_row['recording'])}_{well_row['well']}"
+    stem = panel_stem(well_row)
     figure_path = panel_dir / f"{stem}_spatial_isolation_{args.layout}.png"
+
+    if args.layout == "hybrid_qc":
+        return render_hybrid_qc_panel(well_row, selected_units, metrics, bundle, panel_dir, stem, args)
 
     if args.layout == "1x3":
         fig = plt.figure(figsize=(18.5, 6.4))
@@ -292,13 +343,231 @@ def render_panel(
     return figure_path
 
 
+def panel_stem(well_row: dict[str, object]) -> str:
+    return f"{int(well_row.get('selection_rank_within_group', 0)):02d}_{safe_slug(well_row['recording'])}_{well_row['well']}"
+
+
 def panel_logic_description(layout: str) -> str:
+    if layout == "hybrid_qc":
+        return (
+            "Top: combined same-well multichannel waveform map on physical electrode coordinates. "
+            "Rows below: per-unit local multichannel waveform footprint, autocorrelogram, and sampled "
+            "best-channel spike-PTP stability."
+        )
     if layout == "1x3":
         return (
             "Left: centered best-channel mean waveforms. Middle: multichannel template waveforms laid out "
             "on electrode geometry. Right: auto/cross-correlogram matrix."
         )
     return "Left: overlaid normalized spatial PTP profiles. Right: auto/cross-correlogram matrix."
+
+
+def render_hybrid_qc_panel(
+    well_row: dict[str, object],
+    selected_units: list[dict[str, object]],
+    metrics: dict[str, object],
+    bundle: AnalyzerBundle,
+    panel_dir: Path,
+    stem: str,
+    args,
+) -> Path:
+    unit_count = len(selected_units)
+    fig_width = max(11.5, 4.1 * unit_count)
+    fig_height = 12.4
+    fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=True)
+    outer = fig.add_gridspec(4, unit_count, height_ratios=[1.28, 1.28, 0.62, 0.72])
+    ax_combined = fig.add_subplot(outer[0, :])
+    plot_hybrid_combined_map(ax_combined, well_row, selected_units, metrics, bundle, args)
+
+    local_sets = [local_channel_indices(row, bundle, args) for row in selected_units]
+    local_span = shared_local_span(local_sets, bundle.channel_locations[:, :2])
+    recording_minutes = bundle.analyzer.recording.get_num_frames() / bundle.sampling_frequency_hz / 60.0
+    for index, row in enumerate(selected_units):
+        color = UNIT_COLORS[index % len(UNIT_COLORS)]
+        local_channels = local_sets[index]
+        ax_local = fig.add_subplot(outer[1, index])
+        plot_hybrid_local_footprint(ax_local, row, local_channels, local_span, bundle, args, color, index == 0)
+        ax_auto = fig.add_subplot(outer[2, index])
+        plot_hybrid_autocorrelogram(ax_auto, row, bundle, args, color, index == 0)
+        ax_amp = fig.add_subplot(outer[3, index])
+        plot_hybrid_amplitude_stability(ax_amp, row, bundle, args, color, recording_minutes, index == 0)
+
+    output_stem = panel_dir / f"{stem}_spatial_isolation_hybrid_qc"
+    png_path = output_stem.with_suffix(".png")
+    for suffix, save_kwargs in {
+        ".png": {"dpi": 300},
+        ".pdf": {},
+        ".svg": {},
+    }.items():
+        fig.savefig(output_stem.with_suffix(suffix), bbox_inches="tight", **save_kwargs)
+    plt.close(fig)
+    return png_path
+
+
+def plot_hybrid_combined_map(
+    ax,
+    well_row: dict[str, object],
+    selected_units: list[dict[str, object]],
+    metrics: dict[str, object],
+    bundle: AnalyzerBundle,
+    args,
+) -> None:
+    locations = bundle.channel_locations[:, :2]
+    dx, dy = geometry_spacing(locations)
+    local_time, y_scale = waveform_grid_axes(bundle, dx, dy)
+    relevant_channels: set[int] = set()
+    ax.scatter(locations[:, 0], locations[:, 1], s=11, color="#d8d8d8", alpha=0.95, zorder=1)
+
+    for index, row in enumerate(selected_units):
+        color = UNIT_COLORS[index % len(UNIT_COLORS)]
+        channels = threshold_channel_indices(row, args)
+        relevant_channels.update(channels)
+        template = bundle.templates[int(row["unit_index"])]
+        scale = unit_display_ptp(row, bundle)
+        for channel_index in channels:
+            waveform = baseline(template[:, channel_index]) / scale
+            x0, y0 = locations[channel_index]
+            strength = float(row["normalized_footprint"][channel_index])
+            ax.plot(
+                x0 + local_time,
+                y0 + waveform * y_scale,
+                color=color,
+                alpha=0.22 + 0.62 * strength,
+                linewidth=0.52 + 0.82 * strength,
+                zorder=3 + strength,
+            )
+        best = int(row["best_channel_index_rendered"])
+        ax.scatter([locations[best, 0]], [locations[best, 1]], s=84, facecolor="none", edgecolor=color, linewidth=1.9, zorder=10)
+        ax.text(locations[best, 0], locations[best, 1], f"u{row['unit_id']}", color=color, fontsize=8, ha="left", va="bottom")
+
+    if not relevant_channels:
+        relevant_channels = {int(row["best_channel_index_rendered"]) for row in selected_units}
+    relevant_xy = locations[sorted(relevant_channels)]
+    pad_x, pad_y = dx, dy
+    ax.set_xlim(float(np.nanmin(relevant_xy[:, 0]) - pad_x), float(np.nanmax(relevant_xy[:, 0]) + pad_x))
+    ax.set_ylim(float(np.nanmin(relevant_xy[:, 1]) - pad_y), float(np.nanmax(relevant_xy[:, 1]) + pad_y))
+    draw_horizontal_time_scale(ax, relevant_xy, dx, dy, bundle)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    group = GROUP_LABELS.get(str(well_row.get("selection_group", "")), str(well_row.get("selection_group", "")))
+    ax.set_title(
+        f"A  Combined same-well map | {group} {well_row.get('well')} | "
+        f"mean distance={metrics['mean_best_channel_distance_um']:.0f} um | "
+        f"mean overlap={metrics['mean_footprint_cosine_overlap']:.2f}\n"
+        "Traces normalized within unit by absolute best-channel PTP for visibility",
+        loc="left",
+        fontsize=11,
+    )
+
+
+def plot_hybrid_local_footprint(
+    ax,
+    unit_row: dict[str, object],
+    local_channels: list[int],
+    local_span: tuple[float, float],
+    bundle: AnalyzerBundle,
+    args,
+    color: str,
+    show_ylabel: bool,
+) -> None:
+    locations = bundle.channel_locations[:, :2]
+    dx, dy = geometry_spacing(locations)
+    local_time, y_scale = waveform_grid_axes(bundle, dx, dy)
+    template = bundle.templates[int(unit_row["unit_index"])]
+    best = int(unit_row["best_channel_index_rendered"])
+    scale = unit_display_ptp(unit_row, bundle)
+    center = locations[best]
+    half_x, half_y = local_span
+
+    ax.scatter(locations[local_channels, 0], locations[local_channels, 1], s=13, color="#d5d5d5", zorder=1)
+    snippets, _times_min = sampled_best_channel_snippets(unit_row, bundle, args)
+    if snippets.size:
+        cloud = deterministic_rows(snippets, args.snippet_cloud_max)
+        x0, y0 = locations[best]
+        for snippet in cloud:
+            waveform = baseline(snippet) / scale
+            ax.plot(x0 + local_time, y0 + waveform * y_scale, color=color, alpha=0.08, linewidth=0.45, zorder=2)
+
+    for channel_index in local_channels:
+        waveform = baseline(template[:, channel_index]) / scale
+        x0, y0 = locations[channel_index]
+        is_best = channel_index == best
+        ax.plot(
+            x0 + local_time,
+            y0 + waveform * y_scale,
+            color=color,
+            alpha=0.98 if is_best else 0.62,
+            linewidth=1.75 if is_best else 0.80,
+            zorder=5 if is_best else 4,
+        )
+    ax.scatter([locations[best, 0]], [locations[best, 1]], s=82, facecolor="none", edgecolor=color, linewidth=1.8, zorder=8)
+    ax.text(locations[best, 0], locations[best, 1], f"u{unit_row['unit_id']}", color=color, fontsize=8, ha="left", va="bottom")
+    ax.set_xlim(center[0] - half_x, center[0] + half_x)
+    ax.set_ylim(center[1] - half_y, center[1] + half_y)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(
+        f"{'B  ' if show_ylabel else ''}u{unit_row['unit_id']} | "
+        f"n_sp={unit_spike_count(unit_row, bundle)} | "
+        f"best ch={channel_label(best, bundle)} | "
+        f"PTP={unit_display_ptp(unit_row, bundle):.1f} uV",
+        fontsize=9,
+    )
+
+
+def plot_hybrid_autocorrelogram(ax, unit_row: dict[str, object], bundle: AnalyzerBundle, args, color: str, show_ylabel: bool) -> None:
+    spikes = spike_times(unit_row, bundle)
+    bins, counts = correlogram(spikes, spikes, args, exclude_zero=True)
+    mask = (bins >= -50.0) & (bins <= 50.0)
+    ax.axvspan(-2.0, 2.0, color="#bdbdbd", alpha=0.28, linewidth=0)
+    ax.bar(bins[mask], counts[mask], width=args.correlogram_bin_ms, color=color, alpha=0.72, edgecolor=color, linewidth=0.35)
+    ax.axvline(0.0, color="#111111", linewidth=0.7)
+    ax.set_xlim(-50, 50)
+    ax.tick_params(labelsize=7, length=2)
+    ax.set_title(f"{'C  ' if show_ylabel else ''}Autocorrelogram", fontsize=8, loc="left")
+    ax.set_xlabel("Lag (ms)", fontsize=8)
+    if show_ylabel:
+        ax.set_ylabel("Count", fontsize=8)
+    else:
+        ax.set_yticklabels([])
+
+
+def plot_hybrid_amplitude_stability(
+    ax,
+    unit_row: dict[str, object],
+    bundle: AnalyzerBundle,
+    args,
+    color: str,
+    recording_minutes: float,
+    show_ylabel: bool,
+) -> None:
+    snippets, times_min = sampled_best_channel_snippets(unit_row, bundle, args)
+    if snippets.size:
+        amps = np.ptp(snippets, axis=1).astype(float)
+        order = np.argsort(times_min)
+        times_min = times_min[order]
+        amps = amps[order]
+        if amps.size > args.amplitude_max_points:
+            keep = np.linspace(0, amps.size - 1, args.amplitude_max_points).round().astype(int)
+            times_plot = times_min[keep]
+            amps_plot = amps[keep]
+        else:
+            times_plot = times_min
+            amps_plot = amps
+        ax.scatter(times_plot, amps_plot, s=7, color=color, alpha=0.18, linewidths=0)
+        med_x, med_y = binned_median(times_min, amps, recording_minutes)
+        if med_x.size:
+            ax.plot(med_x, med_y, color=color, linewidth=1.2)
+    ax.set_xlim(0, max(recording_minutes, 1e-9))
+    ax.tick_params(labelsize=7, length=2)
+    ax.set_title(f"{'D  ' if show_ylabel else ''}Amplitude stability", fontsize=8, loc="left")
+    ax.set_xlabel("Recording time (min)", fontsize=8)
+    if show_ylabel:
+        ax.set_ylabel("Sampled spike PTP (uV)", fontsize=8)
+    else:
+        ax.set_yticklabels([])
 
 
 def plot_spatial_overlay(ax, selected_units: list[dict[str, object]], bundle: AnalyzerBundle, args) -> None:
@@ -465,6 +734,136 @@ def draw_waveform_grid_scale(ax, locations: np.ndarray, dx: float, dy: float, y_
     ax.text(x0 - 0.06 * dx, y0 + uv * y_scale * 0.5, "20 uV", ha="right", va="center", fontsize=6, rotation=90)
 
 
+def waveform_grid_axes(bundle: AnalyzerBundle, dx: float, dy: float) -> tuple[np.ndarray, float]:
+    x_half_width = 0.34 * dx
+    y_half_height = 0.25 * dy
+    local_time = np.linspace(-x_half_width, x_half_width, bundle.templates.shape[1])
+    return local_time, y_half_height
+
+
+def draw_horizontal_time_scale(ax, relevant_xy: np.ndarray, dx: float, dy: float, bundle: AnalyzerBundle) -> None:
+    x0 = float(np.nanmin(relevant_xy[:, 0]))
+    y0 = float(np.nanmin(relevant_xy[:, 1]) - 0.72 * dy)
+    duration_ms = max(bundle.templates.shape[1] * 1000.0 / bundle.sampling_frequency_hz, 1e-9)
+    width = 0.68 * dx * 1.0 / duration_ms
+    ax.plot([x0, x0 + width], [y0, y0], color="#333333", linewidth=1.0, zorder=20)
+    ax.text(x0 + width * 0.5, y0 - 0.08 * dy, "1 ms", ha="center", va="top", fontsize=7)
+
+
+def threshold_channel_indices(unit_row: dict[str, object], args) -> list[int]:
+    norm = np.asarray(unit_row["normalized_footprint"], dtype=float)
+    channels = np.flatnonzero(norm >= args.footprint_threshold).astype(int).tolist()
+    best = int(unit_row["best_channel_index_rendered"])
+    if best not in channels:
+        channels.append(best)
+    return sorted(set(channels))
+
+
+def local_channel_indices(unit_row: dict[str, object], bundle: AnalyzerBundle, args) -> list[int]:
+    locations = bundle.channel_locations[:, :2]
+    best = int(unit_row["best_channel_index_rendered"])
+    distances = np.linalg.norm(locations - locations[best], axis=1)
+    count = max(1, min(int(args.highlight_channels_per_unit) + 1, locations.shape[0]))
+    local = np.argsort(distances)[:count].astype(int).tolist()
+    if best not in local:
+        local.insert(0, best)
+    return local
+
+
+def shared_local_span(local_sets: list[list[int]], locations: np.ndarray) -> tuple[float, float]:
+    dx, dy = geometry_spacing(locations)
+    half_x = dx
+    half_y = dy
+    for local in local_sets:
+        local_xy = locations[local]
+        center = locations[local[0]]
+        half_x = max(half_x, float(np.nanmax(np.abs(local_xy[:, 0] - center[0])) + 0.72 * dx))
+        half_y = max(half_y, float(np.nanmax(np.abs(local_xy[:, 1] - center[1])) + 0.72 * dy))
+    return half_x, half_y
+
+
+def unit_display_ptp(unit_row: dict[str, object], bundle: AnalyzerBundle) -> float:
+    template = bundle.templates[int(unit_row["unit_index"])]
+    best = int(unit_row["best_channel_index_rendered"])
+    return max(float(np.ptp(template[:, best])), 1e-9)
+
+
+def sampled_best_channel_snippets(unit_row: dict[str, object], bundle: AnalyzerBundle, args) -> tuple[np.ndarray, np.ndarray]:
+    random_spikes = bundle.random_spikes
+    if random_spikes is None or random_spikes.size == 0:
+        return np.empty((0, bundle.templates.shape[1]), dtype=float), np.empty(0, dtype=float)
+    unit_index = int(unit_row["unit_index"])
+    if random_spikes.dtype.names and "unit_index" in random_spikes.dtype.names:
+        rows = random_spikes[random_spikes["unit_index"] == unit_index]
+        if rows.size == 0:
+            return np.empty((0, bundle.templates.shape[1]), dtype=float), np.empty(0, dtype=float)
+        order = np.argsort(rows["sample_index"])
+        rows = rows[order]
+        if rows.size > max(args.snippet_cloud_max, args.amplitude_max_points):
+            keep_n = max(args.snippet_cloud_max, args.amplitude_max_points)
+            keep = np.linspace(0, rows.size - 1, keep_n).round().astype(int)
+            rows = rows[keep]
+        sample_indices = rows["sample_index"].astype(int)
+        segment_indices = rows["segment_index"].astype(int) if "segment_index" in random_spikes.dtype.names else np.zeros(rows.size, dtype=int)
+    else:
+        return np.empty((0, bundle.templates.shape[1]), dtype=float), np.empty(0, dtype=float)
+
+    best_channel = int(unit_row["best_channel_index_rendered"])
+    channel_id = bundle.channel_ids[best_channel]
+    snippets = []
+    times_min = []
+    nframes = int(bundle.analyzer.recording.get_num_frames())
+    for sample_index, segment_index in zip(sample_indices, segment_indices):
+        start = int(sample_index) - bundle.nbefore
+        end = int(sample_index) + bundle.nafter
+        if start < 0 or end > nframes or end <= start:
+            continue
+        trace = bundle.analyzer.recording.get_traces(
+            segment_index=int(segment_index),
+            start_frame=start,
+            end_frame=end,
+            channel_ids=[channel_id],
+            return_in_uV=True,
+        )
+        snippets.append(np.asarray(trace[:, 0], dtype=float))
+        times_min.append(float(sample_index) / bundle.sampling_frequency_hz / 60.0)
+    if not snippets:
+        return np.empty((0, bundle.templates.shape[1]), dtype=float), np.empty(0, dtype=float)
+    return np.vstack(snippets), np.asarray(times_min, dtype=float)
+
+
+def deterministic_rows(values: np.ndarray, max_rows: int) -> np.ndarray:
+    if values.shape[0] <= max_rows:
+        return values
+    keep = np.linspace(0, values.shape[0] - 1, max_rows).round().astype(int)
+    return values[keep]
+
+
+def binned_median(x: np.ndarray, y: np.ndarray, xmax: float, bins: int = 12) -> tuple[np.ndarray, np.ndarray]:
+    if x.size == 0:
+        return np.empty(0, dtype=float), np.empty(0, dtype=float)
+    edges = np.linspace(0.0, max(float(xmax), float(np.nanmax(x)), 1e-9), bins + 1)
+    centers = []
+    medians = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        mask = (x >= lo) & (x < hi if hi < edges[-1] else x <= hi)
+        if np.any(mask):
+            centers.append((lo + hi) / 2.0)
+            medians.append(float(np.nanmedian(y[mask])))
+    return np.asarray(centers, dtype=float), np.asarray(medians, dtype=float)
+
+
+def unit_spike_count(unit_row: dict[str, object], bundle: AnalyzerBundle) -> int:
+    try:
+        return int(bundle.analyzer.sorting.get_unit_spike_train(unit_row["sorting_unit_id"]).size)
+    except Exception:
+        return int(unit_row.get("num_spikes", 0))
+
+
+def channel_label(channel_index: int, bundle: AnalyzerBundle) -> str:
+    return str(bundle.channel_ids[int(channel_index)])
+
+
 def correlogram(times_a: np.ndarray, times_b: np.ndarray, args, *, exclude_zero: bool) -> tuple[np.ndarray, np.ndarray]:
     window_s = args.correlogram_window_ms / 1000.0
     edges = np.arange(-args.correlogram_window_ms, args.correlogram_window_ms + args.correlogram_bin_ms, args.correlogram_bin_ms)
@@ -498,6 +897,96 @@ def add_selection_group(df: pd.DataFrame) -> pd.DataFrame:
         default="unassigned",
     )
     return out
+
+
+def parse_required_unit_ids(text: str) -> list[str]:
+    if not text:
+        return []
+    return [token.strip() for token in re.split(r"[;,\\s]+", text) if token.strip()]
+
+
+def write_hybrid_companion_manifest(
+    well_row: dict[str, object],
+    selected_units: list[dict[str, object]],
+    metrics: dict[str, object],
+    bundle: AnalyzerBundle,
+    output_dir: Path,
+    args,
+) -> Path:
+    group = str(well_row.get("selection_group", "unknown"))
+    panel_dir = output_dir / group
+    panel_dir.mkdir(parents=True, exist_ok=True)
+    stem = panel_stem(well_row)
+    rows = []
+    for index, unit_row in enumerate(selected_units):
+        local = local_channel_indices(unit_row, bundle, args)
+        snippets, times_min = sampled_best_channel_snippets(unit_row, bundle, args)
+        sampled_ptp = np.ptp(snippets, axis=1).astype(float) if snippets.size else np.asarray([], dtype=float)
+        spike_amp_note = ""
+        if "spike_amplitudes" in bundle.loaded_extension_names:
+            spike_amp_note = (
+                f"spike_amplitudes extension present with params={bundle.spike_amplitudes_params}; "
+                "not used because hybrid QC requires best-channel spike PTP"
+            )
+        rows.append(
+            {
+                "selection_group": group,
+                "recording": well_row.get("recording", ""),
+                "well": well_row.get("well", ""),
+                "analyzer_path": well_row.get("analyzer_path", ""),
+                "unit_order": index + 1,
+                "unit_id": unit_row["unit_id"],
+                "sorting_unit_id": unit_row["sorting_unit_id"],
+                "unit_index": unit_row["unit_index"],
+                "color": UNIT_COLORS[index % len(UNIT_COLORS)],
+                "spike_count": unit_spike_count(unit_row, bundle),
+                "best_channel_index": int(unit_row["best_channel_index_rendered"]),
+                "best_channel_id": channel_label(int(unit_row["best_channel_index_rendered"]), bundle),
+                "best_channel_x_um": float(unit_row["best_channel_xy_rendered"][0]),
+                "best_channel_y_um": float(unit_row["best_channel_xy_rendered"][1]),
+                "best_channel_ptp_uV": unit_display_ptp(unit_row, bundle),
+                "local_channel_indices": ";".join(str(ch) for ch in local),
+                "local_channel_ids": ";".join(channel_label(ch, bundle) for ch in local),
+                "threshold_channel_indices": ";".join(str(ch) for ch in threshold_channel_indices(unit_row, args)),
+                "random_spike_snippets_used": int(snippets.shape[0]),
+                "random_spike_time_min_min": float(np.nanmin(times_min)) if times_min.size else np.nan,
+                "random_spike_time_min_max": float(np.nanmax(times_min)) if times_min.size else np.nan,
+                "sampled_spike_ptp_uV_median": float(np.nanmedian(sampled_ptp)) if sampled_ptp.size else np.nan,
+                "sampled_spike_ptp_uV_iqr": float(np.nanpercentile(sampled_ptp, 75) - np.nanpercentile(sampled_ptp, 25))
+                if sampled_ptp.size
+                else np.nan,
+                "amplitude_stability_source": "persisted_random_spikes_best_channel_snippet_ptp_uV",
+                "amplitude_stability_note": spike_amp_note,
+                "normalization_rule": "plot traces divided once per unit by absolute best-channel template PTP; channels are not normalized independently",
+                **metrics,
+            }
+        )
+    manifest_path = panel_dir / f"{stem}_spatial_isolation_hybrid_qc_companion_manifest.csv"
+    pd.DataFrame(rows).to_csv(manifest_path, index=False)
+    return manifest_path
+
+
+def random_spikes_data(analyzer) -> np.ndarray | None:
+    extension = analyzer.get_extension("random_spikes")
+    if extension is None:
+        return None
+    try:
+        return np.asarray(extension.get_random_spikes())
+    except Exception:
+        try:
+            return np.asarray(extension.get_data())
+        except Exception:
+            return None
+
+
+def spike_amplitudes_params(analyzer) -> dict[str, object] | None:
+    extension = analyzer.get_extension("spike_amplitudes")
+    if extension is None:
+        return None
+    params = getattr(extension, "params", None)
+    if params is None:
+        return None
+    return dict(params)
 
 
 def templates_average(templates_ext) -> np.ndarray:
