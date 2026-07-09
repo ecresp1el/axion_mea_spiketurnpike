@@ -23,6 +23,9 @@ from axion_mea.gui_stim_response import (  # noqa: E402
     stim_events_from_raw,
     _resolve_unit_selection_labels,
     _split_unit_selection_tokens,
+    _default_opto_unit_labels,
+    _label_to_unit_groups,
+    _response_unit_label,
 )
 
 
@@ -148,6 +151,62 @@ class TestPulseStructure(unittest.TestCase):
 
 
 class TestUnitStimResponseBuilder(unittest.TestCase):
+    def test_default_units_are_ranked_by_pulse_locked_response(self) -> None:
+        events = stim_events()
+        pulses = [PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0)]
+        pulse_structure = inspect_pulse_structure(events, pulses)
+        sorting = FakeSorting(
+            {
+                0: [990, 1990],  # baseline spikes before each event
+                4: [1001, 2001],  # post-pulse spikes after each event
+                5: [1002, 2002, 2003],  # strongest post-pulse unit
+            }
+        )
+        builder = UnitStimResponseBuilder(
+            sorting=sorting,
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=pulse_structure,
+            train_window=AnalysisWindow(pre_ms=25.0, post_ms=50.0),
+            pulse_window=PulseWindow(pre_ms=25.0, post_ms=50.0),
+            train_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+            pulse_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+        )
+
+        labels = _default_opto_unit_labels(
+            builder,
+            {"0": (0,), "4": (4,), "5": (5,)},
+            limit=2,
+        )
+
+        self.assertEqual(labels, ["5", "4"])
+
+    def test_curation_removed_units_and_merge_groups_are_reflected(self) -> None:
+        groups = _label_to_unit_groups(
+            [0, 4, 5, 9],
+            {
+                "removed": [9],
+                "merges": [{"unit_ids": [0, 4]}],
+            },
+        )
+
+        self.assertEqual(groups, {"merge:0+4": (0, 4), "5": (5,)})
+
+    def test_response_label_handles_merged_unit_group(self) -> None:
+        response = UnitStimResponseBuilder(
+            sorting=FakeSorting({0: [], 4: []}),
+            sampling_frequency_hz=1000.0,
+            stim_events=stim_events(),
+            well="A1",
+            pulse_structure=inspect_pulse_structure(
+                stim_events(),
+                [PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0)],
+            ),
+        ).build([0, 4])
+
+        self.assertEqual(_response_unit_label(response), "0+4")
+
     def test_unit_selection_text_accepts_dotted_or_comma_lists(self) -> None:
         label_to_unit = {"0": 0, "4": 4, "5": 5}
 

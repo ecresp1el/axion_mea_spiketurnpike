@@ -366,6 +366,7 @@ def make_gui_app(
             well=well,
             analyzer_path=analyzer_path,
             raw_roots=stim_raw_roots,
+            curation_state_provider=lambda: getattr(win.controller, "curation_data", None),
         )
         tab_items.append(("Stim raster/PSTH", stim_panel))
     tabs = pn.Tabs(

@@ -207,6 +207,19 @@ class UnitStimResponse:
 
 
 @dataclass(frozen=True)
+class OptoTaggedUnitScore:
+    """Pulse-locked response score for choosing default stim panels."""
+
+    unit_label: str
+    unit_ids: tuple[object, ...]
+    score_hz: float
+    post_rate_hz: float
+    baseline_rate_hz: float
+    post_spikes: int
+    baseline_spikes: int
+
+
+@dataclass(frozen=True)
 class StimSidecarResolution:
     """Resolved raw/stim metadata for one recording opened in the GUI."""
 
@@ -912,6 +925,7 @@ def make_stim_response_panel(
     raw_file: Path | None = None,
     plate_family: str = "",
     plate_type_name: str = "",
+    curation_state_provider=None,
 ):
     """Create a Panel tab for unit-level train/pulse response review."""
 
@@ -938,9 +952,7 @@ def make_stim_response_panel(
         )
 
     sorting = _sorting_from_analyzer(analyzer)
-    unit_ids = list(getattr(sorting, "unit_ids", []))
-    if not unit_ids and hasattr(sorting, "get_unit_ids"):
-        unit_ids = list(sorting.get_unit_ids())
+    unit_ids = _unit_ids_from_sorting(sorting)
     if not unit_ids:
         return pn.Column(
             pn.pane.Markdown("## Stim response"),
@@ -957,17 +969,22 @@ def make_stim_response_panel(
         pulse_structure=pulse_structure,
     )
 
-    label_to_unit = {_unit_label(unit_id): unit_id for unit_id in unit_ids}
-    default_label = next(iter(label_to_unit))
+    label_to_units = _label_to_unit_groups(unit_ids, _current_curation_state(curation_state_provider))
+    if not label_to_units:
+        label_to_units = {_unit_label(unit_id): (unit_id,) for unit_id in unit_ids}
+    default_labels = _default_opto_unit_labels(builder, label_to_units, limit=10)
+    if not default_labels:
+        default_labels = list(label_to_units)[:10]
+    default_label = default_labels[0]
     unit_selector = pn.widgets.MultiChoice(
         name="Pick units",
-        options=list(label_to_unit),
-        value=[default_label],
+        options=list(label_to_units),
+        value=default_labels,
         sizing_mode="stretch_width",
     )
     unit_entry = pn.widgets.TextInput(
         name="Units",
-        value=default_label,
+        value=",".join(default_labels),
         placeholder="0,4,5",
         sizing_mode="stretch_width",
     )
@@ -977,27 +994,76 @@ def make_stim_response_panel(
     pulse_area = pn.Column(sizing_mode="stretch_width")
     selection_status = pn.pane.Markdown("", sizing_mode="stretch_width")
     syncing_selection = {"active": False}
+    unit_group_state: dict[str, object] = {
+        "label_to_units": label_to_units,
+        "default_labels": default_labels,
+    }
 
-    def selected_units() -> tuple[list[object], list[str], list[str]]:
+    def refresh_unit_groups(*, preserve_selection: bool = True) -> None:
+        nonlocal default_label
+        current_labels = unit_selector.value if preserve_selection else []
+        current_entry = unit_entry.value if preserve_selection else ""
+        current_unit_ids = _unit_ids_from_sorting(_sorting_from_analyzer(analyzer))
+        refreshed = _label_to_unit_groups(
+            current_unit_ids,
+            _current_curation_state(curation_state_provider),
+        )
+        if not refreshed:
+            refreshed = {_unit_label(unit_id): (unit_id,) for unit_id in current_unit_ids}
+        if not refreshed:
+            unit_group_state["label_to_units"] = {}
+            unit_group_state["default_labels"] = []
+            unit_selector.options = []
+            unit_selector.value = []
+            unit_entry.value = ""
+            return
+
+        unit_group_state["label_to_units"] = refreshed
+        ranked_defaults = _default_opto_unit_labels(builder, refreshed, limit=10)
+        if not ranked_defaults:
+            ranked_defaults = list(refreshed)[:10]
+        unit_group_state["default_labels"] = ranked_defaults
+        default_label = ranked_defaults[0]
+        unit_selector.options = list(refreshed)
+        if preserve_selection:
+            raw_values: Sequence[object] = [current_entry] if current_entry.strip() else current_labels
+            labels, _ = _resolve_unit_selection_labels(raw_values, refreshed, default_label)
+        else:
+            labels = ranked_defaults
+        if not labels:
+            labels = ranked_defaults
+        syncing_selection["active"] = True
+        try:
+            unit_selector.value = labels
+            unit_entry.value = ",".join(labels)
+        finally:
+            syncing_selection["active"] = False
+
+    def selected_units() -> tuple[list[tuple[object, ...]], list[str], list[str]]:
+        current_label_to_units = unit_group_state["label_to_units"]
+        if not isinstance(current_label_to_units, dict) or not current_label_to_units:
+            return [], [], []
         raw_values: Sequence[object]
         if unit_entry.value.strip():
             raw_values = [unit_entry.value]
         else:
             raw_values = unit_selector.value or [default_label]
-        labels, missing = _resolve_unit_selection_labels(raw_values, label_to_unit, default_label)
-        return [label_to_unit[label] for label in labels], labels, missing
+        labels, missing = _resolve_unit_selection_labels(raw_values, current_label_to_units, default_label)
+        return [current_label_to_units[label] for label in labels], labels, missing
 
     def sync_picker_to_entry(labels: Sequence[str]) -> None:
+        current_label_to_units = unit_group_state["label_to_units"]
         syncing_selection["active"] = True
         try:
-            unit_selector.value = [label for label in labels if label in label_to_unit]
+            unit_selector.value = [label for label in labels if label in current_label_to_units]
         finally:
             syncing_selection["active"] = False
 
     def sync_entry_to_picker(*_: object) -> None:
         if syncing_selection["active"]:
             return
-        labels, _ = _resolve_unit_selection_labels(unit_selector.value, label_to_unit, default_label)
+        current_label_to_units = unit_group_state["label_to_units"]
+        labels, _ = _resolve_unit_selection_labels(unit_selector.value, current_label_to_units, default_label)
         syncing_selection["active"] = True
         try:
             unit_entry.value = ",".join(labels)
@@ -1013,9 +1079,10 @@ def make_stim_response_panel(
         redraw()
 
     def redraw(*_: object) -> None:
-        units, labels, missing = selected_units()
+        refresh_unit_groups(preserve_selection=True)
+        unit_groups, labels, missing = selected_units()
         selection_status.object = _format_unit_selection_status(labels, missing)
-        unit_responses = [builder.build([unit_id]) for unit_id in units]
+        unit_responses = [builder.build(unit_group) for unit_group in unit_groups]
         summary.object = _format_multi_unit_summary(unit_responses, resolution)
 
         train_items = [
@@ -1045,7 +1112,7 @@ def make_stim_response_panel(
             else:
                 pulse_items.append(
                     pn.pane.Markdown(
-                        f"### Unit {_unit_label(response.selected_unit_ids[0])}\n"
+                        f"### Unit {_response_unit_label(response)}\n"
                         f"Pulse view disabled: {response.pulse_structure.message}",
                         sizing_mode="stretch_width",
                     )
@@ -1095,7 +1162,7 @@ def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBui
         gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
         constrained_layout=True,
     )
-    unit_label = _unit_label(response.selected_unit_ids[0]) if response.selected_unit_ids else ""
+    unit_label = _response_unit_label(response)
     _draw_train_waveform_axis(axes[0], builder)
     _draw_train_raster_axis(axes[1], response, builder)
     _draw_psth_axis(
@@ -1124,7 +1191,7 @@ def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBui
         gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
         constrained_layout=True,
     )
-    unit_label = _unit_label(response.selected_unit_ids[0]) if response.selected_unit_ids else ""
+    unit_label = _response_unit_label(response)
     _draw_pulse_waveform_axis(axes[0], response, builder)
     _draw_pulse_raster_axis(axes[1], response, builder)
     _draw_psth_axis(
@@ -1416,9 +1483,166 @@ def _format_resolution_status(resolution: StimSidecarResolution) -> str:
     return "  \n".join(lines)
 
 
+def rank_opto_tagged_unit_groups(
+    builder: UnitStimResponseBuilder,
+    label_to_units: Mapping[str, Sequence[object]],
+    *,
+    limit: int | None = None,
+) -> list[OptoTaggedUnitScore]:
+    """Rank unit groups by pulse-locked post-stim response above baseline."""
+
+    scores: list[OptoTaggedUnitScore] = []
+    for unit_label, unit_ids in label_to_units.items():
+        scores.append(_score_opto_tagged_unit_group(unit_label, tuple(unit_ids), builder))
+
+    ranked = sorted(
+        scores,
+        key=lambda score: (
+            score.score_hz,
+            score.post_rate_hz,
+            score.post_spikes,
+            -score.baseline_rate_hz,
+        ),
+        reverse=True,
+    )
+    return ranked[:limit] if limit is not None else ranked
+
+
+def _score_opto_tagged_unit_group(
+    unit_label: str,
+    unit_ids: tuple[object, ...],
+    builder: UnitStimResponseBuilder,
+) -> OptoTaggedUnitScore:
+    """Score one unit/group by counting spikes in pulse-locked windows."""
+
+    events = builder._eligible_events()
+    pulse_epochs = list(builder.pulse_structure.pulse_epochs)
+    if events.empty or not pulse_epochs:
+        return OptoTaggedUnitScore(
+            unit_label=unit_label,
+            unit_ids=unit_ids,
+            score_hz=0.0,
+            post_rate_hz=0.0,
+            baseline_rate_hz=0.0,
+            post_spikes=0,
+            baseline_spikes=0,
+        )
+
+    pre_s = abs(min(builder.pulse_window.start_ms, 0.0)) / 1000.0
+    post_ms = max(builder.pulse_window.end_ms, 0.0)
+    pre_intervals: list[tuple[float, float]] = []
+    post_intervals: list[tuple[float, float]] = []
+    for event in events.itertuples(index=False):
+        stim_time_s = float(getattr(event, "event_time_s"))
+        for pulse_index, pulse in enumerate(pulse_epochs):
+            next_start_ms = (
+                pulse_epochs[pulse_index + 1].start_ms
+                if pulse_index + 1 < len(pulse_epochs)
+                else np.inf
+            )
+            onset_s = stim_time_s + pulse.start_ms / 1000.0
+            if pre_s > 0:
+                pre_intervals.append((onset_s - pre_s, onset_s))
+            if post_ms > 0:
+                post_end_ms = min(pulse.start_ms + post_ms, next_start_ms)
+                post_intervals.append((onset_s, stim_time_s + post_end_ms / 1000.0))
+
+    baseline_spikes = 0
+    post_spikes = 0
+    for unit_id in unit_ids:
+        spike_frames = np.asarray(builder.sorting.get_unit_spike_train(unit_id=unit_id), dtype=float)
+        if spike_frames.size == 0:
+            continue
+        spike_times = np.sort(spike_frames / builder.sampling_frequency_hz)
+        baseline_spikes += _count_spikes_in_intervals(spike_times, pre_intervals)
+        post_spikes += _count_spikes_in_intervals(spike_times, post_intervals)
+
+    n_pre = max(len(pre_intervals), 1)
+    n_post = max(len(post_intervals), 1)
+    baseline_rate = baseline_spikes / (n_pre * pre_s) if pre_s > 0 else 0.0
+    post_durations = sum(max(end_s - start_s, 0.0) for start_s, end_s in post_intervals)
+    post_rate = post_spikes / post_durations if post_durations > 0 else 0.0
+    return OptoTaggedUnitScore(
+        unit_label=unit_label,
+        unit_ids=unit_ids,
+        score_hz=post_rate - baseline_rate,
+        post_rate_hz=post_rate,
+        baseline_rate_hz=baseline_rate,
+        post_spikes=post_spikes,
+        baseline_spikes=baseline_spikes,
+    )
+
+
+def _count_spikes_in_intervals(
+    sorted_spike_times_s: np.ndarray,
+    intervals: Sequence[tuple[float, float]],
+) -> int:
+    """Count sorted spike times inside half-open time intervals."""
+
+    count = 0
+    for start_s, end_s in intervals:
+        if end_s <= start_s:
+            continue
+        start_index = int(np.searchsorted(sorted_spike_times_s, start_s, side="left"))
+        end_index = int(np.searchsorted(sorted_spike_times_s, end_s, side="left"))
+        count += end_index - start_index
+    return count
+
+
+def _score_opto_tagged_response(
+    unit_label: str,
+    unit_ids: tuple[object, ...],
+    response: UnitStimResponse,
+    builder: UnitStimResponseBuilder,
+) -> OptoTaggedUnitScore:
+    """Score one response as post-pulse rate minus pre-pulse baseline rate."""
+
+    pulse_spikes = response.pulse_aligned_spikes
+    n_trials = max(len(response.pulse_trials), 1)
+    pre_ms = abs(min(builder.pulse_window.start_ms, 0.0))
+    post_ms = max(builder.pulse_window.end_ms, 0.0)
+
+    if pulse_spikes.empty:
+        baseline_spikes = 0
+        post_spikes = 0
+    else:
+        times = pulse_spikes["pulse_aligned_time_ms"]
+        baseline_spikes = int(((times >= -pre_ms) & (times < 0.0)).sum()) if pre_ms > 0 else 0
+        post_spikes = int(((times >= 0.0) & (times <= post_ms)).sum()) if post_ms > 0 else 0
+
+    baseline_rate = baseline_spikes / (n_trials * (pre_ms / 1000.0)) if pre_ms > 0 else 0.0
+    post_rate = post_spikes / (n_trials * (post_ms / 1000.0)) if post_ms > 0 else 0.0
+    return OptoTaggedUnitScore(
+        unit_label=unit_label,
+        unit_ids=unit_ids,
+        score_hz=post_rate - baseline_rate,
+        post_rate_hz=post_rate,
+        baseline_rate_hz=baseline_rate,
+        post_spikes=post_spikes,
+        baseline_spikes=baseline_spikes,
+    )
+
+
+def _default_opto_unit_labels(
+    builder: UnitStimResponseBuilder,
+    label_to_units: Mapping[str, Sequence[object]],
+    *,
+    limit: int,
+) -> list[str]:
+    """Return top opto-tagged unit labels, falling back to first units if needed."""
+
+    if not label_to_units:
+        return []
+    ranked = rank_opto_tagged_unit_groups(builder, label_to_units, limit=None)
+    positive = [score.unit_label for score in ranked if score.score_hz > 0.0 and score.post_spikes > 0]
+    if positive:
+        return positive[:limit]
+    return [score.unit_label for score in ranked[:limit]]
+
+
 def _format_response_summary(response: UnitStimResponse, resolution: StimSidecarResolution) -> str:
     return (
-        f"**Selected units:** `{', '.join(_unit_label(unit_id) for unit_id in response.selected_unit_ids)}`  \n"
+        f"**Selected units:** `{_response_unit_label(response)}`  \n"
         f"**Train trials:** {len(response.train_trials)}  \n"
         f"**Train-aligned spikes:** {len(response.train_aligned_spikes)}  \n"
         f"**Pulse mode:** {response.pulse_structure.status}  \n"
@@ -1440,7 +1664,7 @@ def _format_multi_unit_summary(
         "|---|---:|---:|---:|",
     ]
     for response in responses:
-        unit_label = _unit_label(response.selected_unit_ids[0]) if response.selected_unit_ids else ""
+        unit_label = _response_unit_label(response)
         rows.append(
             f"| `{unit_label}` | {len(response.train_aligned_spikes)} | "
             f"{len(response.pulse_aligned_spikes)} | {len(response.pulse_trials)} |"
@@ -1498,8 +1722,67 @@ def _format_unit_selection_status(labels: Sequence[str], missing: Sequence[str])
     return "  \n".join(parts)
 
 
+def _response_unit_label(response: UnitStimResponse) -> str:
+    return "+".join(_unit_label(unit_id) for unit_id in response.selected_unit_ids)
+
+
+def _current_curation_state(curation_state_provider) -> Mapping[str, object] | None:
+    if curation_state_provider is None:
+        return None
+    try:
+        state = curation_state_provider()
+    except Exception:  # noqa: BLE001 - stale GUI state should not break stim rendering
+        return None
+    return state if isinstance(state, Mapping) else None
+
+
+def _label_to_unit_groups(
+    unit_ids: Sequence[object],
+    curation_state: Mapping[str, object] | None,
+) -> dict[str, tuple[object, ...]]:
+    """Return selectable unit/group labels after current curation edits."""
+
+    unit_by_label = {_unit_label(unit_id): unit_id for unit_id in unit_ids}
+    if not curation_state:
+        return {label: (unit_id,) for label, unit_id in unit_by_label.items()}
+
+    removed_labels = {
+        _unit_label(unit_id)
+        for unit_id in curation_state.get("removed", [])  # type: ignore[union-attr]
+    }
+    merged_member_labels: set[str] = set()
+    merge_groups: dict[str, tuple[object, ...]] = {}
+    for merge in curation_state.get("merges", []):  # type: ignore[union-attr]
+        if not isinstance(merge, Mapping):
+            continue
+        labels = [
+            _unit_label(unit_id)
+            for unit_id in merge.get("unit_ids", [])
+            if _unit_label(unit_id) in unit_by_label and _unit_label(unit_id) not in removed_labels
+        ]
+        if len(labels) < 2:
+            continue
+        merged_member_labels.update(labels)
+        merge_label = "merge:" + "+".join(labels)
+        merge_groups[merge_label] = tuple(unit_by_label[label] for label in labels)
+
+    groups = dict(merge_groups)
+    for label, unit_id in unit_by_label.items():
+        if label in removed_labels or label in merged_member_labels:
+            continue
+        groups[label] = (unit_id,)
+    return groups
+
+
 def _unit_label(unit_id: object) -> str:
     return str(unit_id)
+
+
+def _unit_ids_from_sorting(sorting) -> list[object]:
+    unit_ids = list(getattr(sorting, "unit_ids", []))
+    if not unit_ids and hasattr(sorting, "get_unit_ids"):
+        unit_ids = list(sorting.get_unit_ids())
+    return unit_ids
 
 
 def _raw_base_stem(path: Path) -> str:
