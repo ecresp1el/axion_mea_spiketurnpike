@@ -7937,6 +7937,39 @@ Canonical commands:
     intentional so the backed dorsal/ventral set could finish first without
     mixing in unprioritized rows.
 
+- [x] 2026-07-09 15:14 EDT - Lumos waveform alignment audit completed for the
+  same `276` `KSLabel=good` units used in the current TTP distribution.
+
+  Output folder:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/waveform_alignment_feature_audit_20260709/`
+
+  Method:
+    input population was exactly
+    `good_kslabel_ttp_distribution_template_best_ptp_20260709.csv`.
+    For each unit, the best channel was selected with the same
+    `templates.average` peak-to-peak rule. The same `analyzer_path` was reopened
+    and the same Step 1 `sorting`, `recording`, `templates`, and persisted
+    `random_spikes` selection were used. Before alignment, selected snippets were
+    averaged directly using the analyzer `templates` extension `nbefore` /
+    `nafter` window. After alignment, those exact same snippets were shifted so
+    each local trough near the expected spike center aligned to the template
+    trough sample, then averaged. Both before and after averages were measured
+    with the same `_measure_spiketurnpike_waveform_metrics(...)` logic, same TTP
+    cutoffs, same classifier, and same REP50 fraction.
+
+  Sampling-rate note:
+    Axion Step 1 analyzers are `12.5 kHz`, so one sample is `0.08 ms`. One-sample
+    landmark shifts matter for TTP, half-width, and REP measurements.
+
+  Result:
+    all `276 / 276` units paired successfully with zero errors. Median absolute
+    TTP change after alignment was `0.08 ms`. FS/borderline/RS counts changed
+    from `16 / 40 / 220` before alignment to `24 / 61 / 191` after alignment
+    under the same cutoffs; `51 / 276` units changed bin. Treat this as evidence
+    that alignment should be considered before final SpikeTurnpike-style feature
+    extraction, and keep the paired audit outputs as the denominator/methods
+    record.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

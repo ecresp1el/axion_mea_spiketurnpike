@@ -446,6 +446,7 @@ lumos_candidate_waveform_full_templates_20260709.npz
 good_kslabel_ttp_distribution_template_best_ptp_20260709.png
 good_kslabel_ttp_distribution_template_best_ptp_20260709.csv
 good_kslabel_ttp_distribution_template_best_ptp_20260709_provenance.json
+waveform_alignment_feature_audit_20260709/
 ```
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
@@ -503,6 +504,64 @@ peak-to-peak channel, then measures trough to post-trough rebound peak with the
 same landmark logic as the Lumos candidate waveform gallery. On the 2026-07-09
 13:46 EDT refresh it scanned 150 GUI-ready wells and plotted 276 good units:
 16 `FS_like`, 40 `borderline`, and 220 `RS_like`, median TTP 0.720 ms.
+
+Waveform alignment audit, generated 2026-07-09 15:14 EDT:
+
+```bash
+python scripts/audit_waveform_alignment_before_feature_extraction.py
+```
+
+Audit outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/waveform_alignment_feature_audit_20260709/
+waveform_alignment_feature_audit_20260709_paired_unit_metrics.csv
+waveform_alignment_feature_audit_20260709_metric_delta_summary.csv
+waveform_alignment_feature_audit_20260709_landmark_delta_summary.csv
+waveform_alignment_feature_audit_20260709_class_counts.csv
+waveform_alignment_feature_audit_20260709_waveform_traces.csv.gz
+waveform_alignment_feature_audit_20260709_metric_deltas.png
+waveform_alignment_feature_audit_20260709_before_after_scatter.png
+waveform_alignment_feature_audit_20260709_largest_change_waveforms.png
+waveform_alignment_feature_audit_20260709_class_counts_same_cutoffs.png
+waveform_alignment_feature_audit_20260709_provenance.json
+```
+
+This audit is a paired before/after test, not a different unit population. The
+input population is exactly
+`good_kslabel_ttp_distribution_template_best_ptp_20260709.csv`, the same Lumos
+`KSLabel=good` table used above (`276` units). For every unit, the best channel
+is selected with the same rule as the TTP/gallery outputs:
+`best_channel_index = argmax(max(template) - min(template))` across
+`templates.average` channels. The script then reopens the same `analyzer_path`
+and loads the persisted Step 1 `SortingAnalyzer` assets: `sorting`, `recording`,
+`templates`, and `random_spikes`.
+
+The before and after waveforms use the exact same sampled spikes. For each unit,
+the persisted `random_spikes` selection is used to extract snippets from the
+analyzer recording on the fixed best channel. Snippets are cut with the same
+template window, `nbefore` / `nafter`, from the analyzer `templates` extension.
+The before waveform is the plain average of those snippets without extra
+alignment. The after waveform uses those exact same snippets, shifts each
+snippet so its local trough near the expected spike center aligns to the
+template trough sample, then averages the aligned snippets.
+
+Feature extraction is then identical for before and after: both averages are
+measured with `_measure_spiketurnpike_waveform_metrics(...)`, the same TTP
+classifier, the same cutoffs, and the same REP fraction (`0.5`/REP50 by
+default). This means the comparison does not mix different units, channels,
+spikes, or thresholds. It isolates the effect of per-snippet trough alignment
+before feature extraction.
+
+Sampling-rate note: these Axion Step 1 analyzers are sampled at `12.5 kHz`, so
+one sample is `0.08 ms`. One-sample landmark shifts therefore matter for TTP,
+half-width, and REP-style measurements. In the full 276-unit Lumos good-unit
+audit, median absolute TTP change after alignment was `0.08 ms`, and
+`51 / 276` units changed FS/borderline/RS bin under the same TTP cutoffs
+(`16/40/220` before alignment versus `24/61/191` after alignment for
+FS_like/borderline/RS_like). Treat this as evidence that waveform alignment
+should be considered before final SpikeTurnpike-style feature extraction, while
+preserving this paired audit output as the denominator/methods record.
 
 That script reads the jitter-aware manual guide, takes the top signal-ranked
 `status == ok` rows from columns 4-8 and columns 1-3 separately, derives each
