@@ -225,6 +225,63 @@ _Filter(1Hz-200Hz).raw: 1 Hz to 200 Hz Butterworth
 _Filter(200Hz-3kHz).raw: 200 Hz to 3 kHz Butterworth
 ```
 
+### Lumos Unit-Universe Correction And Robust Local-Excursion Metric
+
+Question tested:
+
+```text
+Were the July 9 exploratory waveform metrics computed for all possible Lumos
+units, or only a narrower KSLabel-good subset?
+```
+
+Result:
+
+```text
+The earlier 197-unit table was not the all-Lumos unit universe. It represented
+only a narrower KSLabel=good subset from the then-current good-unit table.
+
+The current Lumos pass contains:
+  Lumos well rows in ground truth: 256
+  GUI-ready Lumos wells with standard analyzers/templates: 150
+  Sorted units measured from those GUI-ready analyzers: 900
+  KSLabel counts: good=276, mua=624
+
+Opto/stim status is independent of waveform metric availability:
+  unit rows in stim-ok wells: 392
+  unit rows in stim-unavailable wells: 211
+  unit rows not represented in the stim guide table: 297
+```
+
+Outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_all_sorted_unit_waveform_metrics_20260709.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_all_sorted_unit_waveform_metrics_20260709_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_48well_good_kslabel_ttp_distribution_template_best_ptp_20260709_all_lumos.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/local_excursion_halfwidth_rep_comparison_20260709_all_lumos.csv
+```
+
+Metric update:
+
+```text
+Added exploratory robust_local_* waveform metrics. These keep the
+local-excursion amplitude definition, midpoint=(Peak1 + trough)/2, but change
+crossing selection. Half-width and REP50 now use adjacent-sample crossings with
+linear interpolation and require the crossing to occur on the immediate
+monotonic descent/recovery limb. If the waveform reverses before reaching the
+midpoint, the robust metric reports a status instead of using a later tail
+crossing.
+```
+
+Confirmed finding:
+
+```text
+The issue with the previous local-excursion metric was crossing selection, not
+the midpoint amplitude definition. The robust_local_* columns are exploratory
+only. Production waveform metrics and the TTP-based FS/RS classifier are
+unchanged.
+```
+
 ## Open Questions
 
 ### Biological Validity Of Current Step 1 Template Features

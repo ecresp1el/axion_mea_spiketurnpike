@@ -7603,9 +7603,115 @@ Canonical commands:
     six wave-2 `nf-job_dispatch` children were pending
     (`53180711-53180716`). Wave 1 continued into Kilosort/postprocessing.
 
-- [ ] Next checkpoint - For Cytoview priority wave 2, confirm parent wrappers
-  start, `nf-job_dispatch` completes, and downstream stages begin before
-  submitting priority wave 3.
+- [x] 2026-07-09 13:17 EDT - Cytoview priority waves have begun clearing
+  Kilosort.
+
+  Trace/sacct checkpoint:
+    Cytoview `spikesort_kilosort4` trace rows observed so far:
+      `14` completed with exit `0`
+      `1` failed with exit `1`
+      `2` running by Slurm at the live checkpoint
+      additional Kilosort children pending by Slurm priority
+
+  First observed Kilosort failure:
+    job `53180570`, `133-1555` / `A1`,
+    `5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)`,
+    failed after approximately `16s`.
+
+  Interpretation:
+    Cytoview is no longer blocked before Kilosort. Some wells are already past
+    Kilosort and have downstream postprocessing/visualization jobs queued or
+    running. The single early Kilosort failure should be reviewed after the
+    current watched waves drain, but it is not the old idle-wrapper failure.
+
+- [x] 2026-07-09 13:21 EDT - Cytoview current-run Step 1 asset status and early
+  unit-count snapshot.
+
+  Important distinction:
+    Some older `sixwell_manual_primary_*` final AIND/Step 2 assets already exist
+    on disk for overlapping wells. This checkpoint counts the current
+    `step1_nonlfp_th5_*` Cytoview priority waves only, so stale assets are not
+    mistaken for newly completed Step 1 outputs.
+
+  Current priority waves submitted so far:
+    `40` wells total across wave 1 and wave 2.
+
+  Current-run trace stage summary:
+    `job_dispatch`: `40 / 40` completed
+    `nwb_ecephys`: `40 / 40` completed
+    `preprocessing`: `40 / 40` completed
+    `spikesort_kilosort4`: `27` completed, `1` failed, `12` not entered yet
+    `postprocessing`: `19` completed
+    `curation`: `12` completed
+    `results_collector`: `4` completed
+    `quality_control`: `0` completed/entered in traces yet
+    `nwb_units`: `0` completed/entered in traces yet
+
+  Live downstream tail:
+    Slurm has already queued `quality_control`, `results_collector`, and
+    `nwb_units` children for some successful wells, but final current-run
+    `nwb_units` assets have not landed yet.
+
+  Early Kilosort unit-count snapshot from current-run monitor logs:
+    unit-count records extracted: `15`
+    total units across those records: `305`
+    min / median / max units per extracted well: `5 / 11 / 59`
+
+  Representative current-run unit counts:
+    `133-1555`, `(000)`, `B1`: `59` units
+    `133-1555`, `(000)`, `B3`: `52` units
+    `133-1555`, `(000)`, `B2`: `30` units
+    `134-0150`, `(001)`, `B2`: `39` units
+    `134-0150`, `(001)`, `B1`: `23` units
+    `134-0150`, `(001)`, `A1`: `12` units
+    `134-0150`, `(001)`, `A3`: `11` units
+    `134-0150`, PV reporter `(000)`, `A1/B1/A2`: `8/10/6` units
+
+  Interpretation:
+    The successful Cytoview wells are producing real unit yields rather than
+    empty sorter outputs. They are not final GUI/Step-1-ready until
+    `nwb_units` completes and the current-run assets are published.
+
+- [x] 2026-07-09 13:30 EDT - Cytoview priority waves 1 and 2 drained, and wave 3
+  was submitted.
+
+  Current priority subset status before wave 3:
+    `40` wells submitted across waves 1 and 2.
+    `39 / 40` completed through `nwb_units`.
+    `1 / 40` failed at `spikesort_kilosort4`.
+    The live AIND/Nextflow queue was empty before launching wave 3.
+
+  Failed current-run Cytoview well:
+    parent wrapper `53180287`, Kilosort child `53180570`,
+    `133-1555`, `A1`,
+    `5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)`.
+
+  Wave 1 and 2 parent wrapper runtime:
+    wave 1 started at `13:08:58` and completed successful wells by
+    approximately `13:22:49-13:29:47`; failed parent ended at `13:13:10`.
+    wave 2 started at `13:12:16-13:12:48` and completed successful wells by
+    approximately `13:26:07-13:29:47`.
+    Practical observed runtime for successful parent wrappers: about
+    `14-20 minutes`.
+
+  Cytoview priority wave 3 submitted:
+    wave label: `cytoview_platemap_dv_priority_20_20260709_1330`
+    submitted rows: `20`
+    parent wrapper jobs:
+      `53181522`, `53181524`, `53181526-53181543`
+
+  Immediate wave-3 queue state:
+    All 20 parent wrappers were `RUNNING` at the first checkpoint, about
+    `0:21` elapsed.
+
+  Remaining priority subset after wave 3 submission:
+    `30` of the original `90` plate-map-backed dorsal/ventral Cytoview wells
+    remain unsubmitted. Planned remaining waves are `20 + 10`, assuming wave 3
+    drains cleanly.
+
+- [ ] Next checkpoint - For Cytoview priority wave 3, confirm parent wrappers
+  drain and current-run `nwb_units` completion before submitting the remaining
+  `20 + 10` priority wells.
 
 - [ ] Next checkpoint - After any Cytoview retry starts, record:
   parent wrapper state, `nf-job_dispatch` state, number of completed
