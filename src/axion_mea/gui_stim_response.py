@@ -1175,17 +1175,42 @@ def make_stim_response_panel(
             else pn.pane.Markdown("No units selected.")
         ]
 
+    def set_area_loading(area, message: str) -> None:
+        area.objects = [pn.pane.Markdown(message)]
+        if hasattr(area, "loading"):
+            area.loading = True
+
+    def set_area_ready(area) -> None:
+        if hasattr(area, "loading"):
+            area.loading = False
+
+    def schedule_render_active_tab() -> None:
+        doc = pn.state.curdoc
+        if doc is not None:
+            doc.add_next_tick_callback(render_active_tab)
+        else:
+            render_active_tab()
+
     def render_active_tab() -> None:
         unit_responses = cached_responses["responses"]
         if active_tab["index"] == 0:
             render_train(unit_responses)
-            pulse_area.objects = [pn.pane.Markdown("Pulse plots render when this tab is opened.")]
+            set_area_ready(train_area)
+            set_area_ready(pulse_area)
+            pulse_area.objects = [pn.pane.Markdown("Pulse locked plots render when this tab is opened.")]
         else:
             render_pulse(unit_responses)
+            set_area_ready(pulse_area)
             if not train_area.objects:
                 train_area.objects = [pn.pane.Markdown("Train plots render when this tab is opened.")]
+            set_area_ready(train_area)
 
     def redraw(*_: object) -> None:
+        if active_tab["index"] == 0:
+            set_area_loading(train_area, "Loading top pulse-ranked units in the train locked view...")
+            pulse_area.objects = [pn.pane.Markdown("Pulse locked plots render when this tab is opened.")]
+        else:
+            set_area_loading(pulse_area, "Loading pulse locked plots for the selected units...")
         refresh_unit_groups(preserve_selection=True)
         unit_groups, labels, missing = selected_units()
         selection_status.object = _format_unit_selection_status(labels, missing)
@@ -1197,9 +1222,17 @@ def make_stim_response_panel(
     def on_tab_change(event) -> None:
         active_tab["index"] = int(event.new)
         if not cached_responses["responses"]:
+            if active_tab["index"] == 0:
+                set_area_loading(train_area, "Loading top pulse-ranked units in the train locked view...")
+            else:
+                set_area_loading(pulse_area, "Loading pulse locked plots for the selected units...")
             redraw()
         else:
-            render_active_tab()
+            if active_tab["index"] == 0:
+                set_area_loading(train_area, "Loading train locked plots for the selected units...")
+            else:
+                set_area_loading(pulse_area, "Loading pulse locked plots for the selected units...")
+            schedule_render_active_tab()
 
     refresh_button.on_click(redraw)
     unit_selector.param.watch(sync_entry_to_picker, "value")
@@ -1214,11 +1247,11 @@ def make_stim_response_panel(
     tabs.param.watch(on_tab_change, "active")
     selection_status.object = _format_unit_selection_status(default_labels, [])
     summary.object = (
-        f"**Top opto-tagged units selected:** `{', '.join(default_labels)}`  \n"
+        f"**Top pulse-ranked opto units selected:** `{', '.join(default_labels)}`  \n"
         "Plots will render automatically after the page loads."
     )
-    train_area.objects = [pn.pane.Markdown("Loading top opto-tagged train plots...")]
-    pulse_area.objects = [pn.pane.Markdown("Pulse plots render when this tab is opened.")]
+    set_area_loading(train_area, "Loading top pulse-ranked units in the train locked view...")
+    pulse_area.objects = [pn.pane.Markdown("Pulse locked plots render when this tab is opened.")]
     pn.state.onload(redraw)
     return pn.Column(
         pn.pane.Markdown(
