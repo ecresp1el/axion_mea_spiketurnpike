@@ -6130,6 +6130,74 @@ can still be advanced once their wells pass the pickup boundary above. The
 target remains to account for all 454 original well chains, with invalid export
 failures tracked explicitly rather than silently retried forever.
 
+### Step 1 Per-Well Completion and Early GUI Curation
+
+Live Lumos continuation checkpoint at 2026-07-09 00:41 EDT:
+
+```text
+Lumos continuation wells submitted so far: 60
+standard Step 1 complete through quality_control_collector: 29
+standard KS4 sparse failures needing labeled fallback: 25
+still draining downstream or waiting for terminal state: 6
+```
+
+The 29 wells with standard Step 1 complete are usable Step 1 outputs now. A full
+recording does not need to be complete before inspecting one completed well in
+the SpikeInterface GUI.
+
+Completed standard Step 1 wells at this checkpoint:
+
+```text
+step1_nonlfp_th5_20260708_2_25_2026_129-8447_test(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+  A1, B6, B8, C1, D1, D7, E6, E7, F6, F7, F8
+
+step1_nonlfp_th5_20260708_2_25_2026_129-8447_test(000)_broadband_processor_raw
+  A1, B6, B8, C1, D1, D7, F6, F7, F8
+
+step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_129-8445_ventral_sosrs(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+  B5, D2, E2, E5
+
+step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_129-8445_ventral_sosrs(000)_filter_200Hz-3kHz
+  B4, B5, E5
+
+step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_129-8445_ventral_sosrs(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+  B5, D2
+```
+
+Early GUI policy during scale-up:
+
+```text
+1. A completed per-well Step 1 analyzer is sufficient for GUI inspection.
+2. Step 2 and Step 3 are not required before manual GUI review.
+3. The analyzer path is:
+   results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+4. Use the Great Lakes conda environment, not the AIND production container, for
+   interactive GUI review.
+5. Save manual curation outside the frozen Step 1 analyzer.
+6. Sparse standard KS4 failures must be routed through the labeled fallback
+   before they can be reviewed as completed Step 1 wells.
+```
+
+Preferred launcher for this scale-up mode:
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+source config/greatlakes_project.env
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
+conda activate "${CONDA_ENV}"
+
+python scripts/launch_step1_sorting_analyzer_browser.py \
+  --root-folder /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind \
+  --curation-root /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation \
+  --address localhost \
+  --port 18765
+```
+
+Use this only for completed Step 1 wells that have a finalized analyzer Zarr.
+Do not use it to imply that the full recording, Step 2 metadata layer, or Step 3
+master table is complete. This is an early manual curation/QC path to evaluate
+and refine Kilosort while Step 1 scale-up is still running.
+
 Future operational policy:
 
 ```text

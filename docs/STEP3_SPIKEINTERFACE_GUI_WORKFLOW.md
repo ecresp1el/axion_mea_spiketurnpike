@@ -4,9 +4,12 @@ Date verified: 2026-07-08
 
 ## Purpose
 
-This document defines the supported Step 3 workflow for opening completed Step 1
-AIND `SortingAnalyzer` outputs in the SpikeInterface GUI from Great Lakes while
-displaying the interface locally on a Mac.
+This document defines the supported workflow for opening completed Step 1 AIND
+`SortingAnalyzer` outputs in the SpikeInterface GUI from Great Lakes while
+displaying the interface locally on a Mac. It covers two modes:
+
+1. Early Step 1 per-well inspection during pipeline scale-up.
+2. Later Step 3 manual curation after the downstream analysis dataset exists.
 
 Step 1 remains frozen. The GUI workflow must not rerun Axion export, NWB export,
 SpikeInterface prep, Kilosort4, AIND postprocessing, or Step 2 classification.
@@ -14,6 +17,56 @@ It starts from existing Step 1 analyzer outputs:
 
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+```
+
+## Early Step 1 GUI Mode During Scale-Up
+
+The old GUI workflow assumed that Step 1, Step 2, and Step 3 had all completed.
+That is no longer the only supported path. During the TH=5 Step 1 scale-up, GUI
+inspection can begin as soon as an individual well has completed Step 1 and has a
+finalized per-well analyzer:
+
+```text
+results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+```
+
+Per-well Step 1 completion is enough for early manual curation/QC. The full
+recording does not need to be complete, and Step 2/Step 3 do not need to exist
+yet.
+
+Use this mode to inspect Kilosort output and export manual curation decisions
+while the larger Step 1 submission is still scaling. Do not use this mode to
+claim that the recording-level pipeline, Step 2 metadata recovery, or Step 3
+master unit table is complete.
+
+Important boundaries:
+
+- Only wells with a completed Step 1 analyzer can be opened.
+- Wells that failed standard KS4 because of sparse template-learning clips must
+  complete the labeled fallback route before they are treated as completed Step 1
+  wells.
+- Manual curation output must be saved outside the frozen Step 1 analyzer.
+- The Step 1 analyzer itself must not be modified.
+
+Preferred launcher for this early mode:
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+source config/greatlakes_project.env
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
+conda activate "${CONDA_ENV}"
+
+python scripts/launch_step1_sorting_analyzer_browser.py \
+  --root-folder /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind \
+  --curation-root /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation \
+  --address localhost \
+  --port 18765
+```
+
+Recommended early Step 1 curation root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation/<recording>/<well>/
 ```
 
 ## Runtime Boundary
@@ -32,7 +85,7 @@ There are two separate Great Lakes runtime lanes:
    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/containers/aind_ephys/ghcr.io-allenneuraldynamics-aind-ephys-spikesort-kilosort4-si-0.104.8.img
    ```
 
-2. Interactive Step 3 lane.
+2. Interactive analysis lane.
    The SpikeInterface GUI should run from the Turbo-backed Great Lakes conda
    environment:
 
@@ -41,8 +94,8 @@ There are two separate Great Lakes runtime lanes:
    ```
 
    This env currently imports `spikeinterface==0.104.8`, matching the AIND
-   Step 1 outputs. Use this conda env for GUI inspection and Step 3 curation
-   export, not the pipeline `.img` files.
+   Step 1 outputs. Use this conda env for Step 1 GUI inspection, Step 3
+   curation export, and downstream analysis, not the pipeline `.img` files.
 
 ## Pre-Install Verification
 
@@ -161,18 +214,24 @@ Reason: for Zarr analyzers, `spikeinterface_gui` opens the analyzer in write
 mode and stores curation data inside the analyzer under a `spikeinterface_gui`
 Zarr group/attribute. That would modify the frozen Step 1 output.
 
-Supported Step 3 save policy:
+Supported save policy:
 
-- Prefer `scripts/launch_step3_spikeinterface_gui.py`, which uses the GUI's
-  supported `curation_callback` hook to write manual curation JSON outside the
-  analyzer.
+- For early Step 1 per-well inspection, prefer
+  `scripts/launch_step1_sorting_analyzer_browser.py`, which writes curation JSON
+  outside the analyzer under `results/step1_gui_curation`.
+- For later Step 3 curation of one selected analyzer, prefer
+  `scripts/launch_step3_spikeinterface_gui.py`, which uses the GUI's supported
+  `curation_callback` hook to write manual curation JSON outside the analyzer.
 - The GUI's JSON export/download action is also acceptable for manual curation
   output.
-- Store curation JSON outside Step 1, under a Step 3 output root.
+- Store curation JSON outside Step 1. Use `results/step1_gui_curation` for early
+  scale-up inspection and `results/step3_gui_curation` for finalized downstream
+  curation.
 
 Recommended external curation root:
 
 ```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation/<recording>/<well>/
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step3_gui_curation/<recording>/<well>/
 ```
 
