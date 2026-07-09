@@ -6075,7 +6075,7 @@ submission ledger:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/submitted_lumos_aind_wave.tsv
 ```
 
-Batch cross-reference map at 2026-07-09 01:20 EDT:
+Batch cross-reference map updated at 2026-07-09 01:35 EDT:
 
 ```text
 authoritative continuation package:
@@ -6108,11 +6108,19 @@ batch 3:
   AIND continuation jobs: 53140905-53140924
   submitted wells: 20
 
-continuation total submitted after batch 3:
-  80 / 106
+batch 4:
+  ledger rows: 81-106
+  submitted_at: 2026-07-09T01:35:56
+  AIND continuation jobs:
+    53142035-53142038
+    53142052-53142073
+  submitted wells: 26
 
-continuation wells still unsubmitted after batch 3:
-  26 / 106
+continuation total submitted after batch 4:
+  106 / 106
+
+continuation wells still unsubmitted after batch 4:
+  0 / 106
 ```
 
 Use the ledger to cross-reference batch, recording, well, continuation AIND job,
@@ -6164,6 +6172,149 @@ rechecked after launch:
   53140905-53140924: RUNNING
 ```
 
+Batch 4 final-wave submitted wells:
+
+```text
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_filter_200Hz-3kHz
+wells:
+  B2, B4, B5, C6, D2, D6, E2, E5
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+wells:
+  D2, D6, E2, E5
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(001)_filter_200Hz-3kHz
+wells:
+  B2, B4
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+wells:
+  B2, B4, B5, B6, C6, C7, D2, D6, D7, E2, E5, E6
+```
+
+Batch 4 immediate Slurm state:
+
+```text
+53142035-53142038: RUNNING
+53142052-53142067: RUNNING
+53142068-53142073: PENDING by Priority
+
+rechecked after launch:
+  53142035-53142038: RUNNING
+  53142052-53142073: RUNNING
+  inner Nextflow job_dispatch jobs observed running: 53142097-53142099
+```
+
+Canonical Step 1 v5 ground truth:
+
+```text
+Do not use memory, the empty `live_status/workflow_status_latest.csv`, Slurm
+accounting alone, GUI discovery alone, or a continuation-only ledger as the
+source of truth for the full Step 1 v5 rerun.
+
+Canonical builder:
+  scripts/summarize_step1_v5_ground_truth.py
+
+Canonical output directory:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest
+
+Canonical 454-row well ledger:
+  step1_v5_well_ground_truth.csv
+
+Canonical summary:
+  step1_v5_ground_truth_summary.txt
+  step1_v5_ground_truth_summary.json
+
+Canonical sparse fallback candidates:
+  step1_v5_sparse_fallback_candidates.csv
+
+Controlled-wave submitter that reads the canonical ledger:
+  scripts/submit_next_step1_v5_ground_truth_wave.py
+```
+
+Regenerate the canonical ledger before every status answer, fallback decision, or
+new submission wave:
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+source config/greatlakes_project.env
+"${CONDA_ENV}/bin/python" scripts/summarize_step1_v5_ground_truth.py
+```
+
+Current canonical checkpoint from `2026-07-09T01:50:04`:
+
+```text
+total Step 1 v5 well rows:
+  454
+
+plate-family rows:
+  cytoview_6well: 198
+  lumos_48well: 256
+
+ground_truth_status counts:
+  pickup_ready_not_continued: 340
+  gui_ready_standard: 61
+  standard_failed_sparse_fallback_candidate: 41
+  export_failed: 8
+  running_standard: 4
+
+pickup_ready_not_continued split:
+  cytoview_6well: 198 wells across 33 recording/filter stems
+  lumos_48well: 142 wells across 15 recording/filter stems
+
+continuation batch counts:
+  none: 348
+  batch_1: 20
+  batch_2: 40
+  batch_3: 20
+  batch_4: 26
+
+sparse fallback candidates:
+  41
+```
+
+The remaining pickup-ready-not-continued wells are **not all Cytoview**. They are
+198 Cytoview/SixWell rows plus 142 Lumos rows. Future launches should filter the
+canonical ledger deliberately by `ground_truth_status` and `plate_family`.
+
+Dry-run examples:
+
+```bash
+# First 20 Cytoview/SixWell pickup-ready wells, no Slurm submission:
+"${CONDA_ENV}/bin/python" scripts/submit_next_step1_v5_ground_truth_wave.py \
+  --plate-family cytoview_6well \
+  --limit 20
+
+# First 20 Lumos pickup-ready-not-continued wells, no Slurm submission:
+"${CONDA_ENV}/bin/python" scripts/submit_next_step1_v5_ground_truth_wave.py \
+  --plate-family lumos_48well \
+  --limit 20
+
+# To actually submit a controlled wave, add --submit after reviewing the dry-run.
+```
+
+Do not rescue these by changing only `PC=1` or by globally editing the standard
+Lumos params. The proven rescue route is the labeled fallback:
+
+```text
+fallback label:
+  low_activity_ks4_nt2_npcs2
+
+fallback params, changed together:
+  n_templates=2
+  nearest_templates=2
+  n_pcs=2
+```
+
+Reason: a prior fallback that reduced template count without coupling `n_pcs`
+failed with KS4 shape mismatches. The `low_activity_ks4_nt2_npcs2` route already
+completed successfully in the earlier proof run and keeps fallback outputs under
+separate results/work roots.
+
 At the moment batch 3 was submitted, GUI-ready analyzer discovery still found 35
 Step 1 analyzers under:
 
@@ -6184,7 +6335,7 @@ source config/greatlakes_project.env
 from pathlib import Path
 ledger = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/submitted_lumos_aind_wave.tsv")
 rows = [line for line in ledger.read_text().splitlines() if line.strip()]
-for label, start, stop in [("batch_1", 0, 20), ("batch_2", 20, 60), ("batch_3", 60, 80)]:
+for label, start, stop in [("batch_1", 0, 20), ("batch_2", 20, 60), ("batch_3", 60, 80), ("batch_4", 80, 106)]:
     jobs = []
     for line in rows[start:stop]:
         parts = dict(part.split("=", 1) for part in line.split() if "=" in part)
@@ -6195,10 +6346,10 @@ print("remaining_from_106_manifest", 106 - len(rows))
 PY
 ```
 
-For current Slurm state of batch 3:
+For current Slurm state of batches 3 and 4:
 
 ```bash
-squeue -u "$USER" -o "%.18i %.9P %.32j %.10T %.10M %.10l %.6D %R" | rg "531409|JOBID"
+squeue -u "$USER" -o "%.18i %.9P %.32j %.10T %.10M %.10l %.6D %R" | rg "531409|531420|JOBID"
 ```
 
 Use the Turbo conda interpreter above for local Python helpers. Do not use the
