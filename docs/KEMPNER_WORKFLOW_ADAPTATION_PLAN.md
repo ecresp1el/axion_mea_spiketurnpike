@@ -7554,9 +7554,58 @@ Canonical commands:
     (`53180338-53180357`). This is different from the previous failed Cytoview
     all-at-once wave: the new wave is not just idle parent wrappers.
 
-- [ ] Next checkpoint - For Cytoview priority wave 1, confirm that
-  `nf-job_dispatch` completes and at least one downstream stage records progress
-  before submitting the next 20-well priority wave.
+- [x] 2026-07-09 13:10 EDT - Cytoview priority wave 1 passed the downstream
+  progress gate.
+
+  Observed state:
+    `nf-job_dispatch` completed `20 / 20` in approximately `5-7` seconds
+    each. Sampled Nextflow traces show completed downstream stages, including
+    `preprocessing` and `nwb_ecephys`.
+
+  Example trace evidence:
+    `53180344` `job_dispatch` completed for `133-1555` / `A1`, followed by
+    `53180403` `preprocessing` completed.
+    `53180339` `job_dispatch` completed for `134-0150` / `B3`, followed by
+    `53180395` `nwb_ecephys` completed and `53180400` `preprocessing`
+    completed.
+
+  Live queue checkpoint:
+    `nf-spikesort_kilosort4` had started/queued for Cytoview wave 1 and
+    `nf-postprocessing` was also queued. This confirms the retry moved beyond
+    the idle-wrapper/dispatch failure mode.
+
+- [x] 2026-07-09 13:12 EDT - Cytoview/SixWell plate-map-backed dorsal/ventral
+  priority retry wave 2 submitted immediately after wave 1 passed the downstream
+  progress gate.
+
+  Submit command:
+    python scripts/submit_next_step1_v5_ground_truth_wave.py \
+      --ledger /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709.csv \
+      --status not_ready_or_not_started \
+      --plate-family cytoview_6well \
+      --limit 20 \
+      --allow-resubmit \
+      --skip-submitted-wave-prefix cytoview_platemap_dv_priority_ \
+      --sbatch-time 12:00:00 \
+      --wave-label cytoview_platemap_dv_priority_20_20260709_1311 \
+      --submit
+
+  Submitted Cytoview parent wrapper jobs:
+    `53180652-53180668`, `53180670-53180672`
+
+  Immediate queue state:
+    All 20 wave-2 parent wrappers were `PENDING` by Slurm priority at the first
+    checkpoint. This is acceptable while wave 1 is actively running downstream.
+
+  Follow-up queue state:
+    Shortly after submission, `6 / 20` wave-2 parent wrappers started
+    (`53180652-53180657`), `14 / 20` remained pending by Slurm priority, and
+    six wave-2 `nf-job_dispatch` children were pending
+    (`53180711-53180716`). Wave 1 continued into Kilosort/postprocessing.
+
+- [ ] Next checkpoint - For Cytoview priority wave 2, confirm parent wrappers
+  start, `nf-job_dispatch` completes, and downstream stages begin before
+  submitting priority wave 3.
 
 - [ ] Next checkpoint - After any Cytoview retry starts, record:
   parent wrapper state, `nf-job_dispatch` state, number of completed

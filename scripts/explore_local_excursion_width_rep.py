@@ -9,6 +9,9 @@ template waveform and reports:
 2. Local-excursion half-width: midpoint between Peak1 and trough.
 3. Current REP50: trough recovery to 50% of trough depth relative to zero.
 4. Local-excursion REP50: trough recovery to midpoint between Peak1 and trough.
+5. Robust local-excursion half-width/REP50: same midpoint amplitude, but
+   crossing selection is constrained to the immediate monotonic descent/recovery
+   limbs and uses linear interpolation.
 
 The goal is to see whether local-excursion measurements behave better for
 borderline units with large pre-peaks.
@@ -161,6 +164,7 @@ def _extract_comparison_rows(si, source: pd.DataFrame, *, rep_fraction: float) -
                 time_ms = (np.arange(waveform.size) - nbefore) / sampling_frequency * 1000.0
                 current = _measure_spiketurnpike_waveform_metrics(waveform, time_ms, rep_fraction=rep_fraction)
                 local = _measure_local_excursion_metrics(waveform, time_ms, current)
+                robust_local = _measure_robust_local_excursion_metrics(waveform, time_ms, current)
                 row = {
                     "recording": source_row["recording"],
                     "well": source_row["well"],
@@ -187,6 +191,23 @@ def _extract_comparison_rows(si, source: pd.DataFrame, *, rep_fraction: float) -
                     "local_half_width_end_index": local["local_half_width_end_index"],
                     "local_rep50_ms": local["local_rep50_ms"],
                     "local_rep50_index": local["local_rep50_index"],
+                    "robust_local_half_width_ms": robust_local["robust_local_half_width_ms"],
+                    "robust_local_half_width_start_index": robust_local[
+                        "robust_local_half_width_start_index"
+                    ],
+                    "robust_local_half_width_end_index": robust_local["robust_local_half_width_end_index"],
+                    "robust_local_half_width_start_time_ms": robust_local[
+                        "robust_local_half_width_start_time_ms"
+                    ],
+                    "robust_local_half_width_end_time_ms": robust_local[
+                        "robust_local_half_width_end_time_ms"
+                    ],
+                    "robust_local_rep50_ms": robust_local["robust_local_rep50_ms"],
+                    "robust_local_rep50_index": robust_local["robust_local_rep50_index"],
+                    "robust_local_rep50_time_ms": robust_local["robust_local_rep50_time_ms"],
+                    "robust_local_midpoint_uV": robust_local["robust_local_midpoint_uV"],
+                    "robust_local_recovery_status": robust_local["robust_local_recovery_status"],
+                    "robust_local_descent_status": robust_local["robust_local_descent_status"],
                     "local_midpoint_uV": local["local_midpoint_uV"],
                     "pre_peak_to_trough_excursion_uV": local["pre_peak_to_trough_excursion_uV"],
                     "pre_peak_to_trough_ratio_uV": local["pre_peak_to_trough_ratio_uV"],
@@ -195,6 +216,10 @@ def _extract_comparison_rows(si, source: pd.DataFrame, *, rep_fraction: float) -
                 }
                 row["half_width_delta_ms"] = row["local_half_width_ms"] - row["current_half_width_ms"]
                 row["rep50_delta_ms"] = row["local_rep50_ms"] - row["current_rep50_ms"]
+                row["robust_half_width_delta_ms"] = (
+                    row["robust_local_half_width_ms"] - row["current_half_width_ms"]
+                )
+                row["robust_rep50_delta_ms"] = row["robust_local_rep50_ms"] - row["current_rep50_ms"]
                 rows.append(row)
             except Exception as exc:  # noqa: BLE001
                 errors.append(
@@ -239,6 +264,187 @@ def _measure_local_excursion_metrics(waveform: np.ndarray, time_ms: np.ndarray, 
         "local_rep50_index": local_rep_index,
         "local_rep50_ms": local_rep_time - float(time_ms[trough_index]) if np.isfinite(local_rep_time) else np.nan,
     }
+
+
+def _measure_robust_local_excursion_metrics(
+    waveform: np.ndarray,
+    time_ms: np.ndarray,
+    current: dict[str, object],
+) -> dict[str, object]:
+    """Measure local-excursion width with limb-constrained crossings.
+
+    The amplitude level is identical to the naive local-excursion definition:
+    midpoint between Peak1 and trough. The difference is crossing selection.
+    The left crossing is chosen on the descending limb immediately before the
+    trough; the right/REP crossing is chosen on the first monotonic recovery
+    limb after the trough. Both crossing times are linearly interpolated between
+    adjacent samples.
+    """
+
+    pre_peak_index = int(current["pre_peak_index"])
+    trough_index = int(current["trough_index"])
+    if (
+        pre_peak_index < 0
+        or trough_index < 0
+        or pre_peak_index > trough_index
+        or trough_index >= waveform.size
+        or waveform.size != time_ms.size
+    ):
+        return _empty_robust_local_metrics()
+
+    pre_peak_value = float(waveform[pre_peak_index])
+    trough_value = float(waveform[trough_index])
+    if not np.isfinite(pre_peak_value) or not np.isfinite(trough_value):
+        return _empty_robust_local_metrics()
+
+    midpoint = (pre_peak_value + trough_value) / 2.0
+    excursion = abs(pre_peak_value - trough_value)
+    tolerance = max(excursion * 0.02, 1e-9)
+
+    left = _last_monotonic_crossing_before_trough(
+        waveform,
+        time_ms,
+        start_index=pre_peak_index,
+        trough_index=trough_index,
+        threshold=midpoint,
+        tolerance=tolerance,
+    )
+    right = _first_monotonic_recovery_crossing_after_trough(
+        waveform,
+        time_ms,
+        trough_index=trough_index,
+        threshold=midpoint,
+        tolerance=tolerance,
+    )
+
+    half_width = (
+        right["time_ms"] - left["time_ms"]
+        if np.isfinite(left["time_ms"]) and np.isfinite(right["time_ms"])
+        else np.nan
+    )
+    rep50 = right["time_ms"] - float(time_ms[trough_index]) if np.isfinite(right["time_ms"]) else np.nan
+    return {
+        "robust_local_midpoint_uV": midpoint,
+        "robust_local_half_width_start_index": left["index"],
+        "robust_local_half_width_end_index": right["index"],
+        "robust_local_half_width_start_time_ms": left["time_ms"],
+        "robust_local_half_width_end_time_ms": right["time_ms"],
+        "robust_local_half_width_ms": half_width,
+        "robust_local_rep50_index": right["index"],
+        "robust_local_rep50_time_ms": right["time_ms"],
+        "robust_local_rep50_ms": rep50,
+        "robust_local_descent_status": left["status"],
+        "robust_local_recovery_status": right["status"],
+    }
+
+
+def _empty_robust_local_metrics() -> dict[str, object]:
+    return {
+        "robust_local_midpoint_uV": np.nan,
+        "robust_local_half_width_start_index": -1,
+        "robust_local_half_width_end_index": -1,
+        "robust_local_half_width_start_time_ms": np.nan,
+        "robust_local_half_width_end_time_ms": np.nan,
+        "robust_local_half_width_ms": np.nan,
+        "robust_local_rep50_index": -1,
+        "robust_local_rep50_time_ms": np.nan,
+        "robust_local_rep50_ms": np.nan,
+        "robust_local_descent_status": "invalid_landmarks",
+        "robust_local_recovery_status": "invalid_landmarks",
+    }
+
+
+def _last_monotonic_crossing_before_trough(
+    waveform: np.ndarray,
+    time_ms: np.ndarray,
+    *,
+    start_index: int,
+    trough_index: int,
+    threshold: float,
+    tolerance: float,
+) -> dict[str, object]:
+    if start_index < 0 or trough_index <= start_index:
+        return _crossing_result(-1, np.nan, "invalid_descent_window")
+    for left_index in range(trough_index - 1, start_index - 1, -1):
+        right_index = left_index + 1
+        left_value = float(waveform[left_index])
+        right_value = float(waveform[right_index])
+        if not np.isfinite(left_value) or not np.isfinite(right_value):
+            continue
+        is_descending = right_value <= left_value + tolerance
+        brackets_threshold = left_value >= threshold >= right_value
+        if is_descending and brackets_threshold:
+            return _crossing_result(
+                right_index,
+                _linear_crossing_time(time_ms[left_index], time_ms[right_index], left_value, right_value, threshold),
+                "ok",
+            )
+    return _crossing_result(-1, np.nan, "no_monotonic_descent_crossing")
+
+
+def _first_monotonic_recovery_crossing_after_trough(
+    waveform: np.ndarray,
+    time_ms: np.ndarray,
+    *,
+    trough_index: int,
+    threshold: float,
+    tolerance: float,
+) -> dict[str, object]:
+    if trough_index < 0 or trough_index >= waveform.size - 1:
+        return _crossing_result(-1, np.nan, "invalid_recovery_window")
+
+    previous_value = float(waveform[trough_index])
+    has_recovered_upward = False
+    for previous_index in range(trough_index, waveform.size - 1):
+        current_index = previous_index + 1
+        current_value = float(waveform[current_index])
+        if not np.isfinite(previous_value) or not np.isfinite(current_value):
+            previous_value = current_value
+            continue
+
+        if current_value + tolerance < previous_value:
+            if has_recovered_upward:
+                return _crossing_result(-1, np.nan, "recovery_reversed_before_crossing")
+            previous_value = current_value
+            continue
+
+        if current_value > previous_value + tolerance:
+            has_recovered_upward = True
+
+        brackets_threshold = previous_value <= threshold <= current_value
+        if has_recovered_upward and brackets_threshold:
+            return _crossing_result(
+                current_index,
+                _linear_crossing_time(
+                    time_ms[previous_index],
+                    time_ms[current_index],
+                    previous_value,
+                    current_value,
+                    threshold,
+                ),
+                "ok",
+            )
+        previous_value = current_value
+
+    return _crossing_result(-1, np.nan, "no_monotonic_recovery_crossing")
+
+
+def _crossing_result(index: int, time_ms: float, status: str) -> dict[str, object]:
+    return {"index": int(index), "time_ms": float(time_ms), "status": status}
+
+
+def _linear_crossing_time(
+    left_time: float,
+    right_time: float,
+    left_value: float,
+    right_value: float,
+    threshold: float,
+) -> float:
+    if right_value == left_value:
+        return float(right_time)
+    fraction = (threshold - left_value) / (right_value - left_value)
+    fraction = float(np.clip(fraction, 0.0, 1.0))
+    return float(left_time + fraction * (right_time - left_time))
 
 
 def _empty_local_metrics() -> dict[str, object]:
