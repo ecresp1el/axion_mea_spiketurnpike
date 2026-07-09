@@ -34,7 +34,7 @@ Formal pipeline state as of `2026-07-08 16:11 EDT`:
   2 output sets.
 - The recovery pipeline is functionally complete and frozen. Do not make further
   recovery-pipeline code changes unless a new software bug is discovered.
-- As of `2026-07-09 16:10 EDT`, the current waveform/cutoff/alignment
+- As of `2026-07-09 15:57 EDT`, the current waveform/cutoff/alignment
   inspection source of truth is the "Current Single Source: Waveform Alignment,
   Cutoffs, And Denominators" section in
   `docs/GREATLAKES_KILOSORT_HANDOFF.md`. Current Lumos and Cytoview figures are
@@ -8088,7 +8088,7 @@ Canonical commands:
     cutoff `0.50 ms`, unaligned: dorsal `10` FS / `103` RS; ventral `12` FS / `112` RS
     cutoff `0.50 ms`, aligned: dorsal `20` FS / `93` RS; ventral `18` FS / `106` RS
 
-- [x] 2026-07-09 16:10 EDT - Single-source handoff rule added for the current
+- [x] 2026-07-09 15:57 EDT - Single-source handoff rule added for the current
   waveform/cutoff/alignment figures before any later Step 2-based filtering.
 
   Canonical detailed handoff:

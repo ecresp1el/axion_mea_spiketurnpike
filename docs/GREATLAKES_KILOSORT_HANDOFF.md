@@ -452,7 +452,7 @@ lumos_alignment_cutoff_sensitivity_20260709/
 
 ## Current Single Source: Waveform Alignment, Cutoffs, And Denominators
 
-Updated 2026-07-09 16:10 EDT. This section is the canonical source of truth
+Updated 2026-07-09 15:57 EDT. This section is the canonical source of truth
 for the current waveform/cutoff/alignment inspection outputs until Step 2
 filtering is implemented. The figures and CSVs below are denominator-preserving
 inspection artifacts. Do not silently add extra filters, change unit inclusion,

@@ -2,7 +2,7 @@
 
 Date drafted: 2026-07-09
 
-Single-source cross-reference, updated 2026-07-09 16:10 EDT:
+Single-source cross-reference, updated 2026-07-09 15:57 EDT:
 
 - This handoff owns the Lumos stim-locked GUI/raster/PSTH behavior.
 - It does not redefine the current waveform/cutoff/alignment denominators.
