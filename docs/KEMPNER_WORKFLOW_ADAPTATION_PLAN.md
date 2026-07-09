@@ -8476,6 +8476,28 @@ Canonical commands:
     `11`, and `30`; `P(abs lag <= 2 ms)` is `0.001621`, `0.014843`, and
     `0.000000`, respectively. The original hybrid v1 root was not overwritten.
 
+- [x] 2026-07-09 19:50 EDT - Strategic hybrid QC review pack rendered across
+  Lumos, Cytoview dorsal, and Cytoview ventral.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_review_20260709_194340/`
+
+  Scope:
+    existing Wave C selected wells only; top `3` same-well unit combinations per
+    selected well using the existing spatial-isolation score. Rendered `36`
+    panels total: `12` Lumos, `12` dorsal, `12` ventral. Render errors: `0`.
+
+  Review aids:
+    group contact sheets were written as
+    `lumos_hybrid_qc_v2_review_contact_sheet.jpg`,
+    `cytoview_dorsal_hybrid_qc_v2_review_contact_sheet.jpg`, and
+    `cytoview_ventral_hybrid_qc_v2_review_contact_sheet.jpg`.
+
+  Display update:
+    probability-normalized ACGs are now shown as a lightly smoothed unit-color
+    line with translucent area fill; raw-count ACGs remain bars. Smoothing is
+    display-only and does not change the probability normalization manifest.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

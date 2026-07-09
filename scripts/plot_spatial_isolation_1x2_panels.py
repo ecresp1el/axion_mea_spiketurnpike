@@ -75,6 +75,7 @@ def main() -> int:
     parser.add_argument("--snippet-cloud-max", type=int, default=100)
     parser.add_argument("--amplitude-max-points", type=int, default=1000)
     parser.add_argument("--limit-per-group", type=int, default=0)
+    parser.add_argument("--variants-per-well", type=int, default=1)
     args = parser.parse_args()
 
     import spikeinterface.full as si
@@ -113,24 +114,30 @@ def main() -> int:
                 ].copy()
                 if unit_rows.empty:
                     raise ValueError("no spatial unit rows matched selected well")
-                selected_units, subset_metrics = choose_unit_subset(unit_rows, bundle, args, required_unit_ids=required_unit_ids)
-                figure_path = render_panel(well_row, selected_units, subset_metrics, bundle, output_dir, args)
-                hybrid_manifest_path = ""
-                if args.layout == "hybrid_qc":
-                    hybrid_manifest_path = str(write_hybrid_companion_manifest(well_row, selected_units, subset_metrics, bundle, output_dir, args))
-                rows.append(
-                    {
-                        "selection_group": group,
-                        "recording": well_row.get("recording", ""),
-                        "well": well_row.get("well", ""),
-                        "analyzer_path": well_row.get("analyzer_path", ""),
-                        "figure_path": str(figure_path),
-                        "unit_ids": ";".join(str(row["unit_id"]) for row in selected_units),
-                        "unit_count": len(selected_units),
-                        "hybrid_companion_manifest": hybrid_manifest_path,
-                        **subset_metrics,
-                    }
-                )
+                selected_variants = choose_unit_subsets(unit_rows, bundle, args, required_unit_ids=required_unit_ids)
+                for variant_index, (selected_units, subset_metrics) in enumerate(selected_variants, start=1):
+                    render_row = dict(well_row)
+                    render_row["combination_rank_within_well"] = variant_index
+                    render_row["combination_label"] = f"combo{variant_index:02d}"
+                    figure_path = render_panel(render_row, selected_units, subset_metrics, bundle, output_dir, args)
+                    hybrid_manifest_path = ""
+                    if args.layout == "hybrid_qc":
+                        hybrid_manifest_path = str(write_hybrid_companion_manifest(render_row, selected_units, subset_metrics, bundle, output_dir, args))
+                    rows.append(
+                        {
+                            "selection_group": group,
+                            "recording": well_row.get("recording", ""),
+                            "well": well_row.get("well", ""),
+                            "analyzer_path": well_row.get("analyzer_path", ""),
+                            "combination_rank_within_well": variant_index,
+                            "combination_label": render_row["combination_label"],
+                            "figure_path": str(figure_path),
+                            "unit_ids": ";".join(str(row["unit_id"]) for row in selected_units),
+                            "unit_count": len(selected_units),
+                            "hybrid_companion_manifest": hybrid_manifest_path,
+                            **subset_metrics,
+                        }
+                    )
             except Exception as exc:  # noqa: BLE001
                 errors.append(
                     {
@@ -171,6 +178,7 @@ def main() -> int:
             "snippet_cloud_max": args.snippet_cloud_max,
             "amplitude_max_points": args.amplitude_max_points,
             "limit_per_group": args.limit_per_group,
+            "variants_per_well": args.variants_per_well,
         },
         "selection_logic": (
             "Within each selected Wave C well, choose a subset of good units that balances spike count, "
@@ -228,6 +236,16 @@ def choose_unit_subset(
     *,
     required_unit_ids: list[str] | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
+    return choose_unit_subsets(unit_rows, bundle, args, required_unit_ids=required_unit_ids)[0]
+
+
+def choose_unit_subsets(
+    unit_rows: pd.DataFrame,
+    bundle: AnalyzerBundle,
+    args,
+    *,
+    required_unit_ids: list[str] | None = None,
+) -> list[tuple[list[dict[str, object]], dict[str, object]]]:
     candidates = []
     for row in unit_rows.to_dict("records"):
         unit_id = unit_id_for_sorting(row["unit_id"], bundle)
@@ -258,15 +276,15 @@ def choose_unit_subset(
         metrics = subset_metrics(required_subset)
         metrics["subset_score"] = np.nan
         metrics["selection_mode"] = "required_unit_ids"
-        return list(required_subset), metrics
+        metrics["combination_rank_by_score"] = 1
+        return [(list(required_subset), metrics)]
     if len(candidates) < 2:
         raise ValueError("need at least two units for spatial isolation panel")
 
     spike_filtered = [row for row in candidates if int(row.get("num_spikes", 0)) >= args.min_spikes]
     pool = spike_filtered if len(spike_filtered) >= 2 else candidates
     subset_size = min(max(2, args.units_per_panel), len(pool))
-    best_subset = None
-    best_metrics = None
+    scored_subsets = []
     for subset in itertools.combinations(pool, subset_size):
         metrics = subset_metrics(subset)
         score = (
@@ -277,11 +295,16 @@ def choose_unit_subset(
         )
         metrics["subset_score"] = float(score)
         metrics["selection_mode"] = "ranked_subset"
-        if best_metrics is None or score > best_metrics["subset_score"]:
-            best_subset = subset
-            best_metrics = metrics
-    assert best_subset is not None and best_metrics is not None
-    return list(best_subset), best_metrics
+        scored_subsets.append((subset, metrics))
+    if not scored_subsets:
+        raise ValueError("no unit combinations available")
+    scored_subsets.sort(key=lambda item: item[1]["subset_score"], reverse=True)
+    selected = []
+    for rank, (subset, metrics) in enumerate(scored_subsets[: max(1, int(args.variants_per_well))], start=1):
+        ranked_metrics = dict(metrics)
+        ranked_metrics["combination_rank_by_score"] = rank
+        selected.append((list(subset), ranked_metrics))
+    return selected
 
 
 def subset_metrics(subset: tuple[dict[str, object], ...]) -> dict[str, object]:
@@ -348,7 +371,11 @@ def render_panel(
 
 
 def panel_stem(well_row: dict[str, object]) -> str:
-    return f"{int(well_row.get('selection_rank_within_group', 0)):02d}_{safe_slug(well_row['recording'])}_{well_row['well']}"
+    stem = f"{int(well_row.get('selection_rank_within_group', 0)):02d}_{safe_slug(well_row['recording'])}_{well_row['well']}"
+    combination_label = str(well_row.get("combination_label", "")).strip()
+    if combination_label:
+        stem = f"{stem}_{safe_slug(combination_label, max_len=24)}"
+    return stem
 
 
 def panel_logic_description(layout: str) -> str:
@@ -567,7 +594,10 @@ def plot_hybrid_probability_autocorrelogram(
     probability = np.asarray(probability_data["probability"], dtype=float)
     mask = np.asarray(probability_data["display_mask"], dtype=bool)
     heights = np.nan_to_num(probability[mask], nan=0.0)
-    ax.bar(bins[mask], heights, width=args.correlogram_bin_ms, color=color, alpha=0.72, edgecolor=color, linewidth=0.35)
+    x = bins[mask]
+    y = smooth_probability_for_display(heights)
+    ax.fill_between(x, 0, y, color=color, alpha=0.18, linewidth=0)
+    ax.plot(x, y, color=color, alpha=0.98, linewidth=1.35)
     ax.axvline(-2.0, color="#777777", linewidth=0.8, linestyle="--")
     ax.axvline(2.0, color="#777777", linewidth=0.8, linestyle="--")
     ax.axvline(0.0, color="#111111", linewidth=0.65)
@@ -590,6 +620,15 @@ def plot_hybrid_probability_autocorrelogram(
         ax.set_ylabel("Fraction of autocorrelogram counts", fontsize=8)
     else:
         ax.set_yticklabels([])
+
+
+def smooth_probability_for_display(values: np.ndarray) -> np.ndarray:
+    if values.size < 5:
+        return values
+    kernel = np.asarray([1.0, 2.0, 3.0, 2.0, 1.0], dtype=float)
+    kernel /= kernel.sum()
+    padded = np.pad(values.astype(float), (2, 2), mode="edge")
+    return np.convolve(padded, kernel, mode="valid")
 
 
 def plot_hybrid_amplitude_stability(

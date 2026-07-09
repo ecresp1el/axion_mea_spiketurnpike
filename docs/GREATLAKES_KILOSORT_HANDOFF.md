@@ -1368,6 +1368,36 @@ The original hybrid v1 root
 `representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500`
 was not overwritten.
 
+#### Hybrid Spatial QC Strategic Review Pack, 2026-07-09
+
+A broader review pack was rendered to support choosing final same-well examples
+across Lumos, Cytoview dorsal, and Cytoview ventral.
+
+Output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_review_20260709_194340/
+```
+
+Scope: existing Wave C selected wells only, with top `3` same-well unit
+combinations per selected well under the existing spatial-isolation score. The
+run produced `36` panels total: `12` Lumos, `12` Cytoview dorsal, and `12`
+Cytoview ventral, with `0` render errors. Each panel was exported as PNG, PDF,
+and SVG.
+
+Contact sheets for quick inspection:
+
+```text
+lumos_hybrid_qc_v2_review_contact_sheet.jpg
+cytoview_dorsal_hybrid_qc_v2_review_contact_sheet.jpg
+cytoview_ventral_hybrid_qc_v2_review_contact_sheet.jpg
+```
+
+The probability-normalized ACG row now uses a lightly smoothed unit-color line
+with translucent area fill. The raw-count ACG row remains a bar plot. The
+probability normalization and manifest values are still computed from the
+unsmoothed displayed-bin probabilities.
+
 ### Testing MEA Transient Plateing Recording-Series Rerun, 2026-07-09
 
 The `Testing_mea_transient_plateing/134-0150/My Experiment(000..004)` block was

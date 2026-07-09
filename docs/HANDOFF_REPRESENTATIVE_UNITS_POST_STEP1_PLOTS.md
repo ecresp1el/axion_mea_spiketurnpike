@@ -1267,6 +1267,50 @@ Implementation order:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500/
   ```
 
+- [x] 2026-07-09 19:50 EDT - Rendered a broader strategic hybrid QC review
+  pack so final same-well examples can be chosen visually across Lumos,
+  Cytoview dorsal, and Cytoview ventral.
+
+  Output root:
+
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_review_20260709_194340/
+  ```
+
+  Scope:
+  existing Wave C selected wells were reused; no cross-well mixing was allowed.
+  For each selected well, the renderer scored all same-well unit combinations
+  with the existing spatial-isolation score and saved the top `3` combinations.
+  This created `36` hybrid QC panels total:
+
+  | Group | Panels | Unique wells |
+  |---|---:|---:|
+  | Lumos | 12 | 2 |
+  | Cytoview dorsal | 12 | 2 |
+  | Cytoview ventral | 12 | 4 |
+
+  Outputs:
+  `36` PNG, `36` PDF, and `36` SVG panels were written, with `0` render errors.
+  The manifest is:
+
+  ```text
+  spatial_isolation_hybrid_qc_manifest_20260709.csv
+  ```
+
+  Quick-screen contact sheets:
+
+  ```text
+  lumos_hybrid_qc_v2_review_contact_sheet.jpg
+  cytoview_dorsal_hybrid_qc_v2_review_contact_sheet.jpg
+  cytoview_ventral_hybrid_qc_v2_review_contact_sheet.jpg
+  ```
+
+  Plotting update:
+  the probability-normalized ACG row is now a smoothed line with a light
+  unit-color area fill underneath. The count ACG row remains raw bars. The
+  probability values and validation sums remain based on the unsmoothed
+  displayed-bin probabilities; smoothing is display-only.
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.
