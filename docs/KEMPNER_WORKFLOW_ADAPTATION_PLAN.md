@@ -5629,3 +5629,121 @@ config/aind_axion_cytoview6_params_th5_kilosort_preproc_DRAFT.json
 Th_universal = 5
 skip_kilosort_preprocessing = false
 ```
+
+### Live Status at 2026-07-08 23:04 EDT
+
+This snapshot was taken after the Step 1 TH=5 v5 submission had begun moving
+through Slurm but before any well had entered AIND preprocessing.
+
+Overall submitted workload remains:
+
+```text
+well chains submitted: 454
+top-level Slurm IDs tracked, including supervisors: 1873
+```
+
+Current Step 1 stage position:
+
+```text
+Nextflow traces present: 245 wells
+Nextflow traces header-only: 245 wells
+No Nextflow trace yet: 209 wells
+
+job_dispatch completed: 0 wells
+preprocessing submitted: 0 wells
+nwb_ecephys submitted: 0 wells
+spikesort_kilosort4 submitted: 0 wells
+nwb_units completed: 0 wells
+```
+
+Interpretation:
+
+```text
+axion-aind-nwb wrapper jobs are running and have launched Nextflow.
+Nextflow has submitted its first child process, job_dispatch.
+The inner job_dispatch tasks are pending in Slurm with Reason=Priority.
+Because job_dispatch has not run, preprocessing has not yet been submitted.
+This is not a Kilosort preprocessing failure; the workflow has not reached the
+Kilosort code path yet.
+```
+
+Representative inner child-job evidence:
+
+```text
+outer wrapper:
+  axion-aind-nwb 53132959 RUNNING
+inner first Nextflow task:
+  nf-job_dispatch 53134864 PENDING
+  Reason=Priority
+  Dependency=(null)
+
+outer wrapper:
+  axion-aind-nwb 53132983 RUNNING
+inner first Nextflow task:
+  nf-job_dispatch 53134870 PENDING
+  Reason=Priority
+  Dependency=(null)
+```
+
+Queue summary at this snapshot:
+
+```text
+245 nf-job_dispatch jobs pending by Priority
+201 axion-aind-nwb jobs pending by Dependency
+196 axion-export-nwb jobs pending by Dependency
+196 axion-aind-si-prep jobs pending by Dependency
+186 axion-export-well jobs pending by Priority
+57 axion-aind-supervisor jobs pending by Priority
+```
+
+Eight well chains had failed at the export stage by this snapshot. These are not
+Kilosort failures. They are MATLAB/Axion export failures where the requested
+well contains channels/electrodes that are not recorded in the raw file.
+
+Failed well chains:
+
+```text
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+failed wells:
+  B6, C7, D7, E6
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_filter_200Hz-3kHz
+failed wells:
+  B6, C7, D7, E6
+```
+
+Representative export error:
+
+```text
+Loaded .../6_18_2026_plate2/129-8445/129-8445/ventral_sosrs_2_opsin(000).raw,
+well B6, dataset RawVoltageData, time range all time
+
+Error using export_axion_well_kilosort_binary (line 116)
+Missing waveform for B6_11 at Axion index {2,6,1,1}.
+```
+
+The same missing-waveform pattern was observed for C7, D7, and E6, and for the
+corresponding `Filter(200Hz-3kHz)` raw variant. The manifest selected these
+wells from the decoded Lumos `.platemap` only:
+
+```text
+wells selected for the affected 6/18 opsin(000) rows:
+  B2,B4,B5,B6,C6,C7,D2,D6,D7,E2,E5,E6
+activity_sidecar_wells:
+  blank
+well_selection_policy:
+  lumos_activity_OR_platemap_union
+```
+
+Operational implication:
+
+```text
+The unaffected well chains should continue. The affected wells should not be
+counted as Kilosort/preprocessing failures. They are evidence that for this
+recording the decoded plate-map active-well list included wells that the raw
+file did not actually record. Any targeted recovery should resubmit only the
+valid recorded wells for these two recording variants, not rerun the full 454
+well manifest.
+```
