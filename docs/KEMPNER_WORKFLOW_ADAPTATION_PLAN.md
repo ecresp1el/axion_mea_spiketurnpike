@@ -7243,6 +7243,74 @@ Canonical commands:
     pending postprocessing children: `5:00`
     pending curation children: `5:00`
 
+- [x] 2026-07-09 10:50 EDT - Recorded first complete Lumos timeout-resume batch
+  timing. This is the current reference for how long a controlled batch of 20
+  Lumos wells takes after the timeout cleanup.
+
+  Completed batch:
+    wave label: `lumos_timeout_resume_20_20260709_1015`
+    parent Slurm IDs: `53162792-53162811`
+    submitted: `2026-07-09T10:15:07`
+    all parents started: `2026-07-09T10:15:27`
+    first parent completed: `2026-07-09T10:35:49`
+    last parent completed: `2026-07-09T10:45:57`
+    total batch wall time from parent start to final completion: `30m30s`
+    total batch wall time from submission to final completion: `30m50s`
+
+  Per-well parent-wrapper elapsed times for this 20-well batch:
+    min: `20m22s`
+    median: about `26m13s`
+    mean: about `25m13s`
+    max: `30m30s`
+
+  Interpretation:
+    The individual child tasks remain short once scheduled. The observed
+    end-to-end time for a 20-well controlled batch is driven by Slurm child-task
+    scheduling plus the slowest well wrapper, not by a single long Kilosort run.
+    Use `25-30 minutes` as the practical runtime estimate for the next Lumos
+    batch of 20 once parent wrappers start cleanly.
+
+- [x] 2026-07-09 10:42 EDT - Submitted the next Lumos timeout-resume batch while
+  the first batch tail was already small:
+    wave label: `lumos_timeout_resume_20_20260709_1043`
+    submitted rows: `20`
+    parent wrapper walltime: `12:00:00`
+    parent Slurm IDs: `53165234-53165253`
+    submitted: `2026-07-09T10:42:34`
+    first 16 parents started: `2026-07-09T10:42:49`
+    last 4 parents started: `2026-07-09T10:43:21`
+
+- [x] 2026-07-09 10:50 EDT - Current Lumos-only status after regenerating the
+  canonical summary:
+    total Lumos rows: `256`
+    `gui_ready_standard`: `89`
+    `running_standard`: `16`
+    `not_ready_or_not_started`: `70`
+    `standard_failed_sparse_fallback_candidate`: `73`
+    `export_failed`: `8`
+
+  Practical remaining work:
+    After the active `lumos_timeout_resume_20_20260709_1043` jobs drain, there
+    are `70` Lumos wells left to submit through the standard route. At a batch
+    size of 20, this is four more controlled Lumos batches: `20 + 20 + 20 + 10`.
+    The `73` sparse-fallback candidates remain documented only for now and are
+    not part of tonight's standard-route submission count.
+
+- [ ] Next timing checkpoint - For each subsequent Lumos batch, record both
+  per-well and batch-level timing:
+    wave label
+    parent Slurm ID range
+    submitted timestamp
+    first parent start timestamp
+    last parent start timestamp
+    first parent completion timestamp
+    last parent completion timestamp
+    per-well wrapper min, median, mean, max elapsed
+    total batch wall time from first parent start to last parent completion
+    total batch wall time from submission to last parent completion
+    final Lumos status counts after regenerating
+    `scripts/summarize_step1_v5_ground_truth.py`
+
 - [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
   with the prepared 20-well dry run, and confirm `job_dispatch` completion
   before submitting more Cytoview wells.
