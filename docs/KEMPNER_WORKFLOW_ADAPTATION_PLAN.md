@@ -6075,6 +6075,136 @@ submission ledger:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/submitted_lumos_aind_wave.tsv
 ```
 
+Batch cross-reference map at 2026-07-09 01:20 EDT:
+
+```text
+authoritative continuation package:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646
+
+continuation manifest, 106 pickup-ready wells:
+  lumos_ready_aind_continuation_manifest.csv
+
+submission ledger, append-only and stateful:
+  submitted_lumos_aind_wave.tsv
+
+generated batch crosswalk, easier for humans:
+  submitted_lumos_aind_wave_batch_crosswalk.tsv
+
+batch 1:
+  ledger rows: 1-20
+  submitted_at: 2026-07-08T23:47:43
+  AIND continuation jobs: 53136425-53136444
+  submitted wells: 20
+
+batch 2:
+  ledger rows: 21-60
+  submitted_at: 2026-07-09T00:20:39
+  AIND continuation jobs: 53137582-53137621
+  submitted wells: 40
+
+batch 3:
+  ledger rows: 61-80
+  submitted_at: 2026-07-09T01:20:13
+  AIND continuation jobs: 53140905-53140924
+  submitted wells: 20
+
+continuation total submitted after batch 3:
+  80 / 106
+
+continuation wells still unsubmitted after batch 3:
+  26 / 106
+```
+
+Use the ledger to cross-reference batch, recording, well, continuation AIND job,
+original AIND job, and per-well AIND env:
+
+```text
+submitted_at=<timestamp>
+recording=<recording-stem>
+well=<well>
+aind_job=<continuation-wrapper-job-id>
+aind_env=<per-well-run_aind_spikeinterface.env>
+original_aind_job=<cancelled-original-wrapper-job-id>
+```
+
+Do not infer batch membership from Slurm accounting alone. Slurm knows job IDs
+and terminal states; the ledger is the only file that links those job IDs back to
+the exact recording/well and the original cancelled AIND wrapper.
+
+For manual review, open `submitted_lumos_aind_wave_batch_crosswalk.tsv` first.
+It is derived from the ledger and adds explicit `batch`, `batch_row`, and
+`ledger_row` columns.
+
+Batch 3 submitted wells:
+
+```text
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_129-8445_ventral_sosrs(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+wells:
+  E2, E3, E5, F3
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_129-8445_ventral_sosrs(001)_filter_200Hz-3kHz
+wells:
+  A3, B2, B3, B4, B5, C3, D2, D3, E2, E3, E5, F3
+
+recording:
+  step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None
+wells:
+  B2, B4, B5, C6
+```
+
+Batch 3 Slurm state:
+
+```text
+immediately after submission:
+  53140905-53140924: PENDING by Priority
+
+rechecked after launch:
+  53140905-53140924: RUNNING
+```
+
+At the moment batch 3 was submitted, GUI-ready analyzer discovery still found 35
+Step 1 analyzers under:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind
+```
+
+That 35 count reflects completed outputs from earlier continuation jobs. Batch 3
+had just entered the queue and should not be expected to add GUI-ready analyzers
+until its Nextflow stages reach postprocessing/quality-control completion.
+
+For continuation-wave accounting, use:
+
+```bash
+cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+source config/greatlakes_project.env
+"${CONDA_ENV}/bin/python" - <<'PY'
+from pathlib import Path
+ledger = Path("/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/submitted_lumos_aind_wave.tsv")
+rows = [line for line in ledger.read_text().splitlines() if line.strip()]
+for label, start, stop in [("batch_1", 0, 20), ("batch_2", 20, 60), ("batch_3", 60, 80)]:
+    jobs = []
+    for line in rows[start:stop]:
+        parts = dict(part.split("=", 1) for part in line.split() if "=" in part)
+        jobs.append(parts["aind_job"])
+    print(label, len(jobs), jobs[0] if jobs else "", jobs[-1] if jobs else "")
+print("submitted_total", len(rows))
+print("remaining_from_106_manifest", 106 - len(rows))
+PY
+```
+
+For current Slurm state of batch 3:
+
+```bash
+squeue -u "$USER" -o "%.18i %.9P %.32j %.10T %.10M %.10l %.6D %R" | rg "531409|JOBID"
+```
+
+Use the Turbo conda interpreter above for local Python helpers. Do not use the
+login-shell `python` or system `python3`; on this login node `python` was absent
+and system `python3` was too old for the continuation script.
+
 Scaling rule from this point:
 
 ```text
