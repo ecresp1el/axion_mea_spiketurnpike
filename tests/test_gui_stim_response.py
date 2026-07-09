@@ -274,6 +274,33 @@ class TestUnitStimResponseBuilder(unittest.TestCase):
         ].iloc[0]
         self.assertEqual(first_bin_rate, 100.0)
 
+    def test_build_many_matches_single_builds(self) -> None:
+        events = stim_events()
+        pulses = [
+            PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0),
+            PulseEpoch(pulse_index=2, start_ms=20.0, end_ms=25.0),
+        ]
+        builder = UnitStimResponseBuilder(
+            sorting=FakeSorting({101: [1000, 1020], 202: [1001, 2020]}),
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=inspect_pulse_structure(events, pulses),
+            train_window=AnalysisWindow(pre_ms=5.0, post_ms=50.0),
+            pulse_window=PulseWindow(pre_ms=5.0, post_ms=50.0),
+            train_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+            pulse_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+        )
+
+        batched = builder.build_many([[101], [202]])
+        single_101 = builder.build([101])
+        single_202 = builder.build([202])
+
+        self.assertEqual(len(batched[0].train_aligned_spikes), len(single_101.train_aligned_spikes))
+        self.assertEqual(len(batched[0].pulse_aligned_spikes), len(single_101.pulse_aligned_spikes))
+        self.assertEqual(len(batched[1].train_aligned_spikes), len(single_202.train_aligned_spikes))
+        self.assertEqual(len(batched[1].pulse_aligned_spikes), len(single_202.pulse_aligned_spikes))
+
     def test_events_for_other_well_are_ignored(self) -> None:
         events = pd.DataFrame(
             {

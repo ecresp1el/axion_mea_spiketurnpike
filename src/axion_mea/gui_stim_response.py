@@ -751,6 +751,59 @@ class UnitStimResponseBuilder:
             pulse_structure=self.pulse_structure,
         )
 
+    def build_many(self, unit_groups: Sequence[Sequence[object]]) -> list[UnitStimResponse]:
+        """Return response tables for many unit groups with shared alignment work."""
+
+        normalized_groups = [tuple(group) for group in unit_groups]
+        unique_units: list[object] = []
+        for group in normalized_groups:
+            for unit_id in group:
+                if unit_id not in unique_units:
+                    unique_units.append(unit_id)
+
+        train_aligned_all = self.build_train_aligned_spikes(unique_units)
+        train_trials = tuple(self._eligible_events()["sequence_number"].astype(int).tolist())
+        responses: list[UnitStimResponse] = []
+        for selected_unit_ids in normalized_groups:
+            if train_aligned_all.empty or not selected_unit_ids:
+                train_aligned = self.build_train_aligned_spikes(())
+            else:
+                train_aligned = train_aligned_all.loc[
+                    train_aligned_all["unit_id"].isin(selected_unit_ids)
+                ].copy()
+
+            train_psth = PsthBuilder(
+                well_spikes=train_aligned,
+                trials=list(train_trials),
+                config=self.train_psth_config,
+                time_column="aligned_time_ms",
+            ).build(self.train_window)
+            pulse_aligned, pulse_trials = self.build_pulse_aligned_spikes(train_aligned, train_trials)
+            pulse_trial_ids = (
+                pulse_trials["pulse_trial_index"].astype(int).tolist()
+                if not pulse_trials.empty
+                else []
+            )
+            pulse_psth = PsthBuilder(
+                well_spikes=pulse_aligned,
+                trials=pulse_trial_ids,
+                config=self.pulse_psth_config,
+                time_column="pulse_aligned_time_ms",
+            ).build(self.pulse_window)
+            responses.append(
+                UnitStimResponse(
+                    selected_unit_ids=selected_unit_ids,
+                    train_aligned_spikes=train_aligned,
+                    train_trials=train_trials,
+                    train_psth=train_psth,
+                    pulse_aligned_spikes=pulse_aligned,
+                    pulse_trials=pulse_trials,
+                    pulse_psth=pulse_psth,
+                    pulse_structure=self.pulse_structure,
+                )
+            )
+        return responses
+
     def build_train_aligned_spikes(self, unit_ids: Sequence[object]) -> pd.DataFrame:
         """Create one row per selected-unit spike inside each train window."""
 
@@ -994,6 +1047,8 @@ def make_stim_response_panel(
     pulse_area = pn.Column(sizing_mode="stretch_width")
     selection_status = pn.pane.Markdown("", sizing_mode="stretch_width")
     syncing_selection = {"active": False}
+    active_tab = {"index": 0}
+    cached_responses: dict[str, list[UnitStimResponse]] = {"responses": []}
     unit_group_state: dict[str, object] = {
         "label_to_units": label_to_units,
         "default_labels": default_labels,
@@ -1078,13 +1133,7 @@ def make_stim_response_panel(
         sync_picker_to_entry(labels)
         redraw()
 
-    def redraw(*_: object) -> None:
-        refresh_unit_groups(preserve_selection=True)
-        unit_groups, labels, missing = selected_units()
-        selection_status.object = _format_unit_selection_status(labels, missing)
-        unit_responses = [builder.build(unit_group) for unit_group in unit_groups]
-        summary.object = _format_multi_unit_summary(unit_responses, resolution)
-
+    def render_train(unit_responses: Sequence[UnitStimResponse]) -> None:
         train_items = [
             pn.pane.Matplotlib(
                 plot_train_response(response, builder),
@@ -1099,6 +1148,7 @@ def make_stim_response_panel(
             else pn.pane.Markdown("No units selected.")
         ]
 
+    def render_pulse(unit_responses: Sequence[UnitStimResponse]) -> None:
         pulse_items = []
         for response in unit_responses:
             if response.pulse_structure.pulse_tab_enabled and not response.pulse_trials.empty:
@@ -1123,10 +1173,32 @@ def make_stim_response_panel(
             else pn.pane.Markdown("No units selected.")
         ]
 
+    def render_active_tab() -> None:
+        unit_responses = cached_responses["responses"]
+        if active_tab["index"] == 0:
+            render_train(unit_responses)
+            pulse_area.objects = [pn.pane.Markdown("Pulse plots render when this tab is opened.")]
+        else:
+            render_pulse(unit_responses)
+            if not train_area.objects:
+                train_area.objects = [pn.pane.Markdown("Train plots render when this tab is opened.")]
+
+    def redraw(*_: object) -> None:
+        refresh_unit_groups(preserve_selection=True)
+        unit_groups, labels, missing = selected_units()
+        selection_status.object = _format_unit_selection_status(labels, missing)
+        unit_responses = builder.build_many(unit_groups)
+        cached_responses["responses"] = unit_responses
+        summary.object = _format_multi_unit_summary(unit_responses, resolution)
+        render_active_tab()
+
+    def on_tab_change(event) -> None:
+        active_tab["index"] = int(event.new)
+        render_active_tab()
+
     refresh_button.on_click(redraw)
     unit_selector.param.watch(sync_entry_to_picker, "value")
     unit_entry.param.watch(redraw_from_entry, "value")
-    redraw()
 
     controls = pn.Row(unit_entry, unit_selector, refresh_button, sizing_mode="stretch_width")
     tabs = pn.Tabs(
@@ -1134,6 +1206,15 @@ def make_stim_response_panel(
         ("Pulse locked", pn.Column(pulse_area, sizing_mode="stretch_width")),
         sizing_mode="stretch_width",
     )
+    tabs.param.watch(on_tab_change, "active")
+    selection_status.object = _format_unit_selection_status(default_labels, [])
+    summary.object = (
+        f"**Top opto-tagged units selected:** `{', '.join(default_labels)}`  \n"
+        "Plots will render automatically after the page loads."
+    )
+    train_area.objects = [pn.pane.Markdown("Loading top opto-tagged train plots...")]
+    pulse_area.objects = [pn.pane.Markdown("Pulse plots render when this tab is opened.")]
+    pn.state.onload(redraw)
     return pn.Column(
         pn.pane.Markdown(
             "## Stim raster/PSTH\n"
