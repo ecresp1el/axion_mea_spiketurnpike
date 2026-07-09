@@ -258,6 +258,7 @@ def make_chooser_app(
             f"**Selected analyzer**  \n`{row['analyzer_path']}`  \n"
             f"**Curation JSON**  \n`{default_curation_output(row, curation_root)}`  \n"
             f"**Opto/Lumos candidate**  \n`{row.get('opto_eligible', 'false')}`  \n"
+            f"**Opto reason**  \n`{row.get('opto_reason', '')}`  \n"
             f"**Matched raw**  \n`{row.get('stim_raw_path', '') or 'not resolved'}`"
         )
         open_link.object = f"### [Open selected well]({url})"
@@ -404,13 +405,20 @@ def discover_analyzers(
             plate_family="lumos_48well" if _recording_looks_lumos(recording, raw_path) else "",
             plate_type_name="FortyEightWellLumos" if "fortyeightwell" in recording.lower() else "",
         )
+        cohort_match = _recording_looks_june_july(recording, raw_path)
+        opto_eligible = lumos and raw_path is not None and cohort_match
         rows.append(
             {
                 "recording": recording,
                 "well": well_dir.name,
                 "analyzer_path": str(analyzer_path),
-                "opto_eligible": "true" if lumos and raw_path is not None else "false",
+                "opto_eligible": "true" if opto_eligible else "false",
                 "stim_raw_path": str(raw_path) if raw_path is not None else "",
+                "opto_reason": (
+                    "June/July Lumos raw matched"
+                    if opto_eligible
+                    else "not June/July Lumos with matched raw"
+                ),
             }
         )
     return rows
@@ -429,6 +437,17 @@ def _recording_looks_lumos(recording: str, raw_path: Path | None) -> bool:
         or "fortyeightwell" in text
         or "129-8445" in text
         or "129-8447" in text
+    )
+
+
+def _recording_looks_june_july(recording: str, raw_path: Path | None) -> bool:
+    text = f"{recording} {raw_path or ''}".lower()
+    return (
+        "6_18_2026" in text
+        or "6_22_2026" in text
+        or "july" in text
+        or "7_2026" in text
+        or "2026_07" in text
     )
 
 
