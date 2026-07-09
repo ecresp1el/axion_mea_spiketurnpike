@@ -2,6 +2,18 @@
 
 Date drafted: 2026-07-09
 
+Single-source cross-reference, updated 2026-07-09 16:10 EDT:
+
+- This handoff owns the Lumos stim-locked GUI/raster/PSTH behavior.
+- It does not redefine the current waveform/cutoff/alignment denominators.
+- For the current Lumos and Cytoview FS/RS cutoff, waveform alignment, valid
+  unit denominator, and future Step 2 filtering rules, use
+  `docs/GREATLAKES_KILOSORT_HANDOFF.md`, section "Current Single Source:
+  Waveform Alignment, Cutoffs, And Denominators".
+- Any later GUI-side filtering display should show the same denominator,
+  exclusion reason, and filtered-output provenance as the post-Step-2 analysis
+  artifacts rather than creating a separate hidden inclusion rule.
+
 ## Confirmed Goal
 
 Add a custom Axion/MEA response-inspection window to the existing

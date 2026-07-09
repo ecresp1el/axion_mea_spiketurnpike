@@ -34,6 +34,13 @@ Formal pipeline state as of `2026-07-08 16:11 EDT`:
   2 output sets.
 - The recovery pipeline is functionally complete and frozen. Do not make further
   recovery-pipeline code changes unless a new software bug is discovered.
+- As of `2026-07-09 16:10 EDT`, the current waveform/cutoff/alignment
+  inspection source of truth is the "Current Single Source: Waveform Alignment,
+  Cutoffs, And Denominators" section in
+  `docs/GREATLAKES_KILOSORT_HANDOFF.md`. Current Lumos and Cytoview figures are
+  denominator-preserving inspection artifacts. Future biological filtering
+  should be layered after Step 2 as a new dated filtered analysis with explicit
+  exclusion counts and reasons.
 
 Formal Step 1 - Axion to AIND/NWB Units:
 
@@ -8080,6 +8087,37 @@ Canonical commands:
     cutoff `0.37 ms`, aligned: dorsal `4` FS / `109` RS; ventral `3` FS / `121` RS
     cutoff `0.50 ms`, unaligned: dorsal `10` FS / `103` RS; ventral `12` FS / `112` RS
     cutoff `0.50 ms`, aligned: dorsal `20` FS / `93` RS; ventral `18` FS / `106` RS
+
+- [x] 2026-07-09 16:10 EDT - Single-source handoff rule added for the current
+  waveform/cutoff/alignment figures before any later Step 2-based filtering.
+
+  Canonical detailed handoff:
+    `docs/GREATLAKES_KILOSORT_HANDOFF.md`,
+    section "Current Single Source: Waveform Alignment, Cutoffs, And
+    Denominators".
+
+  Current denominator-preserving outputs:
+    Lumos geometry/opto-track composite:
+      `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_geometry_alignment_cutoff_composite_20260709/`
+    Cytoview dorsal/ventral composite:
+      `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_alignment_cutoff_composite_20260709/`
+
+  Denominator lock:
+    Lumos remains `276` paired `KSLabel=good` units grouped by well-column
+    geometry, not dorsal/ventral biology. Cytoview remains `237` paired
+    `KSLabel=good` units grouped by plate-map-backed dorsal/ventral labels plus
+    the B1/B2 override layer. Both tracks use the same best-PTP channel rule,
+    persisted `random_spikes`, paired unaligned/aligned snippet averages, same
+    `_measure_spiketurnpike_waveform_metrics(...)`, same REP50 metric, same
+    `0.37 ms` and `0.50 ms` binary FS/RS cutoff views, and the same `12.5 kHz`
+    sampling-rate interpretation.
+
+  Future filtering rule:
+    after Step 2 filtering is implemented, create a new dated filtered output
+    folder rather than overwriting these figures. The filtered output must
+    report the starting denominator, valid half-width count, valid REP count,
+    all excluded units with reasons, and final FS/borderline/RS or FS/RS counts
+    before any biological interpretation of the histograms.
 
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
