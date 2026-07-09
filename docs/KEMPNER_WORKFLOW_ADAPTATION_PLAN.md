@@ -7717,3 +7717,40 @@ Canonical commands:
   parent wrapper state, `nf-job_dispatch` state, number of completed
   `job_dispatch` tasks, number of completed preprocessing tasks, and whether
   any trace has task rows. Do not rely on parent wrapper `RUNNING` alone.
+
+- [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
+  after all standard-route Lumos wells became available.
+
+  Refreshed input population:
+    Lumos GUI-ready wells in the current standard-route ledger: `150`
+    optotag screen `status == ok`: `108`
+    optotag screen `status == stim_unavailable`: `42`
+
+  Regenerated artifacts:
+    `lumos_gui_ready_trial_tag_screen_250pulse_jitterwin_20260709.csv`
+    `lumos_manual_spike_sorting_guide_jitterwin_20260709.csv`
+    `lumos_candidate_waveform_gallery_columns_compare_20260709.png`
+    `lumos_candidate_waveform_best_channel_normalized_vs_unnormalized_20260709.png`
+    `lumos_candidate_waveform_kslabel_summary_20260709.csv`
+    `lumos_candidate_waveform_best_channel_traces_20260709.csv.gz`
+    `lumos_candidate_waveform_full_templates_20260709.npz`
+
+  Candidate gallery summary from the refreshed 150-well guide:
+    columns 4-8 top 12: `4` KSLabel=good, `8` KSLabel=mua,
+      median firing rate `4.705 Hz`, max firing rate `18.575 Hz`,
+      max pulse-locked raw response `44 Hz`
+    columns 1-3 top 12: `7` KSLabel=good, `5` KSLabel=mua,
+      median firing rate `1.077 Hz`, max firing rate `3.432 Hz`,
+      max pulse-locked raw response `20 Hz`
+
+  Waveform/TTP labels for the same top-24 set:
+    columns 4-8 top 12: `12` RS_like, `0` borderline, `0` FS_like
+    columns 1-3 top 12: `7` RS_like, `3` borderline, `2` FS_like
+
+  All-good-unit TTP distribution refreshed at 13:46 EDT:
+    scanned Lumos GUI-ready wells: `150`
+    `KSLabel=good` units plotted: `276`
+    TTP labels: `16` FS_like, `40` borderline, `220` RS_like
+    median TTP: `0.720 ms`
+    artifact:
+      `good_kslabel_ttp_distribution_template_best_ptp_20260709.png`

@@ -516,11 +516,11 @@ It supersedes the older same-day screen for jitter-aware review:
 lumos_gui_ready_trial_tag_screen_250pulse_20260709.csv
 ```
 
-The latest 2026-07-09 refreshed file has 105 Lumos GUI-ready wells: 63 scored
-with usable stim metadata and 42 marked `stim_unavailable`. Highest peak-response
-rows include June/July Lumos `D6` and `B5` wells from the opsin-related
-recordings. Columns are numeric well columns, so the June/July prior
-"columns 4-8" means wells such as `B4`, `B5`, `C6`, `D6`, and `E5`.
+The latest 2026-07-09 13:42 EDT refreshed file has 150 Lumos GUI-ready wells:
+108 scored with usable stim metadata and 42 marked `stim_unavailable`. Highest
+peak-response rows include June/July Lumos `D6` and `B5` wells from the
+opsin-related recordings. Columns are numeric well columns, so the June/July
+prior "columns 4-8" means wells such as `B4`, `B5`, `C6`, `D6`, and `E5`.
 
 Manual review guide:
 
@@ -561,9 +561,9 @@ waveform table, is:
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/good_kslabel_ttp_distribution_template_best_ptp_20260709_provenance.json
 ```
 
-This scanned the current 105 GUI-ready wells and found 197 `KSLabel=good` units,
-all currently Lumos. Using the current TTP thresholds, counts are 12 `FS_like`,
-25 `borderline`, and 160 `RS_like`; median TTP is 0.720 ms. Regenerate with:
+This scanned the current 150 GUI-ready wells and found 276 `KSLabel=good` units,
+all currently Lumos. Using the current TTP thresholds, counts are 16 `FS_like`,
+40 `borderline`, and 220 `RS_like`; median TTP is 0.720 ms. Regenerate with:
 
 ```bash
 python scripts/plot_good_kslabel_ttp_distribution_from_templates.py --date-label 20260709
@@ -873,25 +873,29 @@ Amplitude/scale reminder:
   the unsmoothed pulse-locked 1 ms PSTH peak firing rate in Hz inside the
   jitter-aware `-5..+50 ms` response window.
 
-Current comparison summary:
+Current comparison summary after the 2026-07-09 13:43 EDT refresh:
 
 ```text
-columns 4-8 top 12: 8 KSLabel=good, 4 KSLabel=mua,
-  median best-channel template PTP ~19.1 uV, max peak raw response 44 Hz
+columns 4-8 top 12: 4 KSLabel=good, 8 KSLabel=mua,
+  median best-channel template PTP ~12.2 uV,
+  median firing rate 4.705 Hz, max firing rate 18.575 Hz,
+  max peak raw response 44 Hz
 
-columns 1-3 top 12: 9 KSLabel=good, 3 KSLabel=mua,
-  median best-channel template PTP ~21.8 uV, max peak raw response 20 Hz
+columns 1-3 top 12: 7 KSLabel=good, 5 KSLabel=mua,
+  median best-channel template PTP ~10.1 uV,
+  median firing rate 1.077 Hz, max firing rate 3.432 Hz,
+  max peak raw response 20 Hz
 ```
 
 After adding trough/rebound-peak dots, tentative TTP labels for the same top-24
 comparison set are:
 
 ```text
-columns 4-8 top 12: 11 RS_like, 1 borderline, 0 FS_like
-columns 1-3 top 12: 10 RS_like, 2 borderline, 0 FS_like
+columns 4-8 top 12: 12 RS_like, 0 borderline, 0 FS_like
+columns 1-3 top 12: 7 RS_like, 3 borderline, 2 FS_like
 ```
 
 Interpretation: columns 4-8 still have the stronger pulse-locked peak responses,
-but the columns 1-3 comparison row includes several clean, large-amplitude
-`KSLabel=good` units, especially D2. D2 should stay in manual review as a
-possible real outside-prior response, not be discarded automatically.
+but the columns 1-3 comparison row still includes several clean `KSLabel=good`
+units. Outside-prior wells should stay in manual review as possible real
+responses, not be discarded automatically.

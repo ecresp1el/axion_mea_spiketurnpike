@@ -463,8 +463,9 @@ train-trial baseline: -10..-5 ms
 train-trial response: -5..+50 ms
 ```
 
-As of the latest 2026-07-09 refresh, the Lumos GUI-ready subset is 105 wells:
-63 scored with usable stimulation metadata and 42 marked `stim_unavailable`.
+As of the 2026-07-09 13:42 EDT refresh after Lumos standard-route completion,
+the Lumos GUI-ready subset is 150 wells: 108 scored with usable stimulation
+metadata and 42 marked `stim_unavailable`.
 
 The manual guide CSV keeps `D2` as a top-priority review case rather than
 treating it as a negative control, because the current working interpretation is
@@ -499,9 +500,9 @@ This TTP distribution intentionally replaces the older master-table waveform
 metric path for current rerun inspection. It scans the current GUI-ready Step 1
 analyzers, keeps `KSLabel=good`, loads `templates.average`, chooses the best
 peak-to-peak channel, then measures trough to post-trough rebound peak with the
-same landmark logic as the Lumos candidate waveform gallery. On 2026-07-09 it
-scanned 105 GUI-ready wells and plotted 197 good units: 12 `FS_like`, 25
-`borderline`, and 160 `RS_like`, median TTP 0.720 ms.
+same landmark logic as the Lumos candidate waveform gallery. On the 2026-07-09
+13:46 EDT refresh it scanned 150 GUI-ready wells and plotted 276 good units:
+16 `FS_like`, 40 `borderline`, and 220 `RS_like`, median TTP 0.720 ms.
 
 That script reads the jitter-aware manual guide, takes the top signal-ranked
 `status == ok` rows from columns 4-8 and columns 1-3 separately, derives each
@@ -629,12 +630,14 @@ shared y-axis scale across panels so columns 4-8 and columns 1-3 are visually
 comparable. In contrast, `review_sort_peak_raw_response_hz` is not voltage; it is
 the unsmoothed pulse-locked 1 ms PSTH peak firing rate in Hz.
 
-Current gallery summary: top 12 columns 4-8 candidates have 8 `KSLabel=good` and
-4 `KSLabel=mua`, median best-channel template PTP about 19.1 uV, and max
-pulse-locked raw response 44 Hz. Top 12 columns 1-3 comparison candidates have 9
-`KSLabel=good` and 3 `KSLabel=mua`, median best-channel template PTP about
-21.8 uV, and max pulse-locked raw response 20 Hz. Tentative TTP labels for this
-top-24 set are 11 RS-like/1 borderline/0 FS-like in columns 4-8 and
-10 RS-like/2 borderline/0 FS-like in columns 1-3. Several D2 column-2 candidates
-are clean `good` units with large PTP templates, so D2 should remain in the manual
-review set rather than being treated as automatically negative.
+Current gallery summary after the 2026-07-09 13:43 EDT refresh from the
+150-well guide: top 12 columns 4-8 candidates have 4 `KSLabel=good` and
+8 `KSLabel=mua`, median best-channel template PTP about 12.2 uV, median firing
+rate 4.705 Hz, max firing rate 18.575 Hz, and max pulse-locked raw response
+44 Hz. Top 12 columns 1-3 comparison candidates have 7 `KSLabel=good` and
+5 `KSLabel=mua`, median best-channel template PTP about 10.1 uV, median firing
+rate 1.077 Hz, max firing rate 3.432 Hz, and max pulse-locked raw response
+20 Hz. Tentative TTP labels for this top-24 set are 12 RS-like/0 borderline/
+0 FS-like in columns 4-8 and 7 RS-like/3 borderline/2 FS-like in columns 1-3.
+Several columns 1-3 candidates remain clean `good` units, so outside-prior wells
+should stay in manual review rather than being treated as automatically negative.
