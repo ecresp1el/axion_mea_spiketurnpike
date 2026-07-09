@@ -87,8 +87,12 @@ Important current behavior:
   smoothed rates.
 - `OptoWaveformModel.step_trace()` reconstructs the command timing from parsed
   `.raw` XML micro-ops.
-- There is no measured analog signal in this GUI view. Labels should call this
-  a reconstructed opto command, not analog and not a smoothed analog trace.
+- `OptoWaveformModel.sampled_proxy()` samples and smooths those metadata-derived
+  micro-op intervals into the analog-like command trace used for display
+  overlays.
+- This is not a measured analog voltage channel. It is the reconstructed,
+  smoothed opto command from raw metadata/XML micro-ops, and the GUI should
+  label it that way.
 
 ## Key Design Decision
 
@@ -369,11 +373,13 @@ StimResponseEligibility
 PulseStructureReport
   records pulse count/timing consistency
   chooses uniform, grouped-template, train-only, or disabled pulse mode
+  carries raw XML command_intervals_ms for plotting command steps and the
+  smoothed metadata-derived command overlay
 
 UnitStimResponseBuilder
   extracts selected-unit spike times
   builds train-aligned and pulse-aligned DataFrames
-  calls/reuses PsthBuilder and OptoWaveformModel
+  calls/reuses PsthBuilder and command waveform logic
 
 StimResponsePanel
   creates Panel/Bokeh tabs

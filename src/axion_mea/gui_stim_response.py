@@ -64,6 +64,18 @@ class PsthConfig:
 
 
 @dataclass(frozen=True)
+class WaveformRenderConfig:
+    """Display-resolution settings for the reconstructed command proxy."""
+
+    sample_dt_ms: float
+    smooth_window_ms: float
+
+    @property
+    def smooth_window_samples(self) -> int:
+        return max(1, int(round(self.smooth_window_ms / self.sample_dt_ms)))
+
+
+@dataclass(frozen=True)
 class PulseEpoch:
     """One pulse interval inside a stimulation train."""
 
@@ -114,6 +126,7 @@ DEFAULT_TRAIN_WINDOW = AnalysisWindow(pre_ms=200.0, post_ms=800.0)
 DEFAULT_PULSE_WINDOW = PulseWindow(pre_ms=25.0, post_ms=50.0)
 DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=20.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0,))
+DEFAULT_WAVEFORM_RENDER = WaveformRenderConfig(sample_dt_ms=1.0, smooth_window_ms=2.0)
 DEFAULT_STIM_RAW_ROOTS = (
     Path("/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/manny4tbum_20260706"),
     Path("/nfs/turbo/umms-parent/axion_mea_files_directory"),
@@ -143,6 +156,7 @@ class PulseStructureReport:
     pulse_durations_ms: tuple[tuple[float, ...], ...]
     pulse_intervals_consistent: bool
     pulse_epochs: tuple[PulseEpoch, ...] = ()
+    command_intervals_ms: tuple[tuple[float, float, float], ...] = ()
     template_groups: dict[str, list[int]] = field(default_factory=dict)
     message: str = ""
 
@@ -234,7 +248,22 @@ def stim_events_from_raw(raw_file: str | Path) -> pd.DataFrame:
                 "channel_mapping_count": len(summary.channel_mappings),
             }
         )
-    return normalize_stim_events(pd.DataFrame(rows))
+    columns = [
+        "event_time_s",
+        "event_time_sample",
+        "sequence_number",
+        "source_kind",
+        "stimulation_duration_s",
+        "artifact_elimination_duration_s",
+        "event_description",
+        "event_data_id",
+        "waveform_tag_guid",
+        "channels_tag_guid",
+        "stimulated_wells",
+        "led_count",
+        "channel_mapping_count",
+    ]
+    return normalize_stim_events(pd.DataFrame(rows, columns=columns))
 
 
 def normalize_stim_events(stim_events: pd.DataFrame) -> pd.DataFrame:
@@ -319,9 +348,18 @@ def build_pulse_epochs(
 def load_pulse_epochs_from_raw(raw_file: str | Path) -> list[PulseEpoch]:
     """Parse one Axion raw file and return merged optical pulse epochs."""
 
+    return build_pulse_epochs(load_opto_intervals_from_raw(raw_file))
+
+
+def load_opto_intervals_from_raw(raw_file: str | Path) -> list[tuple[float, float, float]]:
+    """Parse one Axion raw file and return raw XML optical command intervals."""
+
     stim_file = AxionStimFile(Path(raw_file))
     stim_file.parse()
-    return build_pulse_epochs(stim_file.opto_on_intervals_ms())
+    return [
+        (float(interval.start_ms), float(interval.end_ms), float(interval.intensity))
+        for interval in stim_file.opto_on_intervals_ms()
+    ]
 
 
 def resolve_stim_sidecars(
@@ -361,25 +399,44 @@ def resolve_stim_sidecars(
     pulse_structure: PulseStructureReport | None = None
     parse_status = "ok"
     message_parts: list[str] = []
+    source_label = "stimulation metadata"
 
     try:
         if stim_events_csv is not None and stim_events_csv.exists():
+            source_label = "stim event CSV"
             stim_events = load_stim_events_csv(stim_events_csv)
             message_parts.append(f"Loaded stim events: {stim_events_csv}")
         elif resolved_raw is not None and resolved_raw.exists():
+            source_label = "raw stimulation metadata"
             stim_events = stim_events_from_raw(resolved_raw)
-            message_parts.append(f"Parsed stim events from raw: {resolved_raw}")
+            if stim_events.empty:
+                message_parts.append(
+                    "Parsed raw stimulation metadata, but no stimulation event tags were found."
+                )
+            else:
+                message_parts.append(
+                    f"Parsed {len(stim_events)} stim events from raw: {resolved_raw}"
+                )
         else:
             message_parts.append("No matching raw/stim-event sidecar was resolved.")
 
         if stim_events is not None and resolved_raw is not None and resolved_raw.exists():
-            pulse_epochs = load_pulse_epochs_from_raw(resolved_raw)
-            pulse_structure = inspect_pulse_structure(stim_events, pulse_epochs)
+            command_intervals = load_opto_intervals_from_raw(resolved_raw)
+            pulse_epochs = build_pulse_epochs(command_intervals)
+            if not command_intervals:
+                message_parts.append(
+                    "No opto command intervals were reconstructed from raw XML micro-ops."
+                )
+            pulse_structure = inspect_pulse_structure(
+                stim_events,
+                pulse_epochs,
+                command_intervals_ms=command_intervals,
+            )
         elif stim_events is not None:
             pulse_structure = inspect_pulse_structure(stim_events, [])
     except Exception as exc:  # noqa: BLE001 - GUI should show parse failure, not crash
         parse_status = f"{type(exc).__name__}: {exc}"
-        message_parts.append(f"Stim sidecar parse failed: {parse_status}")
+        message_parts.append(f"{source_label.capitalize()} parse failed: {parse_status}")
 
     eligibility = assess_stim_response_eligibility(
         inputs,
@@ -442,11 +499,16 @@ def inspect_pulse_structure(
     pulse_epochs: Sequence[PulseEpoch],
     *,
     event_pulse_epochs: Mapping[int, Sequence[PulseEpoch]] | None = None,
+    command_intervals_ms: Sequence[tuple[float, float, float]] = (),
     max_grouped_templates: int = 4,
 ) -> PulseStructureReport:
     """Classify pulse structure as uniform, grouped-template, train-only, or disabled."""
 
     events = normalize_stim_events(stim_events)
+    command_intervals = tuple(
+        (float(start_ms), float(end_ms), float(intensity))
+        for start_ms, end_ms, intensity in command_intervals_ms
+    )
     if events.empty:
         return PulseStructureReport(
             status="disabled",
@@ -454,6 +516,7 @@ def inspect_pulse_structure(
             pulse_start_offsets_ms=(),
             pulse_durations_ms=(),
             pulse_intervals_consistent=False,
+            command_intervals_ms=command_intervals,
             message="No stimulation events are available.",
         )
 
@@ -464,6 +527,7 @@ def inspect_pulse_structure(
             pulse_start_offsets_ms=tuple(() for _ in events.itertuples()),
             pulse_durations_ms=tuple(() for _ in events.itertuples()),
             pulse_intervals_consistent=False,
+            command_intervals_ms=command_intervals,
             message="No pulse intervals were reconstructed.",
         )
 
@@ -498,6 +562,7 @@ def inspect_pulse_structure(
             pulse_durations_ms=pulse_durations_ms,
             pulse_intervals_consistent=True,
             pulse_epochs=representative_epochs,
+            command_intervals_ms=command_intervals,
             template_groups={"template_1": [seq for seq, _ in per_event_epochs]},
             message=(
                 f"Uniform {len(representative_epochs)}-pulse template across "
@@ -527,6 +592,7 @@ def inspect_pulse_structure(
         pulse_durations_ms=pulse_durations_ms,
         pulse_intervals_consistent=False,
         pulse_epochs=tuple(pulse_epochs),
+        command_intervals_ms=command_intervals,
         template_groups=template_groups,
         message=message,
     )
@@ -1043,8 +1109,95 @@ def _pulse_signature(pulse_epochs: Sequence[PulseEpoch]) -> tuple[tuple[float, f
     )
 
 
+def _command_intervals_for_plot(
+    pulse_structure: PulseStructureReport,
+) -> tuple[tuple[float, float, float], ...]:
+    """Return raw micro-op intervals, with pulse epochs as a display fallback."""
+
+    if pulse_structure.command_intervals_ms:
+        return pulse_structure.command_intervals_ms
+    return tuple(
+        (pulse.start_ms, pulse.end_ms, 1.0)
+        for pulse in pulse_structure.pulse_epochs
+    )
+
+
+def _command_step_trace(
+    intervals: Sequence[tuple[float, float, float]],
+    start_ms: float,
+    end_ms: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a piecewise-constant command trace over a requested window."""
+
+    if not intervals:
+        return np.array([start_ms, end_ms]), np.array([0.0, 0.0])
+
+    x: list[float] = [start_ms]
+    y: list[float] = [0.0]
+    for interval_start, interval_end, intensity in sorted(intervals, key=lambda row: row[0]):
+        if interval_end < start_ms or interval_start > end_ms:
+            continue
+        clipped_start = max(float(interval_start), start_ms)
+        clipped_end = min(float(interval_end), end_ms)
+        if x[-1] < clipped_start:
+            x.append(clipped_start)
+            y.append(0.0)
+        x.extend([clipped_start, clipped_end, clipped_end])
+        y.extend([float(intensity), float(intensity), 0.0])
+
+    if x[-1] < end_ms:
+        x.append(end_ms)
+        y.append(0.0)
+    return np.asarray(x), np.asarray(y)
+
+
+def _command_smoothed_proxy(
+    intervals: Sequence[tuple[float, float, float]],
+    start_ms: float,
+    end_ms: float,
+    render_config: WaveformRenderConfig = DEFAULT_WAVEFORM_RENDER,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample and smooth the metadata-derived command for readable overlays."""
+
+    dt = render_config.sample_dt_ms
+    x = np.arange(start_ms, end_ms + dt, dt, dtype=float)
+    y = np.zeros_like(x)
+    for interval_start, interval_end, intensity in intervals:
+        mask = (x >= float(interval_start)) & (x <= float(interval_end))
+        y[mask] = np.maximum(y[mask], float(intensity))
+
+    kernel = np.ones(render_config.smooth_window_samples, dtype=float)
+    kernel /= kernel.sum()
+    return x, np.convolve(y, kernel, mode="same")
+
+
+def _max_level_intervals(
+    intervals: Sequence[tuple[float, float, float]],
+    start_ms: float,
+    end_ms: float,
+) -> list[tuple[float, float]]:
+    """Return intervals that reached the maximum command intensity."""
+
+    if not intervals:
+        return []
+    max_intensity = max(float(intensity) for _, _, intensity in intervals)
+    return [
+        (max(float(interval_start), start_ms), min(float(interval_end), end_ms))
+        for interval_start, interval_end, intensity in intervals
+        if float(intensity) == max_intensity
+        and float(interval_end) >= start_ms
+        and float(interval_start) <= end_ms
+    ]
+
+
 def _draw_train_waveform_axis(axis, builder: UnitStimResponseBuilder) -> None:
     pulse_epochs = builder.pulse_structure.pulse_epochs
+    intervals = _command_intervals_for_plot(builder.pulse_structure)
+    start_ms = builder.train_window.start_ms
+    end_ms = builder.train_window.end_ms
+    step_x, step_y = _command_step_trace(intervals, start_ms, end_ms)
+    proxy_x, proxy_y = _command_smoothed_proxy(intervals, start_ms, end_ms)
+
     for pulse in pulse_epochs:
         axis.axvspan(pulse.start_ms, pulse.end_ms, color="#f59e0b", alpha=0.28, linewidth=0)
         axis.text(
@@ -1055,11 +1208,32 @@ def _draw_train_waveform_axis(axis, builder: UnitStimResponseBuilder) -> None:
             va="center",
             fontsize=8,
         )
+    for span_start, span_end in _max_level_intervals(intervals, start_ms, end_ms):
+        axis.axvspan(span_start, span_end, color="#dc2626", alpha=0.10, linewidth=0)
+    axis.fill_between(step_x, 0, step_y, color="#f59e0b", alpha=0.18)
+    axis.plot(
+        step_x,
+        step_y,
+        color="#b45309",
+        linewidth=1.3,
+        drawstyle="steps-post",
+        label="command steps",
+    )
+    axis.plot(
+        proxy_x,
+        proxy_y,
+        color="#0057ff",
+        linewidth=2.2,
+        alpha=0.92,
+        label="smoothed metadata command",
+    )
     axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
-    axis.set_ylim(0, 1)
-    axis.set_yticks([])
-    axis.set_xlim(builder.train_window.start_ms, builder.train_window.end_ms)
-    axis.set_title("Reconstructed opto command windows")
+    waveform_peak = max(float(np.max(step_y)) if step_y.size else 0.0, float(np.max(proxy_y)) if proxy_y.size else 0.0)
+    axis.set_ylim(-0.02, max(0.55, waveform_peak * 1.15 if waveform_peak > 0 else 0.55))
+    axis.set_xlim(start_ms, end_ms)
+    axis.set_ylabel("LED")
+    axis.set_title("Reconstructed opto command from raw metadata")
+    axis.legend(loc="upper right", fontsize=7)
 
 
 def _draw_train_raster_axis(axis, response: UnitStimResponse, builder: UnitStimResponseBuilder) -> None:
@@ -1091,12 +1265,52 @@ def _draw_train_raster_axis(axis, response: UnitStimResponse, builder: UnitStimR
 def _draw_pulse_waveform_axis(axis, response: UnitStimResponse, builder: UnitStimResponseBuilder) -> None:
     first = response.pulse_structure.pulse_epochs[0] if response.pulse_structure.pulse_epochs else None
     pulse_duration = (first.end_ms - first.start_ms) if first is not None else 0.0
+    intervals = _command_intervals_for_plot(response.pulse_structure)
+    if first is not None:
+        abs_start = first.start_ms + builder.pulse_window.start_ms
+        abs_end = first.start_ms + builder.pulse_window.end_ms
+        step_x, step_y = _command_step_trace(intervals, abs_start, abs_end)
+        proxy_x, proxy_y = _command_smoothed_proxy(intervals, abs_start, abs_end)
+        step_x = step_x - first.start_ms
+        proxy_x = proxy_x - first.start_ms
+        max_spans = [
+            (span_start - first.start_ms, span_end - first.start_ms)
+            for span_start, span_end in _max_level_intervals(intervals, abs_start, abs_end)
+        ]
+    else:
+        step_x = np.array([builder.pulse_window.start_ms, builder.pulse_window.end_ms])
+        step_y = np.array([0.0, 0.0])
+        proxy_x = step_x
+        proxy_y = step_y
+        max_spans = []
+
     axis.axvspan(0, pulse_duration, color="#f59e0b", alpha=0.28, linewidth=0)
+    for span_start, span_end in max_spans:
+        axis.axvspan(span_start, span_end, color="#dc2626", alpha=0.10, linewidth=0)
+    axis.fill_between(step_x, 0, step_y, color="#f59e0b", alpha=0.18)
+    axis.plot(
+        step_x,
+        step_y,
+        color="#b45309",
+        linewidth=1.3,
+        drawstyle="steps-post",
+        label="command steps",
+    )
+    axis.plot(
+        proxy_x,
+        proxy_y,
+        color="#0057ff",
+        linewidth=2.2,
+        alpha=0.92,
+        label="smoothed metadata command",
+    )
     axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
-    axis.set_ylim(0, 1)
-    axis.set_yticks([])
+    waveform_peak = max(float(np.max(step_y)) if step_y.size else 0.0, float(np.max(proxy_y)) if proxy_y.size else 0.0)
+    axis.set_ylim(-0.02, max(0.55, waveform_peak * 1.15 if waveform_peak > 0 else 0.55))
+    axis.set_ylabel("LED")
     axis.set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
     axis.set_title("Single-pulse command window")
+    axis.legend(loc="upper right", fontsize=7)
 
 
 def _draw_pulse_raster_axis(axis, response: UnitStimResponse, builder: UnitStimResponseBuilder) -> None:

@@ -16,8 +16,11 @@ from axion_mea.gui_stim_response import (  # noqa: E402
     StimResponseInputs,
     UnitStimResponseBuilder,
     assess_stim_response_eligibility,
+    load_opto_intervals_from_raw,
     inspect_pulse_structure,
     is_lumos_plate,
+    resolve_stim_sidecars,
+    stim_events_from_raw,
 )
 
 
@@ -130,6 +133,17 @@ class TestPulseStructure(unittest.TestCase):
         self.assertEqual(report.pulse_count_per_train, (1, 2))
         self.assertEqual(sorted(report.template_groups), ["template_1", "template_2"])
 
+    def test_command_intervals_are_preserved_for_plotting(self) -> None:
+        command_intervals = [(0.0, 2.0, 0.2), (2.0, 5.0, 1.0)]
+        report = inspect_pulse_structure(
+            stim_events(),
+            [PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0)],
+            command_intervals_ms=command_intervals,
+        )
+
+        self.assertEqual(report.status, "uniform")
+        self.assertEqual(report.command_intervals_ms, tuple(command_intervals))
+
 
 class TestUnitStimResponseBuilder(unittest.TestCase):
     def test_unit_spikes_are_train_and_pulse_aligned(self) -> None:
@@ -207,6 +221,62 @@ class TestUnitStimResponseBuilder(unittest.TestCase):
         self.assertEqual(response.train_trials, ())
         self.assertTrue(response.train_aligned_spikes.empty)
         self.assertTrue(response.pulse_trials.empty)
+
+
+class TestRawStimResolution(unittest.TestCase):
+    no_stim_raw = Path(
+        "/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/"
+        "manny4tbum_20260706/6_18_2026/129-8445/ventral_sosrs(000).raw"
+    )
+    stim_raw = Path(
+        "/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/"
+        "manny4tbum_20260706/6_22_2026/129-8445/"
+        "ventral_sosrs_opsin_day3(003).raw"
+    )
+
+    def test_empty_raw_stim_table_is_valid_empty_dataframe(self) -> None:
+        if not self.no_stim_raw.exists():
+            self.skipTest("fixture raw file is not available")
+
+        events = stim_events_from_raw(self.no_stim_raw)
+
+        self.assertTrue(events.empty)
+        self.assertIn("event_time_s", events.columns)
+        self.assertIn("sequence_number", events.columns)
+
+    def test_raw_no_stim_resolution_reports_no_events_not_sidecar_failure(self) -> None:
+        if not self.no_stim_raw.exists():
+            self.skipTest("fixture raw file is not available")
+
+        resolution = resolve_stim_sidecars(
+            recording_name="6_18_2026_129-8445_ventral_sosrs(000)",
+            well="A3",
+            raw_file=self.no_stim_raw,
+            plate_family="lumos_48well",
+        )
+
+        self.assertFalse(resolution.eligibility.enabled)
+        self.assertEqual(resolution.eligibility.parse_status, "ok")
+        self.assertIn("no stimulation event tags", resolution.message)
+        self.assertIn("No opto command intervals", resolution.message)
+        self.assertNotIn("sidecar parse failed", resolution.message.lower())
+
+    def test_raw_command_intervals_are_available_for_good_lumos_raw(self) -> None:
+        if not self.stim_raw.exists():
+            self.skipTest("fixture raw file is not available")
+
+        intervals = load_opto_intervals_from_raw(self.stim_raw)
+        resolution = resolve_stim_sidecars(
+            recording_name="6_22_2026_129-8445_ventral_sosrs_opsin_day3(003)",
+            well="A3",
+            raw_file=self.stim_raw,
+            plate_family="lumos_48well",
+        )
+
+        self.assertGreater(len(intervals), 0)
+        self.assertTrue(resolution.eligibility.enabled)
+        self.assertIsNotNone(resolution.pulse_structure)
+        self.assertEqual(resolution.pulse_structure.command_intervals_ms, tuple(intervals))
 
 
 if __name__ == "__main__":
