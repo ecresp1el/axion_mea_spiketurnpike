@@ -6245,7 +6245,7 @@ source config/greatlakes_project.env
 "${CONDA_ENV}/bin/python" scripts/summarize_step1_v5_ground_truth.py
 ```
 
-Current canonical checkpoint from `2026-07-09T02:12:15`:
+Current canonical checkpoint from `2026-07-09T02:14:42`:
 
 ```text
 total Step 1 v5 well rows:
@@ -6256,15 +6256,14 @@ plate-family rows:
   lumos_48well: 256
 
 ground_truth_status counts:
-  pickup_ready_not_continued: 198
+  pending_standard: 198
   gui_ready_standard: 65
   standard_failed_sparse_fallback_candidate: 41
   export_failed: 8
-  running_standard: 140
-  pending_standard: 2
+  running_standard: 142
 
 pickup_ready_not_continued split:
-  cytoview_6well: 198 wells across 33 recording/filter stems
+  cytoview_6well: 0 wells
   lumos_48well: 0 wells
 
 continuation batch counts:
@@ -6275,7 +6274,8 @@ continuation batch counts:
   batch_4: 26
 
 ground truth wave counts:
-  none: 312
+  cytoview_remaining_all_20260709_0214: 198
+  none: 114
   lumos_remaining_all_20260709_0208: 142
 
 sparse fallback candidates:
@@ -6298,14 +6298,35 @@ Slurm axion-aind-nwb job IDs:
 append-only submit ledger:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/submitted_step1_v5_ground_truth_waves.tsv
 
-queue snapshot at 2026-07-09T02:12:
-  140 running
-  2 pending
+queue snapshot at 2026-07-09T02:14:
+  142 running
+  0 pending
 ```
 
-The remaining pickup-ready-not-continued wells are now Cytoview/SixWell only.
-Future launches should filter the canonical ledger deliberately by
-`ground_truth_status` and `plate_family`.
+All remaining pickup-ready Cytoview/SixWell wells were also submitted in a
+separate controlled ground-truth wave:
+
+```text
+wave_label:
+  cytoview_remaining_all_20260709_0214
+
+submitted wells:
+  198
+
+Slurm axion-aind-nwb job IDs:
+  53143770-53143967
+
+append-only submit ledger:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/submitted_step1_v5_ground_truth_waves.tsv
+
+queue snapshot at 2026-07-09T02:14:
+  0 running
+  198 pending
+```
+
+There are now no pickup-ready-not-continued wells left. Future launches should
+filter the canonical ledger deliberately by `ground_truth_status`,
+`plate_family`, and `ground_truth_wave_label`.
 
 Dry-run examples:
 
