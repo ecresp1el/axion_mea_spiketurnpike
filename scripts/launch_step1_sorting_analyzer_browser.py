@@ -190,6 +190,7 @@ def make_chooser_app(
     summary = pn.pane.Markdown("", sizing_mode="stretch_width")
     selected_path = pn.pane.Markdown("", sizing_mode="stretch_width")
     open_link = pn.pane.Markdown("", sizing_mode="stretch_width")
+    first_opto_link = pn.pane.Markdown("", sizing_mode="stretch_width")
     by_recording: dict[str, list[dict[str, str]]] = {}
 
     def visible_rows() -> list[dict[str, str]]:
@@ -215,6 +216,7 @@ def make_chooser_app(
 
         total = len(state["analyzers"])
         opto = sum(row.get("opto_eligible") == "true" for row in state["analyzers"])
+        opto_rows = _sorted_opto_rows(state["analyzers"])
         prefix_text = ", ".join(recording_prefixes) if recording_prefixes else "none"
         summary.object = (
             f"**Visible analyzers:** {len(rows)} / {total}  \n"
@@ -223,6 +225,12 @@ def make_chooser_app(
             f"**Prefix filter:** `{prefix_text}`  \n"
             f"{state.get('last_refresh_message', '')}"
         )
+        if opto_rows:
+            first_opto_link.object = (
+                f"### [Open first opto-eligible well]({_gui_url(opto_rows[0], no_traces_checkbox.value)})"
+            )
+        else:
+            first_opto_link.object = ""
 
     def selected_row() -> dict[str, str]:
         if recording_select.value is None:
@@ -286,6 +294,7 @@ def make_chooser_app(
         pn.pane.Markdown(STEP1_GUI_REMINDER, sizing_mode="stretch_width"),
         pn.Row(opto_only_checkbox, refresh_button, no_traces_checkbox, sizing_mode="stretch_width"),
         summary,
+        first_opto_link,
         pn.Row(recording_select, well_select, sizing_mode="stretch_width"),
         selected_path,
         open_link,
@@ -325,6 +334,8 @@ def make_gui_app(
     analyzer_path = Path(row["analyzer_path"])
     curation_output = default_curation_output(row, curation_root)
     analyzer = si.load_sorting_analyzer(analyzer_path, load_extensions=False)
+    opto_rows = _sorted_opto_rows(state["analyzers"])
+    opto_nav = _opto_navigation_links(row, opto_rows, no_traces)
 
     def save_curation(curation_data: dict[str, Any], output_json: Path) -> None:
         output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -349,7 +360,11 @@ def make_gui_app(
     )
 
     header = pn.Row(
-        pn.pane.Markdown(f"[Back to chooser](/)  \n**{recording} / {well}**"),
+        pn.pane.Markdown(
+            f"[Back to chooser](/)  \n"
+            f"**{recording} / {well}**  \n"
+            f"{opto_nav}"
+        ),
         sizing_mode="stretch_width",
     )
     status = pn.pane.Markdown(
@@ -379,6 +394,58 @@ def make_gui_app(
     if stim_response_enabled:
         print(f"Stim response raw roots: {', '.join(str(path) for path in stim_raw_roots)}", flush=True)
     return pn.Column(header, status, tabs, sizing_mode="stretch_both")
+
+
+def _sorted_opto_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    return sorted(
+        [row for row in rows if row.get("opto_eligible") == "true"],
+        key=lambda item: (item["recording"], item["well"]),
+    )
+
+
+def _gui_url(row: dict[str, str], no_traces: bool) -> str:
+    return (
+        "/gui?"
+        f"recording={quote(row['recording'])}&"
+        f"well={quote(row['well'])}&"
+        f"no_traces={'true' if no_traces else 'false'}"
+    )
+
+
+def _opto_navigation_links(
+    current_row: dict[str, str],
+    opto_rows: list[dict[str, str]],
+    no_traces: bool,
+) -> str:
+    if not opto_rows:
+        return "**Opto/Lumos navigation:** no eligible rows"
+    current_index = next(
+        (
+            index
+            for index, row in enumerate(opto_rows)
+            if row["recording"] == current_row["recording"] and row["well"] == current_row["well"]
+        ),
+        None,
+    )
+    if current_index is None:
+        return f"**Opto/Lumos navigation:** current row is not in the {len(opto_rows)} eligible rows"
+
+    previous_row = opto_rows[current_index - 1] if current_index > 0 else None
+    next_row = opto_rows[current_index + 1] if current_index + 1 < len(opto_rows) else None
+    previous_link = (
+        f"[Previous opto well]({_gui_url(previous_row, no_traces)})"
+        if previous_row is not None
+        else "Previous opto well"
+    )
+    next_link = (
+        f"[Next opto well]({_gui_url(next_row, no_traces)})"
+        if next_row is not None
+        else "Next opto well"
+    )
+    return (
+        f"**Opto/Lumos well:** {current_index + 1} / {len(opto_rows)}  \n"
+        f"{previous_link} | {next_link}"
+    )
 
 
 def discover_analyzers(
