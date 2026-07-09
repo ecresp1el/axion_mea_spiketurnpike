@@ -484,6 +484,8 @@ The Step 1 stim GUI still plots the pulse-locked view over the display context
 baseline: -25..-8 ms relative to each pulse onset
 response: -5..+50 ms relative to each pulse onset
 during-stim QC: 0 ms through reconstructed pulse end
+train-trial baseline: -10..-5 ms relative to train onset
+train-trial response: -5..+50 ms relative to train onset
 ```
 
 This is intentional because the Lumos pulse timing can jitter slightly around
@@ -491,6 +493,16 @@ nominal onset. The response rate is an average rate over all pulse pseudo-trials
 total spikes in the scoring window divided by total seconds in that window.
 The `*_reliability_250` columns are trial fractions: pulse pseudo-trials with at
 least one spike in the window divided by the first 250 pulse pseudo-trials.
+All GUI PSTHs now use 1 ms bins. Both train-locked and pulse-locked smoothed
+lines use a three-bin `[1, 1, 1]` boxcar kernel.
+The refreshed CSVs include both window-average rates and peak 1 ms PSTH signal:
+`*_rate_hz` columns are average rates over the named window, while
+`*_peak_raw_rate_hz` and `*_peak_smooth_rate_hz` are the maximum raw/smoothed
+1 ms PSTH rates inside that window.
+The manual guide `review_rank` is sorted first by
+`review_sort_peak_raw_response_hz`, which is the pulse-locked raw 1 ms peak in
+the `-5..+50 ms` response window. D2 remains flagged as possible-real through
+`review_tier`, but the rank itself is signal-first.
 
 Current refreshed screen:
 
@@ -519,3 +531,9 @@ Manual review guide:
 
 This guide deliberately promotes `D2` rows to the top review tier as possible
 real outside-prior responses.
+
+Regenerate both current CSVs with:
+
+```bash
+python scripts/refresh_lumos_optotag_analysis.py --date-label 20260709
+```

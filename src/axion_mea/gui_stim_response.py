@@ -128,8 +128,12 @@ OPTO_BASELINE_START_MS = -25.0
 OPTO_BASELINE_END_MS = -8.0
 OPTO_RESPONSE_START_MS = -5.0
 OPTO_RESPONSE_END_MS = 50.0
-DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=20.0, boxcar_kernel=(1.0, 1.0, 1.0))
-DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0,))
+TRAIN_TRIAL_BASELINE_START_MS = -10.0
+TRAIN_TRIAL_BASELINE_END_MS = -5.0
+TRAIN_TRIAL_RESPONSE_START_MS = -5.0
+TRAIN_TRIAL_RESPONSE_END_MS = 50.0
+DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0, 1.0, 1.0))
+DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_WAVEFORM_RENDER = WaveformRenderConfig(sample_dt_ms=1.0, smooth_window_ms=2.0)
 DEFAULT_STIM_RAW_ROOTS = (
     Path("/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/manny4tbum_20260706"),

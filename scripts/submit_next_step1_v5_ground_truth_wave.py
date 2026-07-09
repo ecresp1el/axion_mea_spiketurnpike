@@ -43,6 +43,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Actually call sbatch. Without this flag, only print the planned wave.",
     )
+    parser.add_argument(
+        "--allow-resubmit",
+        action="store_true",
+        help="Allow rows already present in the submitted ledger to be submitted again.",
+    )
+    parser.add_argument(
+        "--sbatch-time",
+        default="",
+        help="Optional parent-wrapper walltime override passed to sbatch, e.g. 12:00:00.",
+    )
     return parser.parse_args()
 
 
@@ -82,7 +92,7 @@ def main() -> int:
     candidates: list[dict[str, str]] = []
     for row in rows:
         key = (row["recording"], row["well"])
-        if key in submitted:
+        if key in submitted and not args.allow_resubmit:
             continue
         if row.get("ground_truth_status") not in statuses:
             continue
@@ -112,8 +122,10 @@ def main() -> int:
             "sbatch",
             "--parsable",
             f"--export=PROJECT_CONFIG={PROJECT_CONFIG},AIND_CONFIG={row['aind_env']}",
-            str(REPO_ROOT / "slurm" / "run_aind_nwb_well.sbatch"),
         ]
+        if args.sbatch_time:
+            command.append(f"--time={args.sbatch_time}")
+        command.append(str(REPO_ROOT / "slurm" / "run_aind_nwb_well.sbatch"))
         result = subprocess.run(command, cwd=REPO_ROOT, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode:
             raise RuntimeError(f"sbatch failed for {row['recording']} {row['well']}: {result.stderr}")

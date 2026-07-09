@@ -7083,6 +7083,166 @@ Canonical commands:
   same old `02:21` pending jobs after the scheduler's predicted starts pass,
   inspect Slurm GPU priority/limits rather than changing pipeline parameters.
 
+- [x] 2026-07-09 09:59 EDT - Speed intervention attempted for current Lumos
+  wave. The limiting issue was not per-file Kilosort runtime; it was Slurm
+  scheduling/backfill. Pending child jobs were requesting far more walltime than
+  observed runtimes:
+    `nf-spikesort_kilosort4` requested `40:00` but observed completed runtimes
+    were usually under one minute.
+    `nf-postprocessing` requested `40:00` but observed completed runtimes were
+    usually around `22-26` seconds.
+    `nf-curation` requested `10:00` but observed completed runtimes were usually
+    around `5-8` seconds.
+
+- [x] 2026-07-09 09:59 EDT - Could not extend running Lumos parent wrappers:
+  `scontrol update JobId=53143276 TimeLimit=12:00:00` failed with
+  `Access/permission denied`. Running parent wrappers remained at `8:00:00`
+  and many were already around `7:47-7:50` elapsed.
+
+- [x] 2026-07-09 09:59 EDT - Shortened pending child walltimes to improve
+  scheduler backfill:
+    pending `nf-spikesort_kilosort4`: set to `2:00:00`
+    pending `nf-postprocessing`: set to `00:30:00`
+    pending `nf-curation`: set to `00:30:00`
+
+- [x] 2026-07-09 09:59 EDT - Post-change live child queue:
+    `nf-spikesort_kilosort4`: `63` pending at `2:00:00`, `1` running
+    `nf-postprocessing`: `30` pending at `00:30:00`
+    `nf-curation`: `16` pending at `00:30:00`
+    running `axion-aind-nwb` parent wrappers: `110` at `8:00:00`
+
+- [ ] Next checkpoint - Watch whether shortened child walltimes allow backfill
+  before parent wrappers hit `8:00:00`. If parents time out, preserve the
+  completed traces/outputs, regenerate the canonical ledger, and resume only the
+  unfinished Lumos rows with shorter child walltimes baked into the submission
+  config rather than submitting another large 142-well wave.
+
+- [x] 2026-07-09 10:15 EDT - Clean speed/recovery fix implemented in repo:
+    `config/aind_nextflow_slurm_greatlakes.config` now sets measured Axion child
+    walltimes:
+      `spikesort_kilosort4`: `2h`
+      `spikesort_kilosort25`: `2h`
+      `postprocessing`: `30m`
+      `curation`: `30m`
+    `slurm/run_aind_nwb_well.sbatch` now defaults parent wrappers to `12:00:00`
+    instead of `08:00:00`.
+    `scripts/submit_next_step1_v5_ground_truth_wave.py` now supports
+    `--allow-resubmit` and `--sbatch-time` for explicit, auditable timeout
+    recovery waves.
+
+- [x] 2026-07-09 10:15 EDT - Canonical ledger behavior confirmed: the submitted
+  ground-truth wave ledger is append-only, and the summarizer uses the last row
+  per `(recording, well)`. Therefore a timeout recovery should append a new
+  labeled wave to the canonical submitted ledger rather than editing or deleting
+  old rows.
+
+- [x] 2026-07-09 10:15 EDT - Current timeout impact:
+    Lumos timed out/not-ready rows: `36`
+    Lumos still running rows: `74`
+    Lumos sparse KS4 documented candidates: `73`
+    Lumos GUI-ready standard rows: `65`
+    Lumos export failures: `8`
+    The `36` timed-out Lumos rows had already reached real stages before timeout:
+      `20` highest stage `spikesort_kilosort4`
+      `16` highest stage `postprocessing`
+
+- [x] 2026-07-09 10:15 EDT - Dry-runed the first clean Lumos timeout-resume wave:
+    command:
+      python scripts/submit_next_step1_v5_ground_truth_wave.py \
+        --status not_ready_or_not_started \
+        --plate-family lumos_48well \
+        --limit 20 \
+        --allow-resubmit \
+        --wave-label lumos_timeout_resume_dryrun_20260709_1015
+    planned count: `20`
+    no Slurm jobs submitted by this dry run.
+
+- [ ] Next checkpoint - Do not submit the timeout-resume wave while old parent
+  wrappers and their child jobs are still settling. First let the remaining
+  `8:00:00` parent wrappers leave RUNNING/COMPLETING, then regenerate the
+  canonical ledger.
+
+- [ ] Next checkpoint - After old parents settle, cancel any orphaned pending
+  child jobs only if their parent wrapper is no longer live and the canonical
+  ledger no longer sees them as active. Then submit the Lumos timeout-resume
+  wave in chunks of 20 using:
+    python scripts/submit_next_step1_v5_ground_truth_wave.py \
+      --status not_ready_or_not_started \
+      --plate-family lumos_48well \
+      --limit 20 \
+      --allow-resubmit \
+      --sbatch-time 12:00:00 \
+      --wave-label lumos_timeout_resume_20_<timestamp> \
+      --submit
+
+- [x] 2026-07-09 10:13 EDT - Old `8:00:00` Lumos parent wrappers had left the
+  live queue, leaving only pending child tasks. Canceled `110` orphan-risk
+  pending child jobs (`nf-spikesort_kilosort4`, `nf-postprocessing`,
+  `nf-curation`) so they would not consume resources without a live Nextflow
+  parent wrapper.
+
+  Cleanup audit:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/lumos_timeout_resume_cleanup_20260709_1020
+
+- [x] 2026-07-09 10:15 EDT - Regenerated canonical ledger after orphan-child
+  cleanup. Status counts:
+    `not_ready_or_not_started`: `308`
+    `gui_ready_standard`: `65`
+    `standard_failed_sparse_fallback_candidate`: `73`
+    `export_failed`: `8`
+    Lumos unresolved/not-ready rows: `110`
+
+- [x] 2026-07-09 10:15 EDT - Submitted first clean Lumos timeout-resume wave
+  after resource fixes:
+    wave label: `lumos_timeout_resume_20_20260709_1015`
+    submitted rows: `20`
+    parent wrapper walltime: `12:00:00`
+    parent Slurm IDs: `53162792-53162811`
+    immediate state: `20` pending by Priority
+
+- [ ] Next checkpoint - Watch `53162792-53162811`. The first proof point is not
+  GUI-ready output; it is that the new 12-hour parent wrappers start, complete
+  `job_dispatch`, and submit child tasks with the baked short walltimes:
+    Kilosort: `00:30:00`
+    postprocessing: `00:15:00`
+    curation: `00:10:00`
+
+- [ ] Next checkpoint - Do not submit the remaining Lumos timeout rows until
+  the first resume wave demonstrates that child tasks start and no new
+  idle-wrapper backlog appears.
+
+- [x] 2026-07-09 10:31 EDT - Tightened the baked resource profile after review:
+  observed Kilosort runtime was usually under one minute, so `2h` was still too
+  conservative for backfill. Updated:
+    `spikesort_kilosort4`: `30m`
+    `spikesort_kilosort25`: `30m`
+    `postprocessing`: `15m`
+    `curation`: `10m`
+  Also applied the same limits to the currently pending child jobs from the
+  first Lumos timeout-resume wave. Live pending Kilosort children now show
+  `30:00` and pending reason `(None)`.
+
+- [x] 2026-07-09 10:37 EDT - Tightened resource profile again after direct
+  runtime measurement from the live Lumos resume wave:
+    completed `nf-spikesort_kilosort4`: `12` jobs, min `35s`, mean `37.8s`,
+    max `43s`
+    completed `nf-postprocessing`: `10` jobs, min `23s`, mean `24.1s`, max `25s`
+    completed `nf-curation`: `8` jobs, min `6s`, mean `6.5s`, max `8s`
+
+  Updated baked config:
+    `job_dispatch`: `10m`
+    `preprocessing`: `10m`
+    `nwb_ecephys`: `10m`
+    `spikesort_kilosort4`: `10m`
+    `spikesort_kilosort25`: `10m`
+    `postprocessing`: `5m`
+    `curation`: `5m`
+
+  Applied live pending child limits:
+    pending Kilosort children: `10:00`
+    pending postprocessing children: `5:00`
+    pending curation children: `5:00`
+
 - [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
   with the prepared 20-well dry run, and confirm `job_dispatch` completion
   before submitting more Cytoview wells.

@@ -451,6 +451,8 @@ The jitter-aware Lumos trial-tagging screen uses:
 baseline: -25..-8 ms
 response: -5..+50 ms
 during-stim QC: 0 ms through reconstructed pulse end
+train-trial baseline: -10..-5 ms
+train-trial response: -5..+50 ms
 ```
 
 As of the refresh, the Lumos GUI-ready subset is 65 wells: 23 scored with
@@ -459,3 +461,16 @@ usable stimulation metadata and 42 marked `stim_unavailable`.
 The manual guide CSV keeps `D2` as a top-priority review case rather than
 treating it as a negative control, because the current working interpretation is
 that `D2` may be a real outside-prior response.
+
+The GUI PSTHs use 1 ms bins for both train-locked and pulse-locked views, with
+a `[1, 1, 1]` smoothing kernel for the smoothed line. The Lumos screen/guide
+CSV includes window-average rates plus peak 1 ms PSTH signal columns:
+`*_rate_hz`, `*_peak_raw_rate_hz`, and `*_peak_smooth_rate_hz`. The manual guide
+is ranked by `review_sort_peak_raw_response_hz`, the pulse-locked raw 1 ms peak
+inside `-5..+50 ms`; D2 remains flagged as possible-real but is no longer forced
+above stronger peak-raw candidates. Regenerate the current Lumos screen and
+manual guide with:
+
+```bash
+python scripts/refresh_lumos_optotag_analysis.py --date-label 20260709
+```
