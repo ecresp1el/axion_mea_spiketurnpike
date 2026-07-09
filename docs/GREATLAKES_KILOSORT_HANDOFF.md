@@ -590,6 +590,10 @@ best-channel waveforms, half-width by class, REP50 by class, and amplitude by
 class. The `unaligned` figures use the `before_*` metrics and
 `before_unaligned_average_uV` traces from the paired audit. The `aligned`
 figures use the `after_*` metrics and `after_aligned_average_uV` traces.
+These Lumos figures are a unified-method QA/prototype for the spike-sorting
+waveform workflow only. They are not dorsal/ventral biological comparisons,
+because the dorsal/ventral grouping logic belongs to the Cytoview plate-map
+track below.
 
 Current four-condition counts:
 
@@ -988,15 +992,19 @@ The final PNG is one multi-panel figure with four rows:
 `0.50 ms aligned`. Columns keep the dorsal/ventral logic visible: mean per-well
 class fraction by region, unit counts by region/class, TTP distribution by
 region, pooled mean/SEM waveforms in uV, individual uV waveforms with the class
-mean overlaid, pooled trough-normalized waveforms, firing rate by region/class,
-and half-width versus REP50. The mean/SEM uV waveform column preserves the
-actual best-channel amplitude scale; the individual uV column shows unit-level
-spread and outliers with the class mean on top; the normalized waveform column
-divides each unit trace by its own negative trough depth so waveform shape can
-be compared independent of amplitude. All four rows use the same `237` Cytoview
-`KSLabel=good` units from the 52 GUI-ready priority wells. Dorsal/ventral labels
-come from the current Cytoview plate-map plan plus the manual B1/B2 override
-layer.
+mean overlaid, pooled trough-normalized waveforms, dorsal/ventral firing rates
+pooled across all good units regardless of FS/RS class, firing rate by
+region/class, and half-width versus REP50. The pooled dorsal/ventral firing-rate
+column is intentionally class-agnostic: dorsal has `113` good units across
+`22` wells with median/mean firing rate `0.5047 / 0.8129 Hz`; ventral has `124`
+good units across `28` wells with median/mean firing rate `1.4010 / 1.7603 Hz`.
+The mean/SEM uV waveform column preserves the actual best-channel amplitude
+scale; the individual uV column shows unit-level spread and outliers with the
+class mean on top; the normalized waveform column divides each unit trace by its
+own negative trough depth so waveform shape can be compared independent of
+amplitude. All four rows use the same `237` Cytoview `KSLabel=good` units from
+the 52 GUI-ready priority wells. Dorsal/ventral labels come from the current
+Cytoview plate-map plan plus the manual B1/B2 override layer.
 
 Current final composite counts:
 

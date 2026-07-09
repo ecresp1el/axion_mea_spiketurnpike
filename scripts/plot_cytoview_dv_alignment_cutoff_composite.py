@@ -208,8 +208,8 @@ def _summary_rows(table: pd.DataFrame, *, cutoff_ms: float, stage: str) -> list[
 
 def _plot_composite(plt, classified: pd.DataFrame, traces: pd.DataFrame, output_path: Path, conditions: list[tuple[float, str]]) -> None:
     nrows = len(conditions)
-    ncols = 8
-    fig, axes = plt.subplots(nrows, ncols, figsize=(30, 4.7 * nrows), squeeze=False)
+    ncols = 9
+    fig, axes = plt.subplots(nrows, ncols, figsize=(34, 4.7 * nrows), squeeze=False)
     column_titles = [
         "Mean per-well class fraction",
         "Unit counts by region/class",
@@ -217,6 +217,7 @@ def _plot_composite(plt, classified: pd.DataFrame, traces: pd.DataFrame, output_
         "Pooled waveforms, uV",
         "Individual waveforms + mean, uV",
         "Pooled waveforms, normalized",
+        "Firing rate by region",
         "Firing rate by region/class",
         "Half-width and REP50",
     ]
@@ -235,8 +236,9 @@ def _plot_composite(plt, classified: pd.DataFrame, traces: pd.DataFrame, output_
         _plot_waveforms(axes[row_index, 3], subset, traces, stage, normalize=False)
         _plot_individual_waveforms_with_mean(axes[row_index, 4], subset, traces, stage)
         _plot_waveforms(axes[row_index, 5], subset, traces, stage, normalize=True)
-        _plot_metric_by_region_class(axes[row_index, 6], subset, "firing_rate_hz", "Hz")
-        _plot_halfwidth_rep(axes[row_index, 7], subset)
+        _plot_metric_by_region(axes[row_index, 6], subset, "firing_rate_hz", "Hz")
+        _plot_metric_by_region_class(axes[row_index, 7], subset, "firing_rate_hz", "Hz")
+        _plot_halfwidth_rep(axes[row_index, 8], subset)
 
     for ax in axes.ravel():
         ax.spines["top"].set_visible(False)
@@ -434,6 +436,43 @@ def _plot_metric_by_region_class(ax, table: pd.DataFrame, metric: str, ylabel: s
     ax.grid(axis="y", color="0.9")
 
 
+def _plot_metric_by_region(ax, table: pd.DataFrame, metric: str, ylabel: str) -> None:
+    positions = np.arange(len(REGION_ORDER))
+    ymax = _numeric_max(table[metric])
+    for index, region in enumerate(REGION_ORDER):
+        values = pd.to_numeric(
+            table.loc[table["region_call"].eq(region), metric],
+            errors="coerce",
+        ).dropna()
+        if values.empty:
+            continue
+        jitter = _jitter(len(values), 0.14)
+        ax.scatter(
+            np.full(len(values), index) + jitter,
+            values,
+            s=18,
+            alpha=0.64,
+            color=REGION_COLORS[region],
+            edgecolor="none",
+        )
+        median = float(values.median())
+        mean = float(values.mean())
+        ax.hlines(median, index - 0.25, index + 0.25, color="black", linewidth=2)
+        ax.text(
+            index,
+            float(values.max()),
+            f"n={len(values)}\nmed {median:.2g}\nmean {mean:.2g}",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+        )
+    ax.set_xticks(positions, REGION_ORDER)
+    ax.set_ylabel(ylabel)
+    if np.isfinite(ymax):
+        ax.set_ylim(-0.5, ymax * 1.18 + 1e-9)
+    ax.grid(axis="y", color="0.9")
+
+
 def _plot_halfwidth_rep(ax, table: pd.DataFrame) -> None:
     for region in REGION_ORDER:
         subset = table.loc[table["region_call"].eq(region)].copy()
@@ -466,6 +505,11 @@ def _sem_array(values: np.ndarray) -> float:
 
 def _sem_series(values: pd.Series) -> float:
     return _sem_array(pd.to_numeric(values, errors="coerce").to_numpy(dtype=float))
+
+
+def _numeric_max(values: pd.Series) -> float:
+    clean = pd.to_numeric(values, errors="coerce").dropna()
+    return float(clean.max()) if not clean.empty else np.nan
 
 
 def _trough_normalize_trace(values: pd.Series) -> pd.Series:

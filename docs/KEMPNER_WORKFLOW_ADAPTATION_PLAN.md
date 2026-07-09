@@ -7974,6 +7974,12 @@ Canonical commands:
   EDT with:
     `python scripts/plot_lumos_alignment_cutoff_sensitivity.py`
 
+  Interpretation:
+    these Lumos plots are a unified-method QA/prototype for the waveform
+    alignment/cutoff workflow. They are not dorsal/ventral biological plots,
+    because dorsal/ventral grouping is carried by the Cytoview plate-map-backed
+    track below.
+
   Output folder:
     `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_alignment_cutoff_sensitivity_20260709/`
 
@@ -8018,8 +8024,12 @@ Canonical commands:
     `0.50 ms unaligned`, and `0.50 ms aligned`; columns show mean per-well class
     fraction by region, unit counts by region/class, TTP by region, pooled
     mean/SEM waveforms in uV, individual uV waveforms with the class mean
-    overlaid, pooled trough-normalized waveforms, firing rate by region/class,
-    and half-width versus REP50. The individual uV column shows unit-level
+    overlaid, pooled trough-normalized waveforms, class-agnostic dorsal/ventral
+    firing rates, firing rate by region/class, and half-width versus REP50. The
+    class-agnostic firing-rate panel pools all good units regardless of FS/RS
+    class: dorsal `113` good units across `22` wells, median/mean
+    `0.5047 / 0.8129 Hz`; ventral `124` good units across `28` wells,
+    median/mean `1.4010 / 1.7603 Hz`. The individual uV column shows unit-level
     spread and outliers; the normalized waveform column divides each unit trace
     by its own negative trough depth so shape can be compared separately from
     amplitude.
