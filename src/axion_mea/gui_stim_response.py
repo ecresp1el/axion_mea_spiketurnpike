@@ -960,22 +960,61 @@ def make_stim_response_panel(
     label_to_unit = {_unit_label(unit_id): unit_id for unit_id in unit_ids}
     default_label = next(iter(label_to_unit))
     unit_selector = pn.widgets.MultiChoice(
-        name="Unit(s)",
+        name="Pick units",
         options=list(label_to_unit),
         value=[default_label],
+        sizing_mode="stretch_width",
+    )
+    unit_entry = pn.widgets.TextInput(
+        name="Units",
+        value=default_label,
+        placeholder="0,4,5",
         sizing_mode="stretch_width",
     )
     refresh_button = pn.widgets.Button(name="Refresh", button_type="primary", width=110)
     summary = pn.pane.Markdown("", sizing_mode="stretch_width")
     train_area = pn.Column(sizing_mode="stretch_width")
     pulse_area = pn.Column(sizing_mode="stretch_width")
+    selection_status = pn.pane.Markdown("", sizing_mode="stretch_width")
+    syncing_selection = {"active": False}
 
-    def selected_units() -> list[object]:
-        labels = unit_selector.value or [default_label]
-        return [label_to_unit[label] for label in labels if label in label_to_unit]
+    def selected_units() -> tuple[list[object], list[str], list[str]]:
+        raw_values: Sequence[object]
+        if unit_entry.value.strip():
+            raw_values = [unit_entry.value]
+        else:
+            raw_values = unit_selector.value or [default_label]
+        labels, missing = _resolve_unit_selection_labels(raw_values, label_to_unit, default_label)
+        return [label_to_unit[label] for label in labels], labels, missing
+
+    def sync_picker_to_entry(labels: Sequence[str]) -> None:
+        syncing_selection["active"] = True
+        try:
+            unit_selector.value = [label for label in labels if label in label_to_unit]
+        finally:
+            syncing_selection["active"] = False
+
+    def sync_entry_to_picker(*_: object) -> None:
+        if syncing_selection["active"]:
+            return
+        labels, _ = _resolve_unit_selection_labels(unit_selector.value, label_to_unit, default_label)
+        syncing_selection["active"] = True
+        try:
+            unit_entry.value = ",".join(labels)
+        finally:
+            syncing_selection["active"] = False
+        redraw()
+
+    def redraw_from_entry(*_: object) -> None:
+        if syncing_selection["active"]:
+            return
+        _, labels, _ = selected_units()
+        sync_picker_to_entry(labels)
+        redraw()
 
     def redraw(*_: object) -> None:
-        units = selected_units()
+        units, labels, missing = selected_units()
+        selection_status.object = _format_unit_selection_status(labels, missing)
         unit_responses = [builder.build([unit_id]) for unit_id in units]
         summary.object = _format_multi_unit_summary(unit_responses, resolution)
 
@@ -1018,12 +1057,13 @@ def make_stim_response_panel(
         ]
 
     refresh_button.on_click(redraw)
-    unit_selector.param.watch(redraw, "value")
+    unit_selector.param.watch(sync_entry_to_picker, "value")
+    unit_entry.param.watch(redraw_from_entry, "value")
     redraw()
 
-    controls = pn.Row(unit_selector, refresh_button, sizing_mode="stretch_width")
+    controls = pn.Row(unit_entry, unit_selector, refresh_button, sizing_mode="stretch_width")
     tabs = pn.Tabs(
-        ("Train locked", pn.Column(summary, train_area, sizing_mode="stretch_width")),
+        ("Train locked", pn.Column(summary, selection_status, train_area, sizing_mode="stretch_width")),
         ("Pulse locked", pn.Column(pulse_area, sizing_mode="stretch_width")),
         sizing_mode="stretch_width",
     )
@@ -1413,6 +1453,49 @@ def _format_multi_unit_summary(
         f"**Stimulated wells:** `{', '.join(resolution.eligibility.stimulated_wells)}`"
     )
     return header + "\n\n" + "\n".join(rows)
+
+
+def _split_unit_selection_tokens(raw_values: Sequence[object]) -> list[str]:
+    """Split picker/text unit selections into display labels."""
+
+    tokens: list[str] = []
+    for value in raw_values:
+        for token in re.split(r"[\s,;]+|(?<=\d)\.(?=\d)", str(value).strip()):
+            clean = token.strip()
+            if clean:
+                tokens.append(clean)
+    return tokens
+
+
+def _resolve_unit_selection_labels(
+    raw_values: Sequence[object],
+    label_to_unit: Mapping[str, object],
+    default_label: str,
+) -> tuple[list[str], list[str]]:
+    """Resolve raw unit entries to valid labels and missing labels."""
+
+    tokens = _split_unit_selection_tokens(raw_values)
+    if not tokens:
+        tokens = [default_label]
+
+    labels: list[str] = []
+    missing: list[str] = []
+    for token in tokens:
+        if token not in label_to_unit:
+            missing.append(token)
+            continue
+        if token not in labels:
+            labels.append(token)
+    return labels, missing
+
+
+def _format_unit_selection_status(labels: Sequence[str], missing: Sequence[str]) -> str:
+    """Return a compact status line for unit selection parsing."""
+
+    parts = [f"**Units plotted:** `{', '.join(labels) if labels else 'none'}`"]
+    if missing:
+        parts.append(f"**Ignored unknown units:** `{', '.join(missing)}`")
+    return "  \n".join(parts)
 
 
 def _unit_label(unit_id: object) -> str:

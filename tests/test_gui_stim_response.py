@@ -21,6 +21,8 @@ from axion_mea.gui_stim_response import (  # noqa: E402
     is_lumos_plate,
     resolve_stim_sidecars,
     stim_events_from_raw,
+    _resolve_unit_selection_labels,
+    _split_unit_selection_tokens,
 )
 
 
@@ -146,6 +148,23 @@ class TestPulseStructure(unittest.TestCase):
 
 
 class TestUnitStimResponseBuilder(unittest.TestCase):
+    def test_unit_selection_text_accepts_dotted_or_comma_lists(self) -> None:
+        label_to_unit = {"0": 0, "4": 4, "5": 5}
+
+        self.assertEqual(_split_unit_selection_tokens(["0.4.5"]), ["0", "4", "5"])
+        self.assertEqual(
+            _resolve_unit_selection_labels(["0, 4 5"], label_to_unit, "0"),
+            (["0", "4", "5"], []),
+        )
+
+    def test_invalid_unit_selection_does_not_fall_back_to_default_unit(self) -> None:
+        label_to_unit = {"0": 0, "4": 4, "5": 5}
+
+        labels, missing = _resolve_unit_selection_labels(["12"], label_to_unit, "0")
+
+        self.assertEqual(labels, [])
+        self.assertEqual(missing, ["12"])
+
     def test_unit_spikes_are_train_and_pulse_aligned(self) -> None:
         events = stim_events()
         pulses = [
