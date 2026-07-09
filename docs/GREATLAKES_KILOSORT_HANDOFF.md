@@ -450,6 +450,100 @@ waveform_alignment_feature_audit_20260709/
 lumos_alignment_cutoff_sensitivity_20260709/
 ```
 
+## Current Single Source: Waveform Alignment, Cutoffs, And Denominators
+
+Updated 2026-07-09 16:10 EDT. This section is the canonical source of truth
+for the current waveform/cutoff/alignment inspection outputs until Step 2
+filtering is implemented. The figures and CSVs below are denominator-preserving
+inspection artifacts. Do not silently add extra filters, change unit inclusion,
+or relabel the populations in place.
+
+Future filtering rule:
+
+- Current outputs preserve the full current inspection denominator.
+- Any later post-Step-2 filtering must create a new dated filtered output
+  folder, keep the original denominator CSV/provenance linked, and report the
+  exclusion counts and reasons before any histogram or FS/RS interpretation.
+- Step 2 classifier/QC outputs are metadata for future filtering. They should
+  not be retroactively mixed into the current 2026-07-09 waveform figures unless
+  a new filtered analysis is explicitly generated.
+
+Canonical current denominator artifacts:
+
+| Track | Biological/grouping meaning | Current denominator | Canonical output folder |
+|---|---|---:|---|
+| Lumos | Lumos/opto-track geometry only; all treated as opto/ventral-track review, not dorsal/ventral biology | `276` paired `KSLabel=good` units | `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_geometry_alignment_cutoff_composite_20260709/` |
+| Cytoview/SixWell | True dorsal/ventral track from plate-map-backed wells plus manual B1/B2 override layer | `237` paired `KSLabel=good` units | `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_alignment_cutoff_composite_20260709/` |
+
+Shared waveform math for both tracks:
+
+- Use the same Step 1 `SortingAnalyzer` source for the unit.
+- Use `KSLabel=good` as the current inclusion label.
+- Select the best waveform channel as the channel with maximum
+  peak-to-peak amplitude across `templates.average`.
+- Use the persisted `random_spikes` selection from the analyzer so the before
+  and after waveforms use the exact same sampled spike snippets.
+- Cut snippets with `nbefore` / `nafter` from the analyzer `templates`
+  extension.
+- `unaligned` means directly averaging those snippets.
+- `aligned` means shifting those exact same snippets so the local trough near
+  the expected spike center aligns to the template trough sample, then averaging.
+- Measure both averages with `_measure_spiketurnpike_waveform_metrics(...)`,
+  the same TTP/half-width/REP logic, and the same REP50 fraction.
+- Use the same binary FS/RS cutoff views at `0.37 ms` and `0.50 ms`.
+- Keep the older conservative FS_like/borderline/RS_like audit separate from
+  the binary cutoff figures.
+- Sampling rate is `12.5 kHz`, so one sample is `0.08 ms`. One-sample shifts
+  matter for TTP, half-width, REP, and any downstream FS/RS binning.
+
+Preferred current figures:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_geometry_alignment_cutoff_composite_20260709/lumos_geometry_alignment_cutoff_composite_20260709.png
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_alignment_cutoff_composite_20260709/cytoview_dv_alignment_cutoff_composite_20260709.png
+```
+
+Lumos grouping and counts:
+
+- Groups are `columns_1_3_compare` and `columns_4_8_prior`.
+- These are Lumos plate-column geometry/opto-review groups, not dorsal/ventral
+  biological groups.
+- Denominator is `276` paired Lumos `KSLabel=good` units:
+  `127` from columns `1-3` and `149` from columns `4-8`.
+
+| Cutoff | Alignment state | Overall FS | Overall RS | Columns 1-3 FS | Columns 1-3 RS | Columns 4-8 FS | Columns 4-8 RS |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| `0.37 ms` | unaligned | 16 | 260 | 10 | 117 | 6 | 143 |
+| `0.37 ms` | aligned | 24 | 252 | 12 | 115 | 12 | 137 |
+| `0.50 ms` | unaligned | 56 | 220 | 36 | 91 | 20 | 129 |
+| `0.50 ms` | aligned | 85 | 191 | 45 | 82 | 40 | 109 |
+
+Cytoview dorsal/ventral grouping and counts:
+
+- Groups are true `dorsal` and `ventral` labels from the current plate-map plan
+  plus the manual B1/B2 override layer.
+- Denominator is `237` paired Cytoview `KSLabel=good` units from the 52
+  GUI-ready priority wells.
+- Class-agnostic firing-rate panel pools all good units regardless of FS/RS:
+  dorsal `113` units across `22` wells, median/mean `0.5047 / 0.8129 Hz`;
+  ventral `124` units across `28` wells, median/mean `1.4010 / 1.7603 Hz`.
+
+| Cutoff | Alignment state | Dorsal FS | Dorsal RS | Ventral FS | Ventral RS |
+|---:|---|---:|---:|---:|---:|
+| `0.37 ms` | unaligned | 6 | 107 | 3 | 121 |
+| `0.37 ms` | aligned | 4 | 109 | 3 | 121 |
+| `0.50 ms` | unaligned | 10 | 103 | 12 | 112 |
+| `0.50 ms` | aligned | 20 | 93 | 18 | 106 |
+
+Historical/prototype status:
+
+- `lumos_alignment_cutoff_sensitivity_20260709/` contains the earlier four
+  separate Lumos cutoff/alignment PNGs. They remain valid method QA outputs,
+  but the Lumos geometry composite above is now the preferred Lumos figure.
+- The older Lumos candidate waveform galleries remain useful manual-review
+  screens for top optotag candidates, but they are not the current denominator
+  reconciliation for all good units.
+
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference
 batch 1 vs batch 2 vs batch 3. Do not infer batch membership from recording
