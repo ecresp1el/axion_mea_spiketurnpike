@@ -5747,3 +5747,224 @@ file did not actually record. Any targeted recovery should resubmit only the
 valid recorded wells for these two recording variants, not rerun the full 454
 well manifest.
 ```
+
+### Recovery Action at 2026-07-08 23:49 EDT
+
+The initial TH=5 Step 1 submission over-launched the AIND wrapper layer. At the
+time of recovery, many `axion-aind-nwb` wrappers were occupying cluster
+resources while their inner Nextflow `nf-job_dispatch` children were still
+pending. No wells had reached AIND preprocessing, `nwb_ecephys`,
+`spikesort_kilosort4`, or `nwb_units`.
+
+To avoid wasting allocation time, the stuck AIND layer was cancelled while
+preserving completed upstream products.
+
+Cancelled job set:
+
+```text
+top-level AIND/supervisor Slurm IDs cancelled: 511
+inner nf-job_dispatch Slurm IDs cancelled: 250
+total unique Slurm IDs cancelled: 761
+```
+
+Recovery package:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646
+```
+
+Recovery audit files:
+
+```text
+cancel_stuck_aind_and_inner_job_ids.txt
+cancel_stuck_aind_and_inner_command.sh
+recovery_context.json
+lumos_ready_aind_continuation_manifest.csv
+submit_next_lumos_aind_wave.py
+submitted_lumos_aind_wave.tsv
+```
+
+Original-run reconciliation files were added so the first TH=5 submission does
+not get lost while continuing in smaller waves:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/reconciliation/step1_th5_v5_reconciliation_summary.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/reconciliation/step1_th5_v5_original_well_reconciliation.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/reconciliation/step1_th5_v5_original_supervisor_reconciliation.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/reconciliation/step1_th5_v5_original_aind_asset_audit.csv
+```
+
+Current reconciliation counts:
+
+```text
+original well chains: 454
+original recording supervisors: 57
+original per-well Slurm jobs, export + NWB + SI-prep + AIND: 1816
+original AIND jobs cancelled: 454
+original supervisors cancelled: 57
+Lumos continuation-ready wells: 106
+Lumos recovery wave submitted wells: 20
+total cancelled IDs recorded, including inner nf-job_dispatch IDs: 761
+```
+
+Asset audit for the 454 original AIND wrapper jobs:
+
+```text
+original AIND wrapper jobs: 454
+result directories created: 250
+original wrapper log files created: 250
+Nextflow traces missing: 204
+Nextflow traces header-only: 250
+Nextflow traces with task rows: 0
+
+actual AIND pipeline assets produced: 0
+final/sorting-like assets produced: 0
+preprocessed dirs: 0
+spikesorted dirs: 0
+postprocessed dirs: 0
+curated dirs: 0
+nwb dirs: 0
+quality_control dirs/files: 0
+visualization dirs/files: 0
+metadata JSON assets: 0
+```
+
+For this audit, wrapper logs, empty/header-only Nextflow traces, and
+`nextflow/` orchestration files are not counted as AIND assets. The upstream
+export, export-to-NWB, and SpikeInterface-prep products are tracked separately
+from AIND assets.
+
+The continuation manifest contains only Lumos wells whose export,
+export-to-NWB, and SpikeInterface-prep products were already present:
+
+```text
+ready Lumos well chains: 106
+ready Lumos recording variants: 10
+missing continuation env files: 0
+```
+
+These continuation jobs use the existing per-well environment files:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/aind/<recording>/<well>/spikeinterface/run_aind_spikeinterface.env
+```
+
+Those env files include:
+
+```text
+AIND_ALLOW_OVERWRITE="true"
+```
+
+This is intentional because the cancelled wrapper attempts left top-level
+`run_aind_nwb_well_<jobid>.log` files in some result directories.
+
+The first controlled Lumos continuation wave was submitted with 20
+`axion-aind-nwb` jobs:
+
+```text
+submitted jobs: 53136425-53136444
+submission ledger:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646/submitted_lumos_aind_wave.tsv
+```
+
+At the immediate post-submit checkpoint, all 20 were pending by Slurm priority:
+
+```text
+20 axion-aind-nwb jobs pending, Reason=Priority
+0 continuation AIND jobs running yet
+```
+
+Operational rule for the next step:
+
+```text
+Do not submit the remaining Lumos continuation waves until this first 20-job
+wave demonstrates that inner Nextflow job_dispatch and preprocessing can begin.
+If the first wave starts cleanly, submit the remaining Lumos continuation jobs
+in controlled waves from the same recovery package rather than relaunching the
+full 454-well manifest.
+```
+
+### Required Future Step 1 Submission Logic
+
+The 2026-07-08 TH=5 run failed operationally because too many AIND wrapper jobs
+were launched before the cluster had enough room for the inner Nextflow tasks.
+The wrapper jobs occupied allocation while `nf-job_dispatch` remained pending,
+so the run had a large Slurm footprint without producing AIND assets.
+
+Future Step 1 submissions must treat AIND/Kilosort as a downstream continuation
+from a verified pickup boundary, not as something blindly launched for every
+manifest row at the same time.
+
+Required per-well gate before submitting `axion-aind-nwb`:
+
+```text
+1. Binary export exists:
+   data/interim/kilosort_binary/<recording>/<well>/*.bin
+
+2. Interim NWB exists:
+   data/interim/nwb/<recording>/<well>/*.nwb
+
+3. AIND SpikeInterface-prep env exists:
+   jobs/aind/<recording>/<well>/spikeinterface/run_aind_spikeinterface.env
+
+4. AIND SpikeInterface params exist:
+   jobs/aind/<recording>/<well>/spikeinterface/*_aind_spikeinterface_params.json
+```
+
+Only wells passing all four checks are eligible for AIND/Kilosort submission.
+Wells that have not passed this boundary should remain in the upstream
+export/NWB/SI-prep queue, not be submitted to AIND yet.
+
+Current boundary audit at 2026-07-09 00:00 EDT:
+
+```text
+original well chains: 454
+pickup-ready for AIND/Kilosort: 363
+not pickup-ready: 91
+
+not pickup-ready breakdown:
+  no export/NWB/SI-prep assets yet: 82
+  binary export exists but interim NWB/SI-prep not complete yet: 9
+```
+
+Live boundary update at 2026-07-09 00:03 EDT:
+
+```text
+original well chains: 454
+pickup-ready for AIND/Kilosort: 410
+not pickup-ready: 44
+
+not pickup-ready breakdown:
+  no export/NWB/SI-prep assets yet: 26
+  binary export exists but interim NWB/SI-prep not complete yet: 18
+
+submitted controlled AIND continuation wave: 20 jobs
+controlled AIND continuation wave state: 20 pending by Slurm priority
+controlled AIND continuation Nextflow traces: 20 header-only
+controlled AIND continuation task rows: 0
+```
+
+The 204 original AIND jobs that never created a Nextflow trace should not be
+treated as lost biological outputs. They did not produce AIND assets, but they
+can still be advanced once their wells pass the pickup boundary above. The
+target remains to account for all 454 original well chains, with invalid export
+failures tracked explicitly rather than silently retried forever.
+
+Future operational policy:
+
+```text
+1. Submit export, export-to-NWB, and SI-prep stages first.
+2. Build an AIND continuation manifest only from wells passing the four pickup
+   checks above.
+3. Submit AIND/Kilosort in controlled waves, not all ready wells at once.
+4. After each wave starts, confirm that inner Nextflow job_dispatch and
+   preprocessing tasks actually begin.
+5. Only then submit the next wave.
+6. Keep a reconciliation table linking original export/NWB/SI/AIND job IDs to
+   any continuation AIND job IDs.
+```
+
+This staged handoff is required for future large Step 1 reruns. It prevents
+hundreds of idle AIND wrappers from occupying Slurm resources while their inner
+Nextflow jobs wait in priority, and it preserves one auditable lineage from the
+original manifest row to the final AIND/Kilosort result.
