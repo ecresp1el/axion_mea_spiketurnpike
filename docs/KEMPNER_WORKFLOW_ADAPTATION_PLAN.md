@@ -7481,6 +7481,45 @@ Canonical commands:
     `lumos_timeout_resume_20_20260709_1223` drains and the canonical summary is
     regenerated. Then submit the last `10` if the live queue is clean.
 
+- [x] 2026-07-09 12:49 EDT - Final Lumos standard-route submission launched.
+  The preceding `20`-well wave drained, the canonical summary was regenerated,
+  and exactly `10` Lumos rows remained `not_ready_or_not_started`.
+
+  Refreshed Lumos-only status before final submission:
+    `gui_ready_standard`: `143`
+    `standard_failed_sparse_fallback_candidate`: `95`
+    `not_ready_or_not_started`: `10`
+    `export_failed`: `8`
+
+  Submitted final Lumos wave:
+    wave label: `lumos_timeout_resume_10_20260709_1249`
+    submitted rows: `10`
+    parent wrapper walltime: `12:00:00`
+    parent Slurm IDs: `53179760-53179769`
+    immediate queue state: `10 / 10` parent wrappers pending by Priority
+
+  Next Lumos checkpoint:
+    Wait for `53179760-53179769` to drain, regenerate
+    `scripts/summarize_step1_v5_ground_truth.py`, and confirm Lumos has `0`
+    `not_ready_or_not_started` rows. After that, the Lumos standard route is
+    complete aside from documented sparse-fallback candidates and export failures.
+
+- [x] 2026-07-09 13:05 EDT - Lumos standard-route processing complete.
+  The final 10 Lumos jobs `53179760-53179769` drained, the live AIND/Nextflow
+  queue was empty, and the canonical summary was regenerated.
+
+  Final Lumos-only status:
+    `gui_ready_standard`: `150`
+    `standard_failed_sparse_fallback_candidate`: `98`
+    `export_failed`: `8`
+    `not_ready_or_not_started`: `0`
+
+  Interpretation:
+    All Lumos standard-route rows have reached a terminal standard-route state.
+    The remaining non-ready rows in the global ledger are Cytoview/SixWell only.
+    Lumos sparse candidates remain documented for possible future fallback, but
+    no additional standard Lumos submission is pending.
+
 - [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
   with the prepared 20-well dry run, and confirm `job_dispatch` completion
   before submitting more Cytoview wells.

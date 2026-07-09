@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.plot_lumos_candidate_waveform_gallery import (  # noqa: E402
     _measure_spiketurnpike_waveform_metrics,
 )
+from scripts.explore_local_excursion_width_rep import _measure_local_excursion_metrics  # noqa: E402
 
 
 DEFAULT_JOB_DIR = Path(
@@ -100,6 +101,7 @@ def main() -> None:
     corr_csv = job_dir / f"{stem}_correlation_matrix.csv"
     pairplot_path = job_dir / f"{stem}_pairwise_scatter_matrix.png"
     top_pairs_path = job_dir / f"{stem}_top_pairwise_scatter.png"
+    ttp_metric_path = job_dir / f"{stem}_ttp_vs_local_rep_halfwidth.png"
     corr_path = job_dir / f"{stem}_correlation_matrix.png"
     rank_path = job_dir / f"{stem}_feature_rank_bars.png"
     provenance_path = job_dir / f"{stem}_provenance.json"
@@ -113,6 +115,7 @@ def main() -> None:
     corr.to_csv(corr_csv)
     _plot_pairwise_matrix(plt, features, PAIRPLOT_FEATURES, pairplot_path)
     _plot_top_pairs(plt, features, rank_table, top_pairs_path)
+    _plot_ttp_vs_local_metrics(plt, features, ttp_metric_path)
     _plot_correlation_matrix(plt, corr, corr_path)
     _plot_feature_rank_bars(plt, rank_table, rank_path)
 
@@ -133,6 +136,7 @@ def main() -> None:
             "correlation_csv": str(corr_csv),
             "pairwise_scatter_matrix": str(pairplot_path),
             "top_pairwise_scatter": str(top_pairs_path),
+            "ttp_vs_local_rep_halfwidth": str(ttp_metric_path),
             "correlation_matrix_png": str(corr_path),
             "feature_rank_bars": str(rank_path),
         },
@@ -140,6 +144,7 @@ def main() -> None:
             "Exploratory only; production TTP-based FS/RS classifier is unchanged.",
             "Labels are existing fixed-threshold rs_fs_classification values from the current good-unit TTP table.",
             "Waveform features are recomputed from templates.average using the same best-PTP-channel logic as the waveform gallery.",
+            "Exploratory half-width and REP50 use local Peak1-trough midpoint definitions; current trough-depth metrics are retained as current_* columns.",
         ],
         "errors": errors,
     }
@@ -153,6 +158,7 @@ def main() -> None:
     print(f"Feature ranks: {rank_csv}")
     print(f"Pairwise scatter matrix: {pairplot_path}")
     print(f"Top pairwise scatter: {top_pairs_path}")
+    print(f"TTP vs local REP/half-width: {ttp_metric_path}")
     print(f"Correlation matrix: {corr_path}")
     print(f"Feature rank bars: {rank_path}")
     print(f"Provenance: {provenance_path}")
@@ -194,7 +200,7 @@ def _extract_features(si, source: pd.DataFrame, *, rep_fraction: float) -> tuple
                     time_ms,
                     rep_fraction=rep_fraction,
                 )
-                rows.append(_feature_row(row, analyzer_path, unit_index, best_channel_index, best_waveform, metrics))
+                rows.append(_feature_row(row, analyzer_path, unit_index, best_channel_index, best_waveform, time_ms, metrics))
             except Exception as exc:  # noqa: BLE001
                 errors.append(
                     f"{row.get('recording')} / {row.get('well')} unit={row.get('unit_id')}: "
@@ -211,6 +217,7 @@ def _feature_row(
     unit_index: int,
     best_channel_index: int,
     waveform_uV: np.ndarray,
+    time_ms: np.ndarray,
     metrics: dict[str, object],
 ) -> dict[str, object]:
     trough_index = int(metrics["trough_index"])
@@ -225,6 +232,7 @@ def _feature_row(
     pre_to_trough_ms = float(metrics["trough_time_ms"] - metrics["pre_peak_time_ms"])
     rep_ms = float(metrics["repolarization_time_ms"])
     rep_threshold_uV = float(metrics["rep_threshold_uV"])
+    local_metrics = _measure_local_excursion_metrics(waveform_uV, time_ms, metrics)
     amplitude_sum = pre_peak_amplitude + post_peak_amplitude
     waveform_asymmetry = (
         (post_peak_amplitude - pre_peak_amplitude) / amplitude_sum
@@ -250,8 +258,13 @@ def _feature_row(
         "template_peak_best_channel_uV": float(np.nanmax(waveform_uV)),
         "spiketurnpike_amplitude_uV": float(metrics["spiketurnpike_amplitude_uV"]),
         "trough_to_peak_duration_ms": trough_to_peak_ms,
-        "repolarization_time_ms": rep_ms,
-        "spike_half_width_ms": float(metrics["spike_half_width_ms"]),
+        "repolarization_time_ms": float(local_metrics["local_rep50_ms"]),
+        "spike_half_width_ms": float(local_metrics["local_half_width_ms"]),
+        "current_repolarization_time_ms": rep_ms,
+        "current_spike_half_width_ms": float(metrics["spike_half_width_ms"]),
+        "local_midpoint_uV": float(local_metrics["local_midpoint_uV"]),
+        "pre_peak_to_trough_excursion_uV": float(local_metrics["pre_peak_to_trough_excursion_uV"]),
+        "pre_peak_to_trough_ratio_uV": float(local_metrics["pre_peak_to_trough_ratio_uV"]),
         "pre_peak_value_uV": pre_peak_value,
         "post_peak_value_uV": post_peak_value,
         "pre_peak_amplitude_uV": pre_peak_amplitude,
@@ -302,6 +315,8 @@ def _feature_columns(features: pd.DataFrame) -> list[str]:
         "rep_recovery_index",
         "half_width_start_index",
         "half_width_end_index",
+        "current_repolarization_time_ms",
+        "current_spike_half_width_ms",
     }
     return [col for col in features.columns if col not in excluded and pd.api.types.is_numeric_dtype(features[col])]
 
@@ -464,6 +479,38 @@ def _plot_top_pairs(plt, features: pd.DataFrame, rank_table: pd.DataFrame, outpu
     plt.close(fig)
 
 
+def _plot_ttp_vs_local_metrics(plt, features: pd.DataFrame, output_path: Path) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.8), sharex=True)
+    panels = [
+        ("repolarization_time_ms", "Local-excursion REP50 (ms)"),
+        ("spike_half_width_ms", "Local-excursion half-width (ms)"),
+    ]
+    for axis, (y_col, ylabel) in zip(axes, panels, strict=True):
+        for label in CLASS_ORDER:
+            subset = features.loc[features["rs_fs_classification"].eq(label)]
+            if subset.empty:
+                continue
+            axis.scatter(
+                subset["trough_to_peak_duration_ms"],
+                subset[y_col],
+                s=22,
+                alpha=0.75,
+                linewidths=0,
+                color=CLASS_COLORS[label],
+                label=label,
+            )
+        axis.set_xlabel("TTP (ms)")
+        axis.set_ylabel(ylabel)
+        axis.set_title(f"TTP vs {ylabel}")
+        axis.tick_params(labelsize=9)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, loc="upper center", bbox_to_anchor=(0.5, 0.92), ncol=3)
+    fig.suptitle("TTP versus local-excursion REP50 and half-width", y=0.99)
+    fig.tight_layout(rect=(0, 0, 1, 0.86))
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _plot_correlation_matrix(plt, corr: pd.DataFrame, output_path: Path) -> None:
     labels = [_short_label(col) for col in corr.columns]
     fig, ax = plt.subplots(figsize=(max(8, 0.52 * len(labels)), max(7, 0.52 * len(labels))))
@@ -498,8 +545,11 @@ def _plot_feature_rank_bars(plt, rank_table: pd.DataFrame, output_path: Path) ->
 def _short_label(name: str) -> str:
     replacements = {
         "trough_to_peak_duration_ms": "TTP ms",
-        "repolarization_time_ms": "REP50 ms",
-        "spike_half_width_ms": "half-width ms",
+        "repolarization_time_ms": "local REP50 ms",
+        "spike_half_width_ms": "local half-width ms",
+        "current_repolarization_time_ms": "current REP50 ms",
+        "current_spike_half_width_ms": "current half-width ms",
+        "pre_peak_to_trough_ratio_uV": "|Peak1|/|trough|",
         "template_ptp_best_channel_uV": "PTP uV",
         "spiketurnpike_amplitude_uV": "trough amp uV",
         "post_trough_rebound_slope_uV_per_ms": "rebound slope",

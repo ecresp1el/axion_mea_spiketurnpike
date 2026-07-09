@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.plot_lumos_candidate_waveform_gallery import (  # noqa: E402
     _measure_spiketurnpike_waveform_metrics,
 )
+from scripts.explore_local_excursion_width_rep import _measure_local_excursion_metrics  # noqa: E402
 
 
 DEFAULT_JOB_DIR = Path(
@@ -146,8 +147,8 @@ def main() -> None:
             "pre_peak": "blue",
             "trough": "black",
             "rebound_peak": "orange",
-            "rep_recovery": "green",
-            "half_width": "red-orange",
+            "local_rep50": "green",
+            "local_half_width": "red-orange",
         },
         "outputs": {
             "overview_png": str(overview_png),
@@ -157,6 +158,7 @@ def main() -> None:
         "notes": [
             "Exploratory only; production TTP-based classifier is unchanged.",
             "Waveforms are raw best-PTP-channel templates.average traces in uV.",
+            "REP50 and half-width annotations use local Peak1-trough midpoint definitions.",
             "TTP remains the primary classifier; this gallery is for visual inspection of borderline units only.",
         ],
         "errors": errors,
@@ -217,6 +219,13 @@ def _load_waveforms(si, assignments: pd.DataFrame, *, rep_fraction: float) -> tu
                 nbefore = int(getattr(templates_ext, "nbefore", np.nanargmin(waveform_uV)))
                 time_ms = (np.arange(waveform_uV.size) - nbefore) / sampling_frequency * 1000.0
                 metrics = _measure_spiketurnpike_waveform_metrics(waveform_uV, time_ms, rep_fraction=rep_fraction)
+                local_metrics = _measure_local_excursion_metrics(waveform_uV, time_ms, metrics)
+                metrics = {
+                    **metrics,
+                    "local_rep50_index": local_metrics["local_rep50_index"],
+                    "local_half_width_start_index": local_metrics["local_half_width_start_index"],
+                    "local_half_width_end_index": local_metrics["local_half_width_end_index"],
+                }
                 metadata = row.to_dict()
                 metadata["best_channel_index_reloaded"] = best_channel_index
                 metadata["template_reference_reloaded"] = (
@@ -299,8 +308,8 @@ def _plot_one_waveform(axis, waveform: BorderlineWaveform, y_limit: float) -> No
         spine.set_edgecolor(cluster_color)
     title = (
         f"{metadata.get('well')} u{metadata.get('unit_id')} {label.replace('_candidate', '')}\n"
-        f"TTP {metadata.get('trough_to_peak_duration_ms'):.2f} REP {metadata.get('repolarization_time_ms'):.2f} "
-        f"HW {metadata.get('spike_half_width_ms'):.2f}\n"
+        f"TTP {metadata.get('trough_to_peak_duration_ms'):.2f} local REP {metadata.get('repolarization_time_ms'):.2f} "
+        f"local HW {metadata.get('spike_half_width_ms'):.2f}\n"
         f"reb {metadata.get('post_trough_rebound_slope_uV_per_ms'):.1f} "
         f"down {metadata.get('pre_trough_depolarization_slope_uV_per_ms'):.1f} "
         f"asym {metadata.get('waveform_asymmetry'):.2f}"
@@ -313,9 +322,9 @@ def _scatter_landmarks(axis, waveform: BorderlineWaveform) -> None:
         ("pre_peak_index", "#0072b2", "white", 22),
         ("trough_index", "black", "white", 24),
         ("rebound_peak_index", "#e69f00", "black", 22),
-        ("rep_recovery_index", "#009e73", "white", 24),
-        ("half_width_start_index", "#d55e00", "white", 19),
-        ("half_width_end_index", "#d55e00", "white", 19),
+        ("local_rep50_index", "#009e73", "white", 24),
+        ("local_half_width_start_index", "#d55e00", "white", 19),
+        ("local_half_width_end_index", "#d55e00", "white", 19),
     ]
     for key, facecolor, edgecolor, size in specs:
         index = int(waveform.metrics.get(key, -1))
@@ -337,8 +346,8 @@ def _add_legend(figure) -> None:
         ("blue pre-peak", "#0072b2"),
         ("black trough", "black"),
         ("orange rebound peak", "#e69f00"),
-        ("green REP50 recovery", "#009e73"),
-        ("red-orange half-width", "#d55e00"),
+        ("green local REP50", "#009e73"),
+        ("red-orange local half-width", "#d55e00"),
     ]
     x = 0.16
     y = 0.972
