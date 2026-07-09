@@ -455,11 +455,17 @@ def discover_analyzers(
     *,
     raw_paths: list[Path] | tuple[Path, ...] | None = None,
 ) -> list[dict[str, str]]:
-    from axion_mea.gui_stim_response import find_matching_raw_file, is_lumos_plate
+    from axion_mea.gui_stim_response import (
+        find_matching_raw_file,
+        is_lumos_plate,
+        load_opto_intervals_from_raw,
+        stim_events_from_raw,
+    )
 
     recording_prefixes = recording_prefixes or []
     stim_raw_roots = stim_raw_roots or DEFAULT_STIM_RAW_ROOTS
     rows: list[dict[str, str]] = []
+    stim_preflight_cache: dict[Path, tuple[bool, str]] = {}
     pattern = f"*/*/postprocessed/{RECORDING_NAME}.zarr"
     for analyzer_path in sorted(root.glob(pattern)):
         if not ((analyzer_path / ".zattrs").exists() or (analyzer_path / ".zmetadata").exists()):
@@ -475,7 +481,32 @@ def discover_analyzers(
             plate_type_name="FortyEightWellLumos" if "fortyeightwell" in recording.lower() else "",
         )
         cohort_match = _recording_looks_june_july(recording, raw_path)
-        opto_eligible = lumos and raw_path is not None and cohort_match
+        stim_available = False
+        stim_reason = "not June/July Lumos with matched raw"
+        if lumos and raw_path is not None and cohort_match:
+            if raw_path not in stim_preflight_cache:
+                try:
+                    stim_events = stim_events_from_raw(raw_path)
+                    command_intervals = load_opto_intervals_from_raw(raw_path)
+                    event_count = len(stim_events)
+                    interval_count = len(command_intervals)
+                    stim_available = event_count > 0 and interval_count > 0
+                    if stim_available:
+                        stim_reason = (
+                            f"June/July Lumos raw matched; {event_count} stim events; "
+                            f"{interval_count} command intervals"
+                        )
+                    else:
+                        stim_reason = (
+                            "June/July Lumos raw matched, but stim preflight failed: "
+                            f"{event_count} stim events; {interval_count} command intervals"
+                        )
+                except Exception as exc:  # noqa: BLE001 - discovery should report and continue
+                    stim_available = False
+                    stim_reason = f"June/July Lumos raw matched, but stim preflight failed: {type(exc).__name__}: {exc}"
+                stim_preflight_cache[raw_path] = (stim_available, stim_reason)
+            stim_available, stim_reason = stim_preflight_cache[raw_path]
+        opto_eligible = lumos and raw_path is not None and cohort_match and stim_available
         rows.append(
             {
                 "recording": recording,
@@ -483,11 +514,7 @@ def discover_analyzers(
                 "analyzer_path": str(analyzer_path),
                 "opto_eligible": "true" if opto_eligible else "false",
                 "stim_raw_path": str(raw_path) if raw_path is not None else "",
-                "opto_reason": (
-                    "June/July Lumos raw matched"
-                    if opto_eligible
-                    else "not June/July Lumos with matched raw"
-                ),
+                "opto_reason": stim_reason,
             }
         )
     return rows
