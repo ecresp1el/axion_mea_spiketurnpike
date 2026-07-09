@@ -305,6 +305,109 @@ Use this corrected `20260709_182100` plot-pack root for inspecting spatial
 footprints. Keep the earlier `20260709_175429` root only as provenance for the
 superseded dot-map version.
 
+Additional spatial-isolation 1x2 panels:
+
+To make the spatial-isolation argument more visually convincing, a separate
+1x2 panel pack was generated. Each figure uses one selected multi-unit well:
+
+- left panel: overlaid normalized spatial PTP profiles for selected
+  `KSLabel=good` units from the same well,
+- right panel: matching auto/cross-correlogram matrix for those same units.
+
+This directly shows whether good units in the same well have minimally
+overlapping spatial profiles and non-duplicate timing structure.
+
+Output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x2_20260709_182942/
+```
+
+Completed job:
+
+```text
+job_id: 53216188
+state: COMPLETED
+elapsed: 00:00:39
+node: gl3030
+```
+
+Outputs:
+
+```text
+spatial_isolation_1x2_manifest_20260709.csv
+spatial_isolation_1x2_errors_20260709.csv
+spatial_isolation_1x2_provenance_20260709.json
+lumos/*.png
+cytoview_dorsal/*.png
+cytoview_ventral/*.png
+```
+
+Counts:
+
+| Selection group | 1x2 panels | Render errors |
+|---|---:|---:|
+| Lumos geometry | 4 | 0 |
+| Cytoview dorsal | 4 | 0 |
+| Cytoview ventral | 4 | 0 |
+
+The renderer chooses up to `3` units per selected well, with `min_spikes=100`,
+and optimizes for stronger unit count, greater best-channel separation, and
+lower normalized footprint cosine overlap. In the completed manifest, mean
+footprint overlaps are low (`0.0000` to `0.0280`) and mean best-channel
+distances are large (`398` to `1293 um`), making this the best current visual
+summary for spatial separation plus correlogram evidence.
+
+Preferred spatial-isolation 1x3 panels:
+
+After reviewing the 1x2 panels, the spatial footprint view was extended to a
+1x3 layout because the dot-only spatial overlay still did not show enough of
+the waveform evidence. The 1x3 layout uses the same selected units and adds:
+
+- left: centered best-channel mean waveforms for unit identity and waveform
+  shape,
+- middle: actual multichannel template waveforms laid out on the electrode
+  grid,
+- right: auto/cross-correlogram matrix for those exact units.
+
+Output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/
+```
+
+Completed job:
+
+```text
+job_id: 53216594
+state: COMPLETED
+elapsed: 00:00:31
+node: gl3051
+```
+
+Outputs:
+
+```text
+spatial_isolation_1x3_manifest_20260709.csv
+spatial_isolation_1x3_errors_20260709.csv
+spatial_isolation_1x3_provenance_20260709.json
+lumos/*.png
+cytoview_dorsal/*.png
+cytoview_ventral/*.png
+```
+
+Counts:
+
+| Selection group | 1x3 panels | Render errors |
+|---|---:|---:|
+| Lumos geometry | 4 | 0 |
+| Cytoview dorsal | 4 | 0 |
+| Cytoview ventral | 4 | 0 |
+
+Use the `20260709_183800` 1x3 root as the preferred spatial-isolation review
+pack. Keep the `20260709_182942` 1x2 root as a simpler summary, and the
+`20260709_182100` root as the per-unit multichannel-template view.
+
 ## Goal
 
 Build a unified, reproducible representative-unit selection layer for the next

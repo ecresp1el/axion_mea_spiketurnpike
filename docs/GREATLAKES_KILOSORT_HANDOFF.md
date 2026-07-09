@@ -610,6 +610,28 @@ Next handoff target:
   `selection_panel=within_well_multichannel_template_footprints`. Use the
   `20260709_182100` root for spatial-footprint inspection; keep the
   `20260709_175429` root only as provenance for the superseded dot-map version.
+- Spatial-isolation 1x2 panels completed on 2026-07-09 18:30 EDT via Slurm job
+  `53216188`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x2_20260709_182942/`.
+  These are the most direct current panels for arguing that multiple
+  `KSLabel=good` units in the same well have minimally overlapping spatial
+  profiles and non-duplicate spike timing. Each figure has a left panel with
+  overlaid normalized spatial PTP profiles and a right panel with the
+  corresponding auto/cross-correlogram matrix. It rendered `12` PNG panels and
+  `0` errors: `4` Lumos, `4` Cytoview dorsal, and `4` Cytoview ventral. The
+  selected unit subsets use `min_spikes=100`; mean footprint overlap ranges
+  from `0.0000` to `0.0280`, and mean best-channel distance ranges from `398`
+  to `1293 um`.
+- Preferred spatial-isolation 1x3 panels completed on 2026-07-09 18:39 EDT via
+  Slurm job `53216594`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/`.
+  This uses the same selected units as the 1x2 panels but adds the missing
+  waveform evidence. Each figure has: left, centered best-channel mean
+  waveforms for unit identity; middle, actual multichannel template waveforms
+  plotted on the electrode grid; right, the auto/cross-correlogram matrix. It
+  rendered `12` PNG panels and `0` errors: `4` Lumos, `4` Cytoview dorsal, and
+  `4` Cytoview ventral. Use this `20260709_183800` root as the preferred
+  spatial-isolation review pack.
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference

@@ -8336,6 +8336,86 @@ Canonical commands:
     use the `20260709_182100` root for spatial-footprint inspection. Keep
     `20260709_175429` only as provenance for the superseded dot-map version.
 
+- [x] 2026-07-09 18:30 EDT - Spatial-isolation 1x2 panels rendered for
+  same-well multi-unit examples.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x2_20260709_182942/`
+
+  Completed job:
+    `53216188` `COMPLETED` in `00:00:39` on `gl3030`.
+
+  Figure logic:
+    each figure is a same-well 1x2 panel. The left side overlays normalized
+    spatial PTP profiles for selected `KSLabel=good` units. The right side
+    shows the matching auto/cross-correlogram matrix for those exact units.
+    This is currently the most direct visual argument that multiple good units
+    in the same well have minimally overlapping spatial profiles and are not
+    obvious duplicate detections.
+
+  Selection logic:
+    for each selected Wave C well, choose up to `3` units with `min_spikes=100`,
+    balancing spike count, best-channel separation, and low normalized
+    footprint cosine overlap.
+
+  Rendered outputs:
+    total PNG panels: `12`
+    render errors: `0`
+    Lumos: `4`
+    Cytoview dorsal: `4`
+    Cytoview ventral: `4`
+
+  Manifest metrics:
+    mean footprint cosine overlap range: `0.0000` to `0.0280`
+    mean best-channel distance range: `398` to `1293 um`
+    min selected spike count range: `229` to `1211` for Cytoview/Lumos panels
+      except one Lumos panel at `312`, all above the `100` spike floor.
+
+  Key outputs:
+    `spatial_isolation_1x2_manifest_20260709.csv`
+    `spatial_isolation_1x2_errors_20260709.csv`
+    `spatial_isolation_1x2_provenance_20260709.json`
+    `lumos/*.png`
+    `cytoview_dorsal/*.png`
+    `cytoview_ventral/*.png`
+
+- [x] 2026-07-09 18:39 EDT - Preferred spatial-isolation 1x3 panels rendered
+  with centered mean waveforms, multichannel spatial waveforms, and
+  correlograms.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/`
+
+  Completed job:
+    `53216594` `COMPLETED` in `00:00:31` on `gl3051`.
+
+  Figure logic:
+    each figure is a same-well 1x3 panel using the same selected units as the
+    1x2 pack. Left: centered best-channel mean waveforms for unit identity and
+    waveform shape. Middle: actual multichannel template waveforms plotted on
+    the electrode grid. Right: matching auto/cross-correlogram matrix for those
+    exact units.
+
+  Rendered outputs:
+    total PNG panels: `12`
+    render errors: `0`
+    Lumos: `4`
+    Cytoview dorsal: `4`
+    Cytoview ventral: `4`
+
+  Use:
+    use the `20260709_183800` 1x3 root as the preferred spatial-isolation
+    review pack. The `20260709_182942` 1x2 root remains a simpler summary; the
+    `20260709_182100` root remains the per-unit multichannel-template view.
+
+  Key outputs:
+    `spatial_isolation_1x3_manifest_20260709.csv`
+    `spatial_isolation_1x3_errors_20260709.csv`
+    `spatial_isolation_1x3_provenance_20260709.json`
+    `lumos/*.png`
+    `cytoview_dorsal/*.png`
+    `cytoview_ventral/*.png`
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 
