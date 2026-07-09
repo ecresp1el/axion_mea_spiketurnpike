@@ -7785,6 +7785,109 @@ Canonical commands:
     those completed wrappers lack the expected analyzer directory, or accept that
     these are completed AIND runs but not yet GUI-ready assets.
 
+- [x] 2026-07-09 14:02 EDT - Cytoview priority movement/stuck check against the
+  previous clean batches.
+
+  Live status:
+    The clean Cytoview priority jobs are not stuck in Slurm. No active AIND jobs
+    are currently present in `squeue`; the submitted parent wrappers either
+    completed or failed.
+
+  Runtime comparison:
+    wave `cytoview_platemap_dv_priority_20_20260709_1308`:
+      `19 / 20` parent wrappers completed, `1 / 20` failed.
+      completed parent runtimes were approximately `13m51s` to `19m25s`.
+    wave `cytoview_platemap_dv_priority_20_20260709_1311`:
+      `20 / 20` parent wrappers completed.
+      completed parent runtimes were approximately `13m51s` to `16m59s`.
+    wave `cytoview_platemap_dv_priority_20_20260709_1330`:
+      `19 / 20` parent wrappers completed, `1 / 20` failed.
+      completed parent runtimes were approximately `5m16s` to `12m20s`.
+
+  Interpretation:
+    The later wave was faster, not slower, and it drained cleanly from a Slurm
+    perspective. The problem is not queue stalling. The problem is output
+    usefulness: only some successful parent wrappers produce GUI-ready
+    sorting-analyzer assets.
+
+  Artifact check across the 60 clean priority-wave wells:
+    `34` have all expected GUI/unit artifacts:
+      `spikesorted/block0_None_recording1`
+      `curated/block0_None_recording1`
+      `postprocessed/block0_None_recording1.zarr`
+      NWB `/units`
+    `24` completed through `quality_control_collector` but have none of those
+    unit/analyzer artifacts.
+    `2` failed at `spikesort_kilosort4` with sparse Kilosort clips.
+
+  Practical conclusion:
+    The 60 submitted priority wells are not moving anymore because they are done.
+    Of those, `34` are actually GUI/analyzer usable now, `24` are completed
+    no-unit/no-analyzer outputs, and `2` are sparse Kilosort failures. The
+    remaining `30 / 90` priority wells are not moving because they have not yet
+    been resubmitted after the earlier cancelled all-Cytoview wave.
+
+- [x] 2026-07-09 14:03 EDT - Submitted the next Cytoview/SixWell
+  plate-map-backed dorsal/ventral Step 1 priority wave.
+
+  Wave label:
+    `cytoview_platemap_dv_priority_20_20260709_1408`
+
+  Submission command used the priority ledger, not the full Cytoview ledger:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709.csv`
+
+  Selection controls:
+    status: `not_ready_or_not_started`
+    plate family: `cytoview_6well`
+    limit: `20`
+    `--allow-resubmit`
+    `--skip-submitted-wave-prefix cytoview_platemap_dv_priority`
+    parent walltime: `12:00:00`
+
+  Submitted parent wrapper jobs:
+    `53183030-53183049`
+
+  Region/plate balance:
+    dorsal: `10`
+    ventral: `10`
+    `133-1555` dorsal: `4`
+    `133-1555` ventral: `4`
+    `134-0150` dorsal: `6`
+    `134-0150` ventral: `6`
+
+  Immediate queue check:
+    all `20 / 20` parent wrappers were `RUNNING` at the first checkpoint, about
+    `0:11` elapsed.
+
+  Remaining after this wave:
+    `10 / 90` plate-map-backed Cytoview dorsal/ventral priority wells remain
+    not clean-submitted.
+
+- [x] 2026-07-09 14:20 EDT - Submitted the final Cytoview/SixWell
+  plate-map-backed dorsal/ventral Step 1 priority wave.
+
+  Wave label:
+    `cytoview_platemap_dv_priority_10_20260709_1420`
+
+  Submitted parent wrapper jobs:
+    `53187232-53187241`
+
+  Region/plate balance:
+    dorsal: `5`
+    ventral: `5`
+    `133-1555` dorsal: `2`
+    `133-1555` ventral: `2`
+    `134-0150` dorsal: `3`
+    `134-0150` ventral: `3`
+
+  Immediate queue check:
+    all `10 / 10` parent wrappers were accepted by Slurm and were `PENDING`
+    by priority at the first checkpoint.
+
+  Priority submission status:
+    all `90 / 90` plate-map-backed Cytoview dorsal/ventral priority wells have
+    now been submitted in clean watched waves.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

@@ -641,3 +641,188 @@ rate 1.077 Hz, max firing rate 3.432 Hz, and max pulse-locked raw response
 0 FS-like in columns 4-8 and 7 RS-like/3 borderline/2 FS-like in columns 1-3.
 Several columns 1-3 candidates remain clean `good` units, so outside-prior wells
 should stay in manual review rather than being treated as automatically negative.
+
+## Step 1 Ground Truth Snapshot, 2026-07-09 14:13 EDT
+
+Use this Step 1 ledger as the current single source of truth for what is ready,
+running, failed, or still not started:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/step1_v5_well_ground_truth.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/step1_v5_ground_truth_summary.txt
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/step1_v5_ground_truth_summary.json
+```
+
+The corresponding Step 1 analyzer root remains:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/<recording>/<well>/postprocessed/block0_None_recording1.zarr
+```
+
+Current ledger rows: 454 total, split into 256 Lumos 48-well rows and
+198 Cytoview/SixWell rows.
+
+Lumos status, all current Lumos rows:
+
+| Status | Count |
+|---|---:|
+| `gui_ready_standard` | 150 |
+| `standard_failed_sparse_fallback_candidate` | 98 |
+| `export_failed` | 8 |
+
+Interpretation: Lumos is the optogenetics/optotagging track. Use the Lumos
+manual sorting guide and pulse/train locked GUI panels only when stimulation
+metadata are present and valid. The 150 GUI-ready Lumos wells are the current
+source for optotagging/waveform visual inspection outputs; sparse fallback and
+export-failed Lumos rows are not currently GUI-ready standard analyzers.
+
+Cytoview/SixWell status, all current Cytoview rows:
+
+| Status | Count |
+|---|---:|
+| `gui_ready_standard` | 39 |
+| `completed_standard_no_gui_analyzer_yet` | 29 |
+| `running_standard` | 10 |
+| `not_ready_or_not_started` | 118 |
+| `standard_failed_sparse_fallback_candidate` | 2 |
+
+Interpretation: Cytoview/SixWell is the dorsal/ventral Step 1 track. Do not use
+Lumos opto assumptions here. The current biological Step 1 summaries should use
+`KSLabel=good` units, TTP-based FS/borderline/RS designation, firing rate, and
+ISI metrics computed directly from Step 1 SortingAnalyzer spike trains/templates.
+
+Cytoview wave-label cross-reference:
+
+| Wave label | Status | Count |
+|---|---|---:|
+| `cytoview_platemap_dv_priority_20_20260709_1308` | `gui_ready_standard` | 11 |
+| `cytoview_platemap_dv_priority_20_20260709_1308` | `completed_standard_no_gui_analyzer_yet` | 8 |
+| `cytoview_platemap_dv_priority_20_20260709_1308` | `standard_failed_sparse_fallback_candidate` | 1 |
+| `cytoview_platemap_dv_priority_20_20260709_1311` | `gui_ready_standard` | 12 |
+| `cytoview_platemap_dv_priority_20_20260709_1311` | `completed_standard_no_gui_analyzer_yet` | 8 |
+| `cytoview_platemap_dv_priority_20_20260709_1330` | `gui_ready_standard` | 11 |
+| `cytoview_platemap_dv_priority_20_20260709_1330` | `completed_standard_no_gui_analyzer_yet` | 8 |
+| `cytoview_platemap_dv_priority_20_20260709_1330` | `standard_failed_sparse_fallback_candidate` | 1 |
+| `cytoview_platemap_dv_priority_20_20260709_1408` | `gui_ready_standard` | 5 |
+| `cytoview_platemap_dv_priority_20_20260709_1408` | `completed_standard_no_gui_analyzer_yet` | 5 |
+| `cytoview_platemap_dv_priority_20_20260709_1408` | `running_standard` | 10 |
+| `cytoview_remaining_all_20260709_0214` | `not_ready_or_not_started` | 118 |
+
+The dorsal/ventral plate-map plan is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709_batch_plan.csv
+```
+
+The plan has 90 priority rows: 45 dorsal and 45 ventral. A-row wells are
+ventral and B-row wells are dorsal by default; the exact plan CSV should be
+preferred when available. A manual correction layer is now applied after the
+plan mapping:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_region_overrides_20260709.csv
+```
+
+Current correction law: for recordings containing
+`h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)`, wells `B1` and `B2` are
+final-labeled as `ventral` even though the default B-row rule would label them
+as dorsal. This is treated as human-notes ground truth for current Step 1
+summaries.
+
+Current Step 1-only Cytoview dorsal/ventral snapshot was generated with:
+
+```bash
+conda run -p /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort \
+  python scripts/build_cytoview_dorsal_ventral_step1_summary.py
+```
+
+The script intentionally does not read downstream/IAN master tables. It opens
+current GUI-ready Cytoview Step 1 analyzers and computes per-unit `KSLabel`,
+firing rate, ISI metrics, best-channel template TTP, and TTP-based
+FS/borderline/RS labels directly from Step 1 assets.
+
+Outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_unit_metrics.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_well_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_region_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_asset_status.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_current_good_units.png
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_provenance.json
+```
+
+Current snapshot contents:
+
+| Metric | Value |
+|---|---:|
+| GUI-ready Cytoview wells scanned | 39 |
+| Analyzer load errors | 0 |
+| All sorted unit rows measured | 870 |
+| `KSLabel=good` unit rows measured | 164 |
+| Region override rules loaded | 2 |
+| Unit rows with region override | 156 |
+| Ready dorsal wells | 17 |
+| Ready ventral wells | 22 |
+
+Current `KSLabel=good` Cytoview regional summary, GUI-ready wells only:
+
+| Region | Good units | Wells | Median firing rate Hz | Mean firing rate Hz | Median ISI ms | Median TTP ms | FS_like | Borderline | RS_like |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| dorsal | 73 | 16 | 0.4034 | 0.6907 | 548.32 | 0.96 | 4 | 3 | 66 |
+| ventral | 91 | 21 | 1.4105 | 1.7765 | 197.20 | 1.04 | 3 | 8 | 80 |
+
+Treat this as a current Step 1 readiness/inspection snapshot, not a final
+dorsal/ventral biological result, because additional Cytoview wells are still
+running or not yet GUI-ready.
+
+### Cytoview B1/B2 Firing-Rate Audit, 2026-07-09
+
+After the current dorsal/ventral snapshot, B1/B2 firing rates were audited
+because a mislabeled dorsal/ventral plate or recording was suspected. The audit
+confirmed the default plan has no A/B row-rule mismatches, then the manual
+override layer was made authoritative for the suspect block. The current
+unit-metrics table therefore has four intentional row-rule mismatches:
+`134-0150 exp17_2(001)` `B1/B2` in two variants, all final-labeled as ventral.
+There are zero unresolved label mismatches after applying this override.
+
+Audit outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_b1_b2_firing_rate_audit_20260709.png
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_b1_b2_firing_rate_audit_20260709_label_validation.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_b1_b2_firing_rate_audit_20260709_well_summary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_b1_b2_firing_rate_audit_20260709_high_b1_b2_good_units.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_b1_b2_firing_rate_audit_20260709_sensitivity.csv
+```
+
+The corrected ventral B1/B2 signal is concentrated in one recording block:
+
+```text
+plate_id=134-0150
+recording contains h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)
+wells B1 and B2
+```
+
+Top B1/B2 examples from this block:
+
+| Recording block | Well | Variant | Good units | Median FR Hz | Mean FR Hz | Max FR Hz |
+|---|---|---|---:|---:|---:|---:|
+| `134-0150 exp17_2(001)` | B2 | primary raw | 10 | 1.8590 | 3.5266 | 11.9559 |
+| `134-0150 exp17_2(001)` | B2 | filter 200 Hz-3 kHz | 4 | 2.6138 | 2.8661 | 6.1113 |
+| `134-0150 exp17_2(001)` | B1 | filter 200 Hz-3 kHz | 6 | 0.8220 | 1.5747 | 4.9763 |
+| `134-0150 exp17_2(001)` | B1 | primary raw | 12 | 1.5030 | 1.8933 | 3.7906 |
+
+Sensitivity check after applying the override:
+
+| Scenario | Dorsal good units | Dorsal median FR Hz | Dorsal mean FR Hz | Ventral good units | Ventral median FR Hz | Ventral mean FR Hz |
+|---|---:|---:|---:|---:|---:|---:|
+| Current GUI-ready snapshot after override | 73 | 0.4034 | 0.6907 | 91 | 1.4105 | 1.7765 |
+| Exclude `134-0150 exp17_2(001)` B1/B2 | 73 | 0.4034 | 0.6907 | 59 | 1.3642 | 1.4028 |
+| Exclude entire `134-0150 exp17_2(001)` recording | 60 | 0.3309 | 0.5049 | 47 | 1.3413 | 1.3622 |
+
+Interpretation for now: the active Step 1 truth is that
+`134-0150 exp17_2(001)` `B1/B2` are ventral. Do not interpret those wells as
+dorsal in Cytoview dorsal/ventral summaries unless the override CSV is
+explicitly changed.
