@@ -5555,3 +5555,77 @@ existing results/aind recording_stem collisions: 0
 
 Use the v5 recordings manifest, not v4, for the next reviewed Step 1 submission
 copy.
+
+## 2026-07-08 Step 1 TH=5 v5 Submission Launched
+
+The reviewed v5 Step 1 rerun was submitted from a timestamped submission package:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826
+```
+
+Submission manifest:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/recordings_manifest_nonlfp_th5_v5_SUBMIT_TRUE.csv
+```
+
+Saved command files:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/01_generate_recording_batch_plan_command.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/02_prepare_all_recordings_command.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/03_submit_all_recordings_command.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/04_supervise_all_recordings_command.sh
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/05_summarize_live_status_command.sh
+```
+
+Launch summary:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/submission_launch_summary.json
+```
+
+Submitted workload:
+
+```text
+recording rows prepared: 57
+well chains submitted: 454
+pipeline Slurm jobs submitted: 1816
+pipeline job ID range: 53132868-53134685
+recording supervisor jobs submitted: 57
+supervisor job ID range: 53134690-53134747
+```
+
+Submission ledgers:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/recording_batch_plan/submitted_recording_batches.tsv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/recording_batch_plan/submitted_recording_supervisors.tsv
+```
+
+Initial scoped live-status snapshot:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/live_status/workflow_status_latest.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/live_status/workflow_status_latest.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826/live_status/workflow_status_latest.txt
+```
+
+During preparation, the first attempt failed before any Slurm submission because
+`scripts/prepare_aind_well_batch.py` locked `params_template` to the plate-profile
+default params and refused the explicit TH=5/preprocessing params from the
+manifest. The script was patched so plate map and electrode geometry remain
+metadata-locked, but an explicit manifest `params_template` is allowed if the
+file exists. Preparation was rerun successfully after that patch, then the
+Step 1 jobs and supervisors were submitted.
+
+Important params used by the prepared well manifests:
+
+```text
+config/aind_axion_lumos_params_th5_kilosort_preproc_DRAFT.json
+config/aind_axion_cytoview6_params_th5_kilosort_preproc_DRAFT.json
+
+Th_universal = 5
+skip_kilosort_preprocessing = false
+```
