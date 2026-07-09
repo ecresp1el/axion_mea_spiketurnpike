@@ -34,6 +34,21 @@ def parse_args() -> argparse.Namespace:
         help="Optional exact plate_family filter, e.g. cytoview_6well or lumos_48well.",
     )
     parser.add_argument(
+        "--recording-contains",
+        action="append",
+        default=[],
+        help=(
+            "Optional substring filter for recording names. May be passed more than once; "
+            "a row is kept if it matches any provided substring."
+        ),
+    )
+    parser.add_argument(
+        "--well",
+        action="append",
+        default=[],
+        help="Optional well filter such as A1. May be passed more than once.",
+    )
+    parser.add_argument(
         "--wave-label",
         default="",
         help="Optional label written to the submit ledger. Defaults to timestamp label.",
@@ -100,9 +115,15 @@ def main() -> int:
     statuses = {item.strip() for item in args.status.split(",") if item.strip()}
     rows = list(csv.DictReader(args.ledger.open(newline="", encoding="utf-8")))
     submitted = already_submitted(args.submitted)
-    skip_submitted = already_submitted(args.submitted, args.skip_submitted_wave_prefix)
+    skip_submitted = (
+        already_submitted(args.submitted, args.skip_submitted_wave_prefix)
+        if args.skip_submitted_wave_prefix
+        else set()
+    )
 
     candidates: list[dict[str, str]] = []
+    recording_substrings = [item for item in args.recording_contains if item]
+    wells = {item.strip().upper() for item in args.well if item.strip()}
     for row in rows:
         key = (row["recording"], row["well"])
         if key in skip_submitted:
@@ -112,6 +133,10 @@ def main() -> int:
         if row.get("ground_truth_status") not in statuses:
             continue
         if args.plate_family and row.get("plate_family") != args.plate_family:
+            continue
+        if recording_substrings and not any(item in row["recording"] for item in recording_substrings):
+            continue
+        if wells and row["well"].upper() not in wells:
             continue
         env_path = aind_env_for(row)
         if not env_path.is_file():

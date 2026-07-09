@@ -8453,6 +8453,27 @@ Canonical commands:
   Existing preferred 1x3 root remains intact and separate:
     `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/`
 
+- [x] 2026-07-09 20:30 EDT - Hybrid same-well spatial QC v2 rendered for the
+  same Cytoview ventral B2 units `8;11;30`.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_20260709_203000/`
+
+  V2 changes:
+    row B local waveform panels use horizontal multiplier `1.7` and vertical
+    multiplier `1.75` after the same unit-level best-channel PTP normalization;
+    neighboring channels are not independently normalized. A second ACG row was
+    added: row C remains raw counts, row D is probability per bin, and row E is
+    amplitude stability.
+
+  Probability equation:
+    `p_i = count_i / sum(count_j for displayed bins j with center != 0 ms)`.
+
+  Validation:
+    probability sums across displayed nonzero bins are `1.000` for units `8`,
+    `11`, and `30`; `P(abs lag <= 2 ms)` is `0.001621`, `0.014843`, and
+    `0.000000`, respectively. The original hybrid v1 root was not overwritten.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

@@ -1217,6 +1217,53 @@ Implementation order:
   /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_1x3_20260709_183800/
   ```
 
+- [x] 2026-07-09 20:30 EDT - Revised only the hybrid same-well spatial QC
+  figure for the same Cytoview ventral B2 example and saved a new v2 suffix.
+
+  New v2 output root:
+
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_20260709_203000/
+  ```
+
+  Rendered outputs:
+
+  ```text
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc_v2.png
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc_v2.pdf
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc_v2.svg
+  cytoview_ventral/02_step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_v_B2_spatial_isolation_hybrid_qc_v2_companion_manifest.csv
+  ```
+
+  Changes relative to v1:
+  row B local waveform panels use horizontal display multiplier `1.7` and
+  vertical display multiplier `1.75` after the same within-unit best-channel
+  PTP normalization. Neighboring channels are still not normalized
+  independently. The individual sampled-spike cloud remains only on the best
+  channel and was lightened for readability. A new row D shows
+  probability-normalized autocorrelograms under the existing count ACG row.
+  Amplitude stability is now row E.
+
+  Probability ACG equation:
+
+  ```text
+  p_i = count_i / sum(count_j for displayed bins j with center != 0 ms)
+  ```
+
+  Validation:
+
+  | Unit | Displayed probability sum | P(abs lag <= 2 ms) |
+  |---:|---:|---:|
+  | 8 | 1.000 | 0.001621 |
+  | 11 | 1.000 | 0.014843 |
+  | 30 | 1.000 | 0.000000 |
+
+  The original v1 hybrid figure root remains intact:
+
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500/
+  ```
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.

@@ -1331,3 +1331,95 @@ uV. The analyzer has `spike_amplitudes` with `peak_sign='neg'`, but that was not
 used because it is not the positive/negative-safe PTP measurement requested for
 this QC view. The previous `spatial_isolation_1x3_20260709_183800` output root
 was not overwritten.
+
+#### Hybrid Spatial QC v2, 2026-07-09
+
+The same Cytoview ventral B2 hybrid QC example was revised without changing the
+selected units, data source, colors, or calculations. The v2 files use a new
+suffix and a new output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_spatial_isolation_hybrid_qc_v2_20260709_203000/
+```
+
+V2 keeps the original units `8;11;30` and improves row B local waveform
+visibility using horizontal multiplier `1.7` and vertical multiplier `1.75`
+after the same one-per-unit best-channel PTP normalization. Neighboring
+channels are not independently normalized. Row C remains the raw-count ACG, row
+D is now `Autocorrelogram — probability`, and row E is amplitude stability.
+
+Probability ACG normalization:
+
+```text
+p_i = count_i / sum(count_j for displayed bins j with center != 0 ms)
+```
+
+Validation from the v2 companion manifest:
+
+| Unit | Probability sum over displayed nonzero bins | P(abs lag <= 2 ms) |
+|---:|---:|---:|
+| 8 | 1.000 | 0.001621 |
+| 11 | 1.000 | 0.014843 |
+| 30 | 1.000 | 0.000000 |
+
+The original hybrid v1 root
+`representative_units_20260709_spatial_isolation_hybrid_qc_20260709_195500`
+was not overwritten.
+
+### Testing MEA Transient Plateing Recording-Series Rerun, 2026-07-09
+
+The `Testing_mea_transient_plateing/134-0150/My Experiment(000..004)` block was
+rerun in the current `step1_nonlfp_th5` parameter context after confirming that
+the earlier `sixwell_manual_primary_*` outputs are historical only and should
+not be treated as current Step 1 truth.
+
+Scope and interpretation:
+
+- Submitted 5 recordings x 6 wells = 30 Cytoview/SixWell AIND jobs.
+- These recordings are not part of the dorsal/ventral plate-map analysis.
+- Treat them as a separate recording-series cohort for comparisons across
+  sequential recordings/timepoints only.
+- Do not include these rows in dorsal-vs-ventral summaries unless external
+  metadata later supplies a region label.
+
+Submitted wave label:
+
+```text
+cytoview_recording_series_no_region_testing_mea_transient_20260709
+```
+
+Submitted job IDs:
+
+```text
+53220086-53220115
+```
+
+Submission source ledger:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/step1_v5_well_ground_truth.csv
+```
+
+Submission ledger:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/submitted_step1_v5_ground_truth_waves.tsv
+```
+
+The submission helper now supports targeted filters:
+
+```bash
+conda run -p /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort \
+  python scripts/submit_next_step1_v5_ground_truth_wave.py \
+  --status not_ready_or_not_started \
+  --plate-family cytoview_6well \
+  --recording-contains 'Testing_mea_transient_plateing_134-0150_My_Experiment' \
+  --limit 30 \
+  --allow-resubmit \
+  --wave-label cytoview_recording_series_no_region_testing_mea_transient_20260709 \
+  --sbatch-time 12:00:00 \
+  --submit
+```
+
+Initial queue check immediately after submission showed all 30 jobs pending for
+priority.

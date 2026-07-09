@@ -34,6 +34,10 @@ GROUP_LABELS = {
 }
 UNIT_COLORS = ["#1f77b4", "#d95f02", "#2ca02c", "#9467bd"]
 ERROR_COLUMNS = ["selection_group", "recording", "well", "analyzer_path", "error_type", "error"]
+HYBRID_LOCAL_X_SCALE_MULTIPLIER = 1.7
+HYBRID_LOCAL_Y_SCALE_MULTIPLIER = 1.75
+HYBRID_LOCAL_TARGET_DISPLAY_GAIN = 2.25
+HYBRID_LOCAL_MAX_ROW_FRACTION = 0.46
 
 
 @dataclass
@@ -351,8 +355,8 @@ def panel_logic_description(layout: str) -> str:
     if layout == "hybrid_qc":
         return (
             "Top: combined same-well multichannel waveform map on physical electrode coordinates. "
-            "Rows below: per-unit local multichannel waveform footprint, autocorrelogram, and sampled "
-            "best-channel spike-PTP stability."
+            "Rows below: per-unit local multichannel waveform footprint, count autocorrelogram, "
+            "probability-normalized autocorrelogram, and sampled best-channel spike-PTP stability."
         )
     if layout == "1x3":
         return (
@@ -373,26 +377,34 @@ def render_hybrid_qc_panel(
 ) -> Path:
     unit_count = len(selected_units)
     fig_width = max(11.5, 4.1 * unit_count)
-    fig_height = 12.4
+    fig_height = 13.4
     fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=True)
-    outer = fig.add_gridspec(4, unit_count, height_ratios=[1.28, 1.28, 0.62, 0.72])
+    outer = fig.add_gridspec(5, unit_count, height_ratios=[1.06, 1.28, 0.56, 0.56, 0.72])
     ax_combined = fig.add_subplot(outer[0, :])
     plot_hybrid_combined_map(ax_combined, well_row, selected_units, metrics, bundle, args)
 
     local_sets = [local_channel_indices(row, bundle, args) for row in selected_units]
     local_span = shared_local_span(local_sets, bundle.channel_locations[:, :2])
+    local_display_gain = choose_hybrid_local_display_gain(selected_units, local_sets, bundle)
     recording_minutes = bundle.analyzer.recording.get_num_frames() / bundle.sampling_frequency_hz / 60.0
+    probability_data = [autocorrelogram_probability(row, bundle, args) for row in selected_units]
+    probability_ymax = max(
+        [float(np.nanmax(item["probability"])) for item in probability_data if np.any(np.isfinite(item["probability"]))]
+        or [1.0]
+    )
     for index, row in enumerate(selected_units):
         color = UNIT_COLORS[index % len(UNIT_COLORS)]
         local_channels = local_sets[index]
         ax_local = fig.add_subplot(outer[1, index])
-        plot_hybrid_local_footprint(ax_local, row, local_channels, local_span, bundle, args, color, index == 0)
+        plot_hybrid_local_footprint(ax_local, row, local_channels, local_span, bundle, args, color, index == 0, local_display_gain)
         ax_auto = fig.add_subplot(outer[2, index])
         plot_hybrid_autocorrelogram(ax_auto, row, bundle, args, color, index == 0)
-        ax_amp = fig.add_subplot(outer[3, index])
+        ax_prob = fig.add_subplot(outer[3, index])
+        plot_hybrid_probability_autocorrelogram(ax_prob, probability_data[index], args, color, index == 0, probability_ymax=probability_ymax)
+        ax_amp = fig.add_subplot(outer[4, index])
         plot_hybrid_amplitude_stability(ax_amp, row, bundle, args, color, recording_minutes, index == 0)
 
-    output_stem = panel_dir / f"{stem}_spatial_isolation_hybrid_qc"
+    output_stem = panel_dir / f"{stem}_spatial_isolation_hybrid_qc_v2"
     png_path = output_stem.with_suffix(".png")
     for suffix, save_kwargs in {
         ".png": {"dpi": 300},
@@ -470,41 +482,49 @@ def plot_hybrid_local_footprint(
     args,
     color: str,
     show_ylabel: bool,
+    local_display_gain: float,
 ) -> None:
     locations = bundle.channel_locations[:, :2]
     dx, dy = geometry_spacing(locations)
-    local_time, y_scale = waveform_grid_axes(bundle, dx, dy)
+    local_time, y_scale = waveform_grid_axes(
+        bundle,
+        dx,
+        dy,
+        x_multiplier=HYBRID_LOCAL_X_SCALE_MULTIPLIER,
+        y_multiplier=HYBRID_LOCAL_Y_SCALE_MULTIPLIER,
+    )
     template = bundle.templates[int(unit_row["unit_index"])]
     best = int(unit_row["best_channel_index_rendered"])
     scale = unit_display_ptp(unit_row, bundle)
     center = locations[best]
     half_x, half_y = local_span
 
-    ax.scatter(locations[local_channels, 0], locations[local_channels, 1], s=13, color="#d5d5d5", zorder=1)
+    ax.scatter(locations[local_channels, 0], locations[local_channels, 1], s=8, color="#e0e0e0", zorder=1)
     snippets, _times_min = sampled_best_channel_snippets(unit_row, bundle, args)
     if snippets.size:
         cloud = deterministic_rows(snippets, args.snippet_cloud_max)
         x0, y0 = locations[best]
         for snippet in cloud:
-            waveform = baseline(snippet) / scale
-            ax.plot(x0 + local_time, y0 + waveform * y_scale, color=color, alpha=0.08, linewidth=0.45, zorder=2)
+            waveform = baseline(snippet) / scale * local_display_gain
+            ax.plot(x0 + local_time, y0 + waveform * y_scale, color=color, alpha=0.045, linewidth=0.36, zorder=2)
 
     for channel_index in local_channels:
-        waveform = baseline(template[:, channel_index]) / scale
+        waveform = baseline(template[:, channel_index]) / scale * local_display_gain
         x0, y0 = locations[channel_index]
         is_best = channel_index == best
         ax.plot(
             x0 + local_time,
             y0 + waveform * y_scale,
             color=color,
-            alpha=0.98 if is_best else 0.62,
-            linewidth=1.75 if is_best else 0.80,
+            alpha=1.0 if is_best else 0.92,
+            linewidth=2.15 if is_best else 1.28,
             zorder=5 if is_best else 4,
         )
     ax.scatter([locations[best, 0]], [locations[best, 1]], s=82, facecolor="none", edgecolor=color, linewidth=1.8, zorder=8)
-    ax.text(locations[best, 0], locations[best, 1], f"u{unit_row['unit_id']}", color=color, fontsize=8, ha="left", va="bottom")
+    ax.text(locations[best, 0] + 0.10 * dx, locations[best, 1] + 0.22 * dy, f"u{unit_row['unit_id']}", color=color, fontsize=8, ha="left", va="bottom")
     ax.set_xlim(center[0] - half_x, center[0] + half_x)
     ax.set_ylim(center[1] - half_y, center[1] + half_y)
+    draw_local_scale_note(ax, center, half_x, half_y, dx, dy, bundle, local_display_gain)
     ax.set_aspect("equal", adjustable="box")
     ax.set_xticks([])
     ax.set_yticks([])
@@ -526,10 +546,48 @@ def plot_hybrid_autocorrelogram(ax, unit_row: dict[str, object], bundle: Analyze
     ax.axvline(0.0, color="#111111", linewidth=0.7)
     ax.set_xlim(-50, 50)
     ax.tick_params(labelsize=7, length=2)
-    ax.set_title(f"{'C  ' if show_ylabel else ''}Autocorrelogram", fontsize=8, loc="left")
+    ax.set_title(f"{'C  ' if show_ylabel else ''}Autocorrelogram — counts", fontsize=8, loc="left")
     ax.set_xlabel("Lag (ms)", fontsize=8)
     if show_ylabel:
         ax.set_ylabel("Count", fontsize=8)
+    else:
+        ax.set_yticklabels([])
+
+
+def plot_hybrid_probability_autocorrelogram(
+    ax,
+    probability_data: dict[str, object],
+    args,
+    color: str,
+    show_ylabel: bool,
+    *,
+    probability_ymax: float,
+) -> None:
+    bins = np.asarray(probability_data["bins"], dtype=float)
+    probability = np.asarray(probability_data["probability"], dtype=float)
+    mask = np.asarray(probability_data["display_mask"], dtype=bool)
+    heights = np.nan_to_num(probability[mask], nan=0.0)
+    ax.bar(bins[mask], heights, width=args.correlogram_bin_ms, color=color, alpha=0.72, edgecolor=color, linewidth=0.35)
+    ax.axvline(-2.0, color="#777777", linewidth=0.8, linestyle="--")
+    ax.axvline(2.0, color="#777777", linewidth=0.8, linestyle="--")
+    ax.axvline(0.0, color="#111111", linewidth=0.65)
+    ax.text(
+        0.98,
+        0.88,
+        f"P(|lag| <= 2 ms) = {float(probability_data['p_refractory']):.3f}",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=6.5,
+        color="#333333",
+    )
+    ax.set_xlim(-50, 50)
+    ax.set_ylim(0, max(probability_ymax * 1.12, 1e-6))
+    ax.tick_params(labelsize=7, length=2)
+    ax.set_title(f"{'D  ' if show_ylabel else ''}Autocorrelogram — probability", fontsize=8, loc="left")
+    ax.set_xlabel("Lag (ms)", fontsize=8)
+    if show_ylabel:
+        ax.set_ylabel("Fraction of autocorrelogram counts", fontsize=8)
     else:
         ax.set_yticklabels([])
 
@@ -562,7 +620,7 @@ def plot_hybrid_amplitude_stability(
             ax.plot(med_x, med_y, color=color, linewidth=1.2)
     ax.set_xlim(0, max(recording_minutes, 1e-9))
     ax.tick_params(labelsize=7, length=2)
-    ax.set_title(f"{'D  ' if show_ylabel else ''}Amplitude stability", fontsize=8, loc="left")
+    ax.set_title(f"{'E  ' if show_ylabel else ''}Amplitude stability", fontsize=8, loc="left")
     ax.set_xlabel("Recording time (min)", fontsize=8)
     if show_ylabel:
         ax.set_ylabel("Sampled spike PTP (uV)", fontsize=8)
@@ -734,11 +792,54 @@ def draw_waveform_grid_scale(ax, locations: np.ndarray, dx: float, dy: float, y_
     ax.text(x0 - 0.06 * dx, y0 + uv * y_scale * 0.5, "20 uV", ha="right", va="center", fontsize=6, rotation=90)
 
 
-def waveform_grid_axes(bundle: AnalyzerBundle, dx: float, dy: float) -> tuple[np.ndarray, float]:
-    x_half_width = 0.34 * dx
-    y_half_height = 0.25 * dy
+def waveform_grid_axes(
+    bundle: AnalyzerBundle,
+    dx: float,
+    dy: float,
+    *,
+    x_multiplier: float = 1.0,
+    y_multiplier: float = 1.0,
+) -> tuple[np.ndarray, float]:
+    x_half_width = 0.34 * dx * x_multiplier
+    y_half_height = 0.25 * dy * y_multiplier
     local_time = np.linspace(-x_half_width, x_half_width, bundle.templates.shape[1])
     return local_time, y_half_height
+
+
+def draw_local_scale_note(
+    ax,
+    center: np.ndarray,
+    half_x: float,
+    half_y: float,
+    dx: float,
+    dy: float,
+    bundle: AnalyzerBundle,
+    local_display_gain: float,
+) -> None:
+    duration_ms = max(bundle.templates.shape[1] * 1000.0 / bundle.sampling_frequency_hz, 1e-9)
+    time_width = 0.34 * dx * HYBRID_LOCAL_X_SCALE_MULTIPLIER * 2.0 * 1.0 / duration_ms
+    x0 = float(center[0] - half_x + 0.10 * dx)
+    y0 = float(center[1] - half_y + 0.14 * dy)
+    ax.plot([x0, x0 + time_width], [y0, y0], color="#333333", linewidth=0.85, zorder=20)
+    ax.text(x0 + time_width * 0.5, y0 - 0.07 * dy, "1 ms", ha="center", va="top", fontsize=6.3)
+    ax.text(
+        x0,
+        y0 + 0.12 * dy,
+        "all channels scaled by unit best-channel PTP",
+        ha="left",
+        va="bottom",
+        fontsize=6.2,
+        color="#333333",
+    )
+    ax.text(
+        x0,
+        y0 + 0.26 * dy,
+        f"glyphs enlarged uniformly {local_display_gain:.2f}x; relative amplitudes preserved",
+        ha="left",
+        va="bottom",
+        fontsize=6.2,
+        color="#333333",
+    )
 
 
 def draw_horizontal_time_scale(ax, relevant_xy: np.ndarray, dx: float, dy: float, bundle: AnalyzerBundle) -> None:
@@ -777,9 +878,36 @@ def shared_local_span(local_sets: list[list[int]], locations: np.ndarray) -> tup
     for local in local_sets:
         local_xy = locations[local]
         center = locations[local[0]]
-        half_x = max(half_x, float(np.nanmax(np.abs(local_xy[:, 0] - center[0])) + 0.72 * dx))
-        half_y = max(half_y, float(np.nanmax(np.abs(local_xy[:, 1] - center[1])) + 0.72 * dy))
+        half_x = max(half_x, float(np.nanmax(np.abs(local_xy[:, 0] - center[0])) + 0.62 * dx))
+        half_y = max(half_y, float(np.nanmax(np.abs(local_xy[:, 1] - center[1])) + 0.60 * dy))
     return half_x, half_y
+
+
+def choose_hybrid_local_display_gain(
+    selected_units: list[dict[str, object]],
+    local_sets: list[list[int]],
+    bundle: AnalyzerBundle,
+) -> float:
+    locations = bundle.channel_locations[:, :2]
+    _dx, dy = geometry_spacing(locations)
+    _time, y_scale = waveform_grid_axes(
+        bundle,
+        _dx,
+        dy,
+        x_multiplier=HYBRID_LOCAL_X_SCALE_MULTIPLIER,
+        y_multiplier=HYBRID_LOCAL_Y_SCALE_MULTIPLIER,
+    )
+    max_normalized_abs = 0.0
+    for unit_row, local_channels in zip(selected_units, local_sets):
+        template = bundle.templates[int(unit_row["unit_index"])]
+        scale = unit_display_ptp(unit_row, bundle)
+        for channel_index in local_channels:
+            waveform = baseline(template[:, channel_index]) / scale
+            max_normalized_abs = max(max_normalized_abs, float(np.nanmax(np.abs(waveform))))
+    if max_normalized_abs <= 0:
+        return 1.0
+    fit_gain = HYBRID_LOCAL_MAX_ROW_FRACTION * dy / max(y_scale * max_normalized_abs, 1e-9)
+    return float(max(1.0, min(HYBRID_LOCAL_TARGET_DISPLAY_GAIN, fit_gain)))
 
 
 def unit_display_ptp(unit_row: dict[str, object], bundle: AnalyzerBundle) -> float:
@@ -883,6 +1011,33 @@ def correlogram(times_a: np.ndarray, times_b: np.ndarray, args, *, exclude_zero:
     return centers, counts
 
 
+def autocorrelogram_probability(unit_row: dict[str, object], bundle: AnalyzerBundle, args) -> dict[str, object]:
+    spikes = spike_times(unit_row, bundle)
+    bins, counts = correlogram(spikes, spikes, args, exclude_zero=True)
+    display_mask = (bins >= -50.0) & (bins <= 50.0)
+    zero_bin_mask = np.isclose(bins, 0.0)
+    denominator_mask = display_mask & ~zero_bin_mask
+    denominator = float(np.nansum(counts[denominator_mask]))
+    probability = np.full(counts.shape, np.nan, dtype=float)
+    if denominator > 0:
+        probability[denominator_mask] = counts[denominator_mask] / denominator
+    probability[zero_bin_mask] = np.nan
+    p_refractory = float(np.nansum(probability[denominator_mask & (np.abs(bins) <= 2.0)]))
+    displayed_probability_sum = float(np.nansum(probability[denominator_mask]))
+    return {
+        "bins": bins,
+        "counts": counts,
+        "display_mask": display_mask,
+        "zero_bin_mask": zero_bin_mask,
+        "denominator_mask": denominator_mask,
+        "denominator": denominator,
+        "probability": probability,
+        "p_refractory": p_refractory,
+        "displayed_probability_sum": displayed_probability_sum,
+        "normalization_equation": "p_i = count_i / sum(count_j for displayed bins j with center != 0 ms)",
+    }
+
+
 def add_selection_group(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     track = out.get("track", pd.Series("", index=out.index)).fillna("").astype(str)
@@ -917,11 +1072,14 @@ def write_hybrid_companion_manifest(
     panel_dir = output_dir / group
     panel_dir.mkdir(parents=True, exist_ok=True)
     stem = panel_stem(well_row)
+    local_sets = [local_channel_indices(unit_row, bundle, args) for unit_row in selected_units]
+    local_display_gain = choose_hybrid_local_display_gain(selected_units, local_sets, bundle)
     rows = []
     for index, unit_row in enumerate(selected_units):
-        local = local_channel_indices(unit_row, bundle, args)
+        local = local_sets[index]
         snippets, times_min = sampled_best_channel_snippets(unit_row, bundle, args)
         sampled_ptp = np.ptp(snippets, axis=1).astype(float) if snippets.size else np.asarray([], dtype=float)
+        probability_data = autocorrelogram_probability(unit_row, bundle, args)
         spike_amp_note = ""
         if "spike_amplitudes" in bundle.loaded_extension_names:
             spike_amp_note = (
@@ -955,13 +1113,21 @@ def write_hybrid_companion_manifest(
                 "sampled_spike_ptp_uV_iqr": float(np.nanpercentile(sampled_ptp, 75) - np.nanpercentile(sampled_ptp, 25))
                 if sampled_ptp.size
                 else np.nan,
+                "hybrid_qc_version": "v2",
+                "row_b_horizontal_scale_multiplier": HYBRID_LOCAL_X_SCALE_MULTIPLIER,
+                "row_b_vertical_scale_multiplier": HYBRID_LOCAL_Y_SCALE_MULTIPLIER,
+                "row_b_local_waveform_display_gain": local_display_gain,
+                "probability_acg_denominator": probability_data["denominator"],
+                "probability_acg_displayed_nonzero_sum": probability_data["displayed_probability_sum"],
+                "probability_acg_p_abs_lag_le_2ms": probability_data["p_refractory"],
+                "probability_acg_normalization_equation": probability_data["normalization_equation"],
                 "amplitude_stability_source": "persisted_random_spikes_best_channel_snippet_ptp_uV",
                 "amplitude_stability_note": spike_amp_note,
                 "normalization_rule": "plot traces divided once per unit by absolute best-channel template PTP; channels are not normalized independently",
                 **metrics,
             }
         )
-    manifest_path = panel_dir / f"{stem}_spatial_isolation_hybrid_qc_companion_manifest.csv"
+    manifest_path = panel_dir / f"{stem}_spatial_isolation_hybrid_qc_v2_companion_manifest.csv"
     pd.DataFrame(rows).to_csv(manifest_path, index=False)
     return manifest_path
 
