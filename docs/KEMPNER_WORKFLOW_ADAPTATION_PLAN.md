@@ -6245,7 +6245,7 @@ source config/greatlakes_project.env
 "${CONDA_ENV}/bin/python" scripts/summarize_step1_v5_ground_truth.py
 ```
 
-Current canonical checkpoint from `2026-07-09T02:14:42`:
+Current canonical checkpoint from `2026-07-09T03:50:19`:
 
 ```text
 total Step 1 v5 well rows:
@@ -6256,11 +6256,11 @@ plate-family rows:
   lumos_48well: 256
 
 ground_truth_status counts:
-  pending_standard: 198
+  running_standard: 250
   gui_ready_standard: 65
-  standard_failed_sparse_fallback_candidate: 41
+  standard_failed_sparse_fallback_candidate: 46
+  pending_standard: 85
   export_failed: 8
-  running_standard: 142
 
 pickup_ready_not_continued split:
   cytoview_6well: 0 wells
@@ -6279,7 +6279,7 @@ ground truth wave counts:
   lumos_remaining_all_20260709_0208: 142
 
 sparse fallback candidates:
-  41
+  46
 ```
 
 All remaining pickup-ready Lumos wells were submitted in a single controlled
@@ -6327,6 +6327,57 @@ queue snapshot at 2026-07-09T02:14:
 There are now no pickup-ready-not-continued wells left. Future launches should
 filter the canonical ledger deliberately by `ground_truth_status`,
 `plate_family`, and `ground_truth_wave_label`.
+
+Live stuck-watch checkpoint from `2026-07-09T03:50:16-0400`:
+
+```text
+canonical summary:
+  running_standard: 250
+  pending_standard: 85
+  gui_ready_standard: 65
+  standard_failed_sparse_fallback_candidate: 46
+  export_failed: 8
+
+Lumos wave, lumos_remaining_all_20260709_0208:
+  parent axion-aind-nwb jobs:
+    137 running
+    0 pending
+    5 failed and classified as sparse fallback candidates
+  GUI-ready from this wave:
+    0
+  stage progress among 142 submitted wells:
+    job_dispatch: 82
+    preprocessing: 22
+    nwb_ecephys: 28
+    spikesort_kilosort4: 10
+    failed at spikesort_kilosort4: 5
+  longest parent jobs:
+    ~1h41m
+
+Cytoview/SixWell wave, cytoview_remaining_all_20260709_0214:
+  parent axion-aind-nwb jobs:
+    113 running
+    85 pending
+  parent pending reasons:
+    Priority: 65
+    AssocGrpCpuLimit: 20
+  inner Nextflow nf-job_dispatch jobs:
+    113 pending by Priority
+  GUI-ready from this wave:
+    0
+  stage progress among 198 submitted wells:
+    none yet
+```
+
+Interpretation at this checkpoint: not a broad failure, but the Cytoview/SixWell
+wave is scheduler-gated. Its parent wrappers are running/pending, but the inner
+Nextflow dispatch jobs have not started work yet. If a future check still shows
+`nf-job_dispatch pending=113`, `Cytoview highest_completed_stage=none`, and no
+decrease in the 85 pending parent jobs, inspect Slurm limits/priority before
+changing pipeline parameters. If Lumos remains at the exact same stage counts for
+another long interval, inspect one representative running job log plus its
+Nextflow work directory; do not treat the 5 sparse failures as stuck, since they
+are already classified for the `low_activity_ks4_nt2_npcs2` fallback route.
 
 Dry-run examples:
 

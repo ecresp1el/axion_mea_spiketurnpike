@@ -1139,11 +1139,12 @@ def make_stim_response_panel(
                 plot_train_response(response, builder),
                 sizing_mode="stretch_width",
                 tight=True,
+                margin=0,
             )
             for response in unit_responses
         ]
         train_area.objects = [
-            pn.GridBox(*train_items, ncols=2, sizing_mode="stretch_width")
+            pn.GridBox(*train_items, ncols=2, sizing_mode="stretch_width", margin=0)
             if train_items
             else pn.pane.Markdown("No units selected.")
         ]
@@ -1157,6 +1158,7 @@ def make_stim_response_panel(
                         plot_pulse_response(response, builder),
                         sizing_mode="stretch_width",
                         tight=True,
+                        margin=0,
                     )
                 )
             else:
@@ -1168,7 +1170,7 @@ def make_stim_response_panel(
                     )
                 )
         pulse_area.objects = [
-            pn.GridBox(*pulse_items, ncols=2, sizing_mode="stretch_width")
+            pn.GridBox(*pulse_items, ncols=2, sizing_mode="stretch_width", margin=0)
             if pulse_items
             else pn.pane.Markdown("No units selected.")
         ]
@@ -1194,7 +1196,10 @@ def make_stim_response_panel(
 
     def on_tab_change(event) -> None:
         active_tab["index"] = int(event.new)
-        render_active_tab()
+        if not cached_responses["responses"]:
+            redraw()
+        else:
+            render_active_tab()
 
     refresh_button.on_click(redraw)
     unit_selector.param.watch(sync_entry_to_picker, "value")
@@ -1238,9 +1243,9 @@ def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBui
     fig, axes = plt.subplots(
         3,
         1,
-        figsize=(11, 7),
+        figsize=(7.2, 4.8),
         sharex=True,
-        gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
+        gridspec_kw={"height_ratios": [0.55, 1.8, 1.0]},
         constrained_layout=True,
     )
     unit_label = _response_unit_label(response)
@@ -1255,7 +1260,7 @@ def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBui
     )
     axes[2].set_xlabel("ms from train onset")
     axes[2].set_xlim(builder.train_window.start_ms, builder.train_window.end_ms)
-    fig.suptitle(f"Unit {unit_label}: train locked", fontsize=12)
+    fig.suptitle(f"Unit {unit_label}: train locked", fontsize=10)
     return fig
 
 
@@ -1267,9 +1272,9 @@ def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBui
     fig, axes = plt.subplots(
         3,
         1,
-        figsize=(11, 7),
+        figsize=(7.2, 4.8),
         sharex=True,
-        gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
+        gridspec_kw={"height_ratios": [0.55, 1.8, 1.0]},
         constrained_layout=True,
     )
     unit_label = _response_unit_label(response)
@@ -1284,7 +1289,7 @@ def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBui
     )
     axes[2].set_xlabel("ms from pulse onset")
     axes[2].set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
-    fig.suptitle(f"Unit {unit_label}: pulse locked", fontsize=12)
+    fig.suptitle(f"Unit {unit_label}: pulse locked", fontsize=10)
     return fig
 
 
