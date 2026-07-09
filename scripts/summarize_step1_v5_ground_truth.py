@@ -23,6 +23,7 @@ DEFAULT_CONTINUATION_ROOT = (
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "jobs" / "step1_nonlfp_th5_v5_ground_truth_latest"
 DEFAULT_RESULTS_ROOT = PROJECT_ROOT / "results" / "aind"
 DEFAULT_LOG_ROOT = PROJECT_ROOT / "logs" / "aind"
+DEFAULT_SUBMITTED_WAVES = DEFAULT_OUTPUT_DIR / "submitted_step1_v5_ground_truth_waves.tsv"
 
 
 SIXWELL_FALLBACK_WELLS = ["A1", "A2", "A3", "B1", "B2", "B3"]
@@ -63,6 +64,12 @@ def parse_args() -> argparse.Namespace:
         "--fallback-candidates",
         type=Path,
         default=DEFAULT_CONTINUATION_ROOT / "standard_failed_sparse_fallback_candidates.tsv",
+    )
+    parser.add_argument(
+        "--submitted-waves",
+        type=Path,
+        default=DEFAULT_SUBMITTED_WAVES,
+        help="Append-only key=value ledger written by submit_next_step1_v5_ground_truth_wave.py.",
     )
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT)
@@ -114,6 +121,17 @@ def parse_key_value_line(line: str) -> dict[str, str]:
             key, value = item.split("=", 1)
             row[key] = value
     return row
+
+
+def read_key_value_ledger(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        return []
+    rows: list[dict[str, str]] = []
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                rows.append(parse_key_value_line(line))
+    return rows
 
 
 def squeue_states() -> dict[str, dict[str, str]]:
@@ -237,14 +255,24 @@ def infer_status(row: dict[str, str]) -> str:
         return "gui_ready_standard"
     if row["fallback_candidate"] == "true":
         return "standard_failed_sparse_fallback_candidate"
-    state = row["continuation_aind_state"] or row["original_aind_state"]
+    state = (
+        row["continuation_aind_state"]
+        or row["ground_truth_wave_aind_state"]
+        or row["original_aind_state"]
+    )
     if state == "RUNNING":
         return "running_standard"
     if state == "PENDING":
         return "pending_standard"
     if state.startswith("FAILED"):
         return "failed_standard_needs_classification"
-    if row["spikeinterface_job_state"].startswith("COMPLETED") and not row["continuation_aind_job"]:
+    if state.startswith("COMPLETED") and row["gui_analyzer_ready"] != "true":
+        return "completed_standard_no_gui_analyzer_yet"
+    if (
+        row["spikeinterface_job_state"].startswith("COMPLETED")
+        and not row["continuation_aind_job"]
+        and not row["ground_truth_wave_aind_job"]
+    ):
         return "pickup_ready_not_continued"
     if row["export_job_state"].startswith("FAILED"):
         return "export_failed"
@@ -286,6 +314,9 @@ def main() -> int:
     continuation = {
         (row["recording"], row["well"]): row for row in read_tsv(args.continuation_crosswalk)
     }
+    submitted_waves = {
+        (row["recording"], row["well"]): row for row in read_key_value_ledger(args.submitted_waves)
+    }
     fallback = {
         (row["recording"], row["well"]): row for row in read_tsv(args.fallback_candidates)
     }
@@ -294,6 +325,7 @@ def main() -> int:
     for row in expected:
         attempt = attempts.get((row["recording"], row["well"]), {})
         cont = continuation.get((row["recording"], row["well"]), {})
+        wave = submitted_waves.get((row["recording"], row["well"]), {})
         job_ids.extend(
             [
                 attempt.get("export_job", ""),
@@ -301,6 +333,7 @@ def main() -> int:
                 attempt.get("spikeinterface_job", ""),
                 attempt.get("aind_job", ""),
                 cont.get("aind_job", ""),
+                wave.get("aind_job", ""),
             ]
         )
 
@@ -312,16 +345,22 @@ def main() -> int:
         key = (row["recording"], row["well"])
         attempt = attempts.get(key, {})
         cont = continuation.get(key, {})
+        wave = submitted_waves.get(key, {})
         fb = fallback.get(key, {})
         trace = trace_stage_summary(args.results_root, row["recording"], row["well"])
         continuation_state = merged_state(cont.get("aind_job", ""), accounting, live)
+        wave_state = merged_state(wave.get("aind_job", ""), accounting, live)
         original_state = merged_state(attempt.get("aind_job", ""), accounting, live)
-        effective_job_for_failure = cont.get("aind_job", "") or attempt.get("aind_job", "")
+        effective_job_for_failure = (
+            cont.get("aind_job", "") or wave.get("aind_job", "") or attempt.get("aind_job", "")
+        )
         sparse_failure_class = fb.get("failure_class", "")
         sparse_log_hint = fb.get("log_hint", "")
         sparse_error_snippet = fb.get("error_snippet", "")
         if not sparse_failure_class and (
-            continuation_state.startswith("FAILED") or original_state.startswith("FAILED")
+            continuation_state.startswith("FAILED")
+            or wave_state.startswith("FAILED")
+            or original_state.startswith("FAILED")
         ):
             sparse_failure_class, sparse_log_hint, sparse_error_snippet = classify_sparse_failure(
                 args.log_root,
@@ -344,6 +383,10 @@ def main() -> int:
             "continuation_batch": cont.get("batch", ""),
             "continuation_aind_job": cont.get("aind_job", ""),
             "continuation_aind_state": continuation_state,
+            "ground_truth_wave_label": wave.get("wave_label", ""),
+            "ground_truth_wave_submitted_at": wave.get("submitted_at", ""),
+            "ground_truth_wave_aind_job": wave.get("aind_job", ""),
+            "ground_truth_wave_aind_state": wave_state,
             "fallback_candidate": "true" if sparse_failure_class else "false",
             "fallback_failure_class": sparse_failure_class,
             "recommended_fallback_label": "low_activity_ks4_nt2_npcs2" if sparse_failure_class else "",
@@ -372,6 +415,9 @@ def main() -> int:
         "plate_family_counts": Counter(row["plate_family"] for row in output_rows),
         "ground_truth_status_counts": Counter(row["ground_truth_status"] for row in output_rows),
         "continuation_batch_counts": Counter(row["continuation_batch"] or "none" for row in output_rows),
+        "ground_truth_wave_label_counts": Counter(
+            row["ground_truth_wave_label"] or "none" for row in output_rows
+        ),
         "fallback_candidate_count": sum(row["fallback_candidate"] == "true" for row in output_rows),
         "gui_ready_count": sum(row["gui_analyzer_ready"] == "true" for row in output_rows),
         "output_csv": str(csv_path),
@@ -388,6 +434,7 @@ def main() -> int:
                 f"Plate family counts: {serializable['plate_family_counts']}",
                 f"Ground truth status counts: {serializable['ground_truth_status_counts']}",
                 f"Continuation batch counts: {serializable['continuation_batch_counts']}",
+                f"Ground truth wave counts: {serializable['ground_truth_wave_label_counts']}",
                 f"Fallback candidate count: {serializable['fallback_candidate_count']}",
                 f"GUI-ready count: {serializable['gui_ready_count']}",
                 f"CSV: {csv_path}",
@@ -407,6 +454,9 @@ def main() -> int:
             "continuation_batch",
             "continuation_aind_job",
             "continuation_aind_state",
+            "ground_truth_wave_label",
+            "ground_truth_wave_aind_job",
+            "ground_truth_wave_aind_state",
             "original_aind_job",
             "original_aind_state",
             "fallback_failure_class",

@@ -6245,7 +6245,7 @@ source config/greatlakes_project.env
 "${CONDA_ENV}/bin/python" scripts/summarize_step1_v5_ground_truth.py
 ```
 
-Current canonical checkpoint from `2026-07-09T01:50:04`:
+Current canonical checkpoint from `2026-07-09T02:12:15`:
 
 ```text
 total Step 1 v5 well rows:
@@ -6256,15 +6256,16 @@ plate-family rows:
   lumos_48well: 256
 
 ground_truth_status counts:
-  pickup_ready_not_continued: 340
-  gui_ready_standard: 61
+  pickup_ready_not_continued: 198
+  gui_ready_standard: 65
   standard_failed_sparse_fallback_candidate: 41
   export_failed: 8
-  running_standard: 4
+  running_standard: 140
+  pending_standard: 2
 
 pickup_ready_not_continued split:
   cytoview_6well: 198 wells across 33 recording/filter stems
-  lumos_48well: 142 wells across 15 recording/filter stems
+  lumos_48well: 0 wells
 
 continuation batch counts:
   none: 348
@@ -6273,13 +6274,38 @@ continuation batch counts:
   batch_3: 20
   batch_4: 26
 
+ground truth wave counts:
+  none: 312
+  lumos_remaining_all_20260709_0208: 142
+
 sparse fallback candidates:
   41
 ```
 
-The remaining pickup-ready-not-continued wells are **not all Cytoview**. They are
-198 Cytoview/SixWell rows plus 142 Lumos rows. Future launches should filter the
-canonical ledger deliberately by `ground_truth_status` and `plate_family`.
+All remaining pickup-ready Lumos wells were submitted in a single controlled
+ground-truth wave:
+
+```text
+wave_label:
+  lumos_remaining_all_20260709_0208
+
+submitted wells:
+  142
+
+Slurm axion-aind-nwb job IDs:
+  53143276-53143417
+
+append-only submit ledger:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/submitted_step1_v5_ground_truth_waves.tsv
+
+queue snapshot at 2026-07-09T02:12:
+  140 running
+  2 pending
+```
+
+The remaining pickup-ready-not-continued wells are now Cytoview/SixWell only.
+Future launches should filter the canonical ledger deliberately by
+`ground_truth_status` and `plate_family`.
 
 Dry-run examples:
 

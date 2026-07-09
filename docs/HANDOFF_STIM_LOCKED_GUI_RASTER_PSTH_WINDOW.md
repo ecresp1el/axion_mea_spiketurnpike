@@ -8,6 +8,28 @@ Add a custom Axion/MEA response-inspection window to the existing
 SpikeInterface GUI workflow so manual curation decisions can be made with
 stimulation-locked context visible.
 
+This window is optogenetic-stimulation-specific. It should only be shown when
+both conditions are true:
+
+1. the recording is a Lumos plate recording, currently `plate_family ==
+   "lumos_48well"` or equivalent raw metadata such as `FortyEightWellLumos`;
+2. stimulation metadata are actually available and parseable for the matching
+   recording.
+
+For non-Lumos plates, or Lumos recordings with no usable stimulation events, the
+regular SpikeInterface GUI should open exactly as it does now and the response
+window should be hidden or disabled with a short status message.
+
+Current working cohort assumption:
+
+- If the recordings being curated are from the June/July Lumos opto-stim set,
+  they are expected to be in scope for this response window.
+- The implementation should still run the Lumos/stim preflight on every
+  recording, because date/cohort is a helpful expectation rather than a
+  sufficient technical guarantee.
+- If a June/July recording fails the Lumos/stim preflight, treat that as a data
+  resolution issue to surface clearly, not as a reason to guess pulse timing.
+
 The target user flow is:
 
 1. Open a completed Step 1 `SortingAnalyzer` in the existing web GUI launcher.
@@ -26,10 +48,12 @@ The biological logic matches the existing downstream analysis:
 - A tagged stimulation event marks the start of a train/trial.
 - In the Lumos/opto case, one train can contain multiple pulses, currently
   represented as five pulses per train in the existing analysis outputs.
-- Train-level alignment asks: does this unit respond around the whole 5-pulse
-  train?
-- Pulse-level alignment asks: does this unit respond to pulse P1, P2, P3, P4,
-  P5, or to pooled pulse instances?
+- The number of pulses must not be hard-coded. Five pulses is the known example,
+  not a general rule.
+- Train-level alignment asks: does this unit respond around the whole
+  stimulation train, whatever pulse count that train contains?
+- Pulse-level alignment asks: does this unit respond to pulse P1..PN, or to
+  pooled pulse instances?
 - The raster is trial-indexed and time-locked.
 - The PSTH uses the same aligned spike table as the raster, so the visual
   interpretation is consistent.
@@ -114,7 +138,7 @@ Stim response window
     |-- mode control: by pulse position / pooled pulses
     |-- reconstructed/smoothed single-pulse command trace
     |-- raster
-    |   |-- by pulse position: rows = train trials, columns/facets = P1..P5
+    |   |-- by pulse position: rows = train trials, columns/facets = P1..PN
     |   `-- pooled pulses: rows = pulse pseudo-trials in appearance order
     `-- PSTH, denominator = pulse pseudo-trials
 ```
@@ -141,6 +165,9 @@ For one selected analyzer/well:
 
 5. Raw file or cached waveform intervals for the matching recording
    <stem>.raw, parsed through AxionStimFile
+
+6. Plate family / plate type metadata for the recording
+   expected Lumos value: lumos_48well / FortyEightWellLumos
 ```
 
 The main missing bridge is a resolver that maps:
@@ -153,6 +180,102 @@ raw/stim-event sidecar paths for the same biological recording
 
 This should be explicit and testable. Do not guess from GUI labels alone if a
 manifest or master table can provide the mapping.
+
+## Eligibility and Stim Preflight
+
+Before constructing the response window, run a preflight resolver/check:
+
+```text
+StimResponseEligibility
+|-- is_lumos_plate
+|-- has_stim_event_table
+|-- stim_event_count
+|-- has_raw_or_cached_waveform
+|-- parse_status
+|-- stimulated_wells
+|-- pulse_structure_status
+`-- message
+```
+
+The response window should be enabled only when:
+
+```text
+is_lumos_plate == true
+has_stim_event_table == true
+stim_event_count > 0
+parse_status == "ok"
+```
+
+Recommended plate checks, in order:
+
+1. use the Step 2/Step 3 manifest `plate_family` if available;
+2. fall back to raw metadata parsed with existing Axion metadata helpers;
+3. treat the recording as ineligible if the plate family cannot be resolved.
+
+Recommended stimulation checks:
+
+1. confirm a matching stim-event CSV or JSON exists;
+2. confirm `event_time_s` and `sequence_number` are present and non-empty;
+3. confirm the selected well appears in `stimulated_wells` when that column is
+   available;
+4. confirm `.raw` or cached pulse interval metadata can be loaded for waveform
+   and pulse-epoch reconstruction.
+
+If a Lumos recording has train event times but no waveform intervals, the first
+implementation may still show the train-locked raster/PSTH, but it should hide
+or disable pulse-locked rendering because pulse onsets are not defined.
+
+## Pulse-Structure Strategy
+
+Do not assume every recording has five pulses per train. Before drawing the
+pulse tab, inspect the parsed waveform program and stimulation events.
+
+The current `WellResponseStage._build_pulse_epochs()` collapses adjacent
+raw XML micro-operations into biologically meaningful pulse windows using a
+small merge gap. Keep that idea, but add a validation layer that reports:
+
+```text
+pulse_count_per_train
+pulse_start_offsets_ms
+pulse_durations_ms
+pulse_intervals_consistent
+```
+
+Expected common case:
+
+```text
+all train events share the same pulse template
+```
+
+In that case:
+
+- render the pulse tab normally;
+- label facets dynamically as `P1..PN`;
+- set the pooled pulse denominator to `number_of_train_trials * N`.
+
+If pulse count or pulse timing differs across stimulation events, adapt before
+plotting:
+
+1. If events can be grouped into a small number of repeated templates, split the
+   pulse tab by template group and show the template identity in the plot title.
+2. If the pulse pattern varies event-by-event, do not pool all pulses into one
+   PSTH by default. Show train-locked plots only, or require a manual/template
+   selection before pulse pooling.
+3. If pulse intervals cannot be reconstructed, disable the pulse tab and keep
+   the train-locked tab available if event onsets are valid.
+
+The implementation should surface the decision in the GUI status area, for
+example:
+
+```text
+Stim response enabled: Lumos recording with 50 trains and uniform 5-pulse template.
+```
+
+or:
+
+```text
+Train-locked response only: Lumos recording has event onsets, but pulse templates vary across events.
+```
 
 ## Computation Model
 
@@ -199,7 +322,7 @@ Recover pulse epochs from the raw-derived waveform program:
 ```text
 PulseEpoch(pulse_index=1, start_ms=..., end_ms=...)
 ...
-PulseEpoch(pulse_index=5, start_ms=..., end_ms=...)
+PulseEpoch(pulse_index=N, start_ms=..., end_ms=...)
 ```
 
 For each train trial and each pulse:
@@ -217,7 +340,7 @@ Use the current `PulseAlignedSpikeBuilder` attribution rule:
 
 Render either:
 
-- per-pulse-position facets: P1 through P5, with train trials preserved; or
+- per-pulse-position facets: P1 through PN, with train trials preserved; or
 - pooled pulse pseudo-trials: every pulse instance gets its own raster row.
 
 ## Suggested Module Layout
@@ -235,8 +358,17 @@ StimResponseInputs
   analyzer_path
   recording_name
   well
+  plate_family
   stim_events_csv
   raw_file
+
+StimResponseEligibility
+  decides whether the opto-stim window should appear
+  records why it is enabled/disabled
+
+PulseStructureReport
+  records pulse count/timing consistency
+  chooses uniform, grouped-template, train-only, or disabled pulse mode
 
 UnitStimResponseBuilder
   extracts selected-unit spike times
@@ -282,6 +414,14 @@ Unit tests:
 - one fake unit with known spike times;
 - two train events;
 - five pulse epochs per train;
+- one non-Lumos plate, expected response window disabled;
+- one Lumos recording with no stim events, expected response window disabled;
+- one Lumos recording with event onsets but no pulse intervals, expected
+  train-only behavior;
+- one Lumos recording with non-five but uniform pulse count, expected dynamic
+  `P1..PN` labels and correct pooled denominator;
+- one Lumos recording with mixed pulse templates, expected pulse pooling
+  disabled or grouped by template;
 - verify train-aligned `aligned_time_ms`;
 - verify pulse-aligned `pulse_aligned_time_ms`;
 - verify pulse windows truncate at the next pulse onset;
