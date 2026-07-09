@@ -447,6 +447,7 @@ good_kslabel_ttp_distribution_template_best_ptp_20260709.png
 good_kslabel_ttp_distribution_template_best_ptp_20260709.csv
 good_kslabel_ttp_distribution_template_best_ptp_20260709_provenance.json
 waveform_alignment_feature_audit_20260709/
+lumos_alignment_cutoff_sensitivity_20260709/
 ```
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
@@ -562,6 +563,42 @@ audit, median absolute TTP change after alignment was `0.08 ms`, and
 FS_like/borderline/RS_like). Treat this as evidence that waveform alignment
 should be considered before final SpikeTurnpike-style feature extraction, while
 preserving this paired audit output as the denominator/methods record.
+
+The four cutoff/alignment comparison figures requested after this audit are
+generated with:
+
+```bash
+python scripts/plot_lumos_alignment_cutoff_sensitivity.py
+```
+
+These are four separate multi-panel outputs, all using the same `276` paired
+Lumos `KSLabel=good` units and the same paired waveform traces:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_alignment_cutoff_sensitivity_20260709/
+lumos_ttp_cutoff_0p37_unaligned_multipanel.png
+lumos_ttp_cutoff_0p37_aligned_multipanel.png
+lumos_ttp_cutoff_0p50_unaligned_multipanel.png
+lumos_ttp_cutoff_0p50_aligned_multipanel.png
+lumos_alignment_cutoff_sensitivity_20260709_classified_units_long.csv
+lumos_alignment_cutoff_sensitivity_20260709_summary.csv
+lumos_alignment_cutoff_sensitivity_20260709_provenance.json
+```
+
+Each figure has the same panel layout: TTP distribution, class counts, pooled
+best-channel waveforms, half-width by class, REP50 by class, and amplitude by
+class. The `unaligned` figures use the `before_*` metrics and
+`before_unaligned_average_uV` traces from the paired audit. The `aligned`
+figures use the `after_*` metrics and `after_aligned_average_uV` traces.
+
+Current four-condition counts:
+
+| Cutoff | Alignment state | FS_like | RS_like | Unknown |
+|---:|---|---:|---:|---:|
+| `0.37 ms` | unaligned | 16 | 260 | 0 |
+| `0.37 ms` | aligned | 24 | 252 | 0 |
+| `0.50 ms` | unaligned | 56 | 220 | 0 |
+| `0.50 ms` | aligned | 85 | 191 | 0 |
 
 That script reads the jitter-aware manual guide, takes the top signal-ranked
 `status == ok` rows from columns 4-8 and columns 1-3 separately, derives each
@@ -923,6 +960,52 @@ Alternate 0.50 ms cutoff firing rate by class:
 For comparison, the 0.37 ms cutoff file set is also present in the same folder.
 With `FS_like = TTP <= 0.37 ms`, pooled counts are dorsal 6 FS/107 RS and
 ventral 3 FS/121 RS.
+
+Final Cytoview dorsal/ventral cutoff x alignment composite, generated
+2026-07-09 15:31 EDT:
+
+```bash
+python scripts/audit_waveform_alignment_before_feature_extraction.py \
+  --input-csv /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dorsal_ventral_step1_20260709_unit_metrics.csv \
+  --output-dir /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/waveform_alignment_feature_audit_20260709_cytoview
+
+python scripts/plot_cytoview_dv_alignment_cutoff_composite.py
+```
+
+Outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/waveform_alignment_feature_audit_20260709_cytoview/
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_alignment_cutoff_composite_20260709/
+cytoview_dv_alignment_cutoff_composite_20260709.png
+cytoview_dv_alignment_cutoff_composite_20260709_classified_units_long.csv
+cytoview_dv_alignment_cutoff_composite_20260709_summary.csv
+cytoview_dv_alignment_cutoff_composite_20260709_provenance.json
+```
+
+The final PNG is one multi-panel figure with four rows:
+`0.37 ms unaligned`, `0.37 ms aligned`, `0.50 ms unaligned`, and
+`0.50 ms aligned`. Columns keep the dorsal/ventral logic visible: mean per-well
+class fraction by region, unit counts by region/class, TTP distribution by
+region, pooled mean/SEM waveforms in uV, individual uV waveforms with the class
+mean overlaid, pooled trough-normalized waveforms, firing rate by region/class,
+and half-width versus REP50. The mean/SEM uV waveform column preserves the
+actual best-channel amplitude scale; the individual uV column shows unit-level
+spread and outliers with the class mean on top; the normalized waveform column
+divides each unit trace by its own negative trough depth so waveform shape can
+be compared independent of amplitude. All four rows use the same `237` Cytoview
+`KSLabel=good` units from the 52 GUI-ready priority wells. Dorsal/ventral labels
+come from the current Cytoview plate-map plan plus the manual B1/B2 override
+layer.
+
+Current final composite counts:
+
+| Cutoff | Alignment state | Dorsal FS | Dorsal RS | Ventral FS | Ventral RS |
+|---:|---|---:|---:|---:|---:|
+| `0.37 ms` | unaligned | 6 | 107 | 3 | 121 |
+| `0.37 ms` | aligned | 4 | 109 | 3 | 121 |
+| `0.50 ms` | unaligned | 10 | 103 | 12 | 112 |
+| `0.50 ms` | aligned | 20 | 93 | 18 | 106 |
 
 Treat this as a current Step 1 readiness/inspection snapshot, not a final
 dorsal/ventral biological result. All 90 backed priority wells have drained,

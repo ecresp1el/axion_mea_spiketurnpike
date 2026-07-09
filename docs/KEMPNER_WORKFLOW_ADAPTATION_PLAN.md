@@ -7970,6 +7970,66 @@ Canonical commands:
     extraction, and keep the paired audit outputs as the denominator/methods
     record.
 
+  Four requested cutoff/alignment multi-panel figures were generated at 15:23
+  EDT with:
+    `python scripts/plot_lumos_alignment_cutoff_sensitivity.py`
+
+  Output folder:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_alignment_cutoff_sensitivity_20260709/`
+
+  Four PNG outputs:
+    `lumos_ttp_cutoff_0p37_unaligned_multipanel.png`
+    `lumos_ttp_cutoff_0p37_aligned_multipanel.png`
+    `lumos_ttp_cutoff_0p50_unaligned_multipanel.png`
+    `lumos_ttp_cutoff_0p50_aligned_multipanel.png`
+
+  Counts:
+    cutoff `0.37 ms`, unaligned: `16` FS_like / `260` RS_like
+    cutoff `0.37 ms`, aligned: `24` FS_like / `252` RS_like
+    cutoff `0.50 ms`, unaligned: `56` FS_like / `220` RS_like
+    cutoff `0.50 ms`, aligned: `85` FS_like / `191` RS_like
+
+- [x] 2026-07-09 15:31 EDT - Final Cytoview dorsal/ventral cutoff x alignment
+  composite generated after restoring the dorsal/ventral logic.
+
+  First ran the paired Cytoview alignment audit on:
+    `cytoview_dorsal_ventral_step1_20260709_unit_metrics.csv`
+
+  Audit output:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/waveform_alignment_feature_audit_20260709_cytoview/`
+
+  Audit result:
+    all `237 / 237` Cytoview `KSLabel=good` units paired successfully.
+    Median absolute TTP change after alignment was `0.08 ms`; median absolute
+    half-width change was `0.08 ms`; `28 / 237` units changed the conservative
+    FS/borderline/RS bin under the same original cutoffs.
+
+  Final one-page composite command:
+    `python scripts/plot_cytoview_dv_alignment_cutoff_composite.py`
+
+  Final output folder:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_alignment_cutoff_composite_20260709/`
+
+  Final figure:
+    `cytoview_dv_alignment_cutoff_composite_20260709.png`
+
+  Figure layout:
+    four rows for `0.37 ms unaligned`, `0.37 ms aligned`,
+    `0.50 ms unaligned`, and `0.50 ms aligned`; columns show mean per-well class
+    fraction by region, unit counts by region/class, TTP by region, pooled
+    mean/SEM waveforms in uV, individual uV waveforms with the class mean
+    overlaid, pooled trough-normalized waveforms, firing rate by region/class,
+    and half-width versus REP50. The individual uV column shows unit-level
+    spread and outliers; the normalized waveform column divides each unit trace
+    by its own negative trough depth so shape can be compared separately from
+    amplitude.
+
+  Final dorsal/ventral counts:
+    cutoff `0.37 ms`, unaligned: dorsal `6` FS / `107` RS; ventral `3` FS / `121` RS
+    cutoff `0.37 ms`, aligned: dorsal `4` FS / `109` RS; ventral `3` FS / `121` RS
+    cutoff `0.50 ms`, unaligned: dorsal `10` FS / `103` RS; ventral `12` FS / `112` RS
+    cutoff `0.50 ms`, aligned: dorsal `20` FS / `93` RS; ventral `18` FS / `106` RS
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 
