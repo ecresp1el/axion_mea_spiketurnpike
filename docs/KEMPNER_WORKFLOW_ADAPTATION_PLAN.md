@@ -5375,3 +5375,183 @@ Required columns include `filter_block_count`, `filter_block_names`,
 `digital_filter_settings_*`,
 `broadband_processor_high_frequency_digital_filter_*`, and
 `broadband_processor_low_frequency_median_filter_*` fields.
+
+## 2026-07-08 Step 1 v4 Manifest Policy: Lumos Plate Maps and CytoView Fallback
+
+A revised no-submit Step 1 manifest was created after confirming that Lumos
+standalone Axion `.platemap` files encode active/labeled 48-well state blocks.
+The `.platemap` row-major decoding was validated against the 6/22 Lumos
+`*_spike_list.csv` Well Information truth table:
+
+```text
+6/22 Lumos active wells from sidecar:
+A3 B4 B5 C3 C5 C6 D2 D6 E5
+
+6/22 Lumos active/labeled wells decoded from .platemap:
+A3 B4 B5 C3 C5 C6 D2 D6 E5
+```
+
+The v4 policy is:
+
+```text
+Lumos 48-well:
+  - Use direct Axion spike sidecars when present.
+  - Use matched primary sidecars for matching Filter(200Hz-3kHz) exports.
+  - If sidecar CSVs are missing, use decoded standalone .platemap active/labeled
+    wells.
+  - Do not run all 48 Lumos wells unless no subset can be recovered and the user
+    explicitly approves.
+
+CytoView 6-well:
+  - For included non-LFP raws, run all six wells.
+  - Do not block on missing or low-yield activity sidecars because the plate is
+    small.
+
+LFP exports:
+  - Excluded.
+
+BlockVector-warning exports:
+  - Held/excluded from submit candidates.
+```
+
+Current v4 no-submit artifacts:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/raw_variant_decision_manifest_DRAFT_v4_lumos_platemap_cytoview_allwells_review.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/recordings_manifest_nonlfp_th5_DRAFT_v4_lumos_platemap_cytoview_allwells_submit_false.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/summary_v4_lumos_platemap_cytoview_allwells_review.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/v4_manifest_policy_command.txt
+```
+
+The v4 recordings manifest intentionally keeps `submit=false` for every row.
+Counts:
+
+```text
+candidate raw rows: 57
+expected per-well jobs: 454
+
+CytoView 6-well:
+  rows: 33
+  well jobs: 198
+  policy: all 6 wells
+
+Lumos 48-well:
+  rows: 24
+  well jobs: 256
+  policy:
+    direct sidecars: 8 rows, 82 well jobs
+    matched primary sidecars: 6 rows, 54 well jobs
+    decoded .platemap wells: 10 rows, 120 well jobs
+```
+
+Decoded Lumos missing-sidecar well sets:
+
+```text
+incoming/manny4tbum_20260706/6_18_2026/129-8445
+  A3,B2,B3,B4,B5,C3,D2,D3,E2,E3,E5,F3
+
+incoming/manny4tbum_20260706/6_18_2026_plate2/129-8445
+  B2,B4,B5,B6,C6,C7,D2,D6,D7,E2,E5,E6
+
+incoming/manny4tbum_20260706/6_18_2026_plate2/129-8445/129-8445
+  B2,B4,B5,B6,C6,C7,D2,D6,D7,E2,E5,E6
+```
+
+Important operational note: do not submit the v4 manifest until it has been
+reviewed. The v4 manifest is the current clean draft for the next Step 1
+submission decision.
+
+Preflight correction after v4 creation: all 57 rows now explicitly carry the
+TH=5/Kilosort-preprocessing params template. This avoids falling back to any
+older default params during preparation.
+
+```text
+CytoView rows:
+  config/aind_axion_cytoview6_params_th5_kilosort_preproc_DRAFT.json
+  Th_universal = 5
+  skip_kilosort_preprocessing = false
+
+Lumos rows:
+  config/aind_axion_lumos_params_th5_kilosort_preproc_DRAFT.json
+  Th_universal = 5
+  skip_kilosort_preprocessing = false
+
+blank params_template rows: 0
+missing raw/plate-map/electrode-geometry/params/raw-metadata paths: 0
+existing results/aind recording_stem collisions: 0
+```
+
+The old `results/aind` contents were not deleted. Instead, the v4 manifest uses
+new `step1_nonlfp_th5_20260708_...` recording stems, and a preflight check found
+no matching existing result directories. This preserves old Step 1 provenance
+while keeping the next run separated by name.
+
+## 2026-07-08 Step 1 v5 Manifest Policy: Lumos Activity OR Plate Map
+
+The Lumos well-selection policy was tightened after review. The correct rule is
+an OR union, not a fallback-only rule:
+
+```text
+For every included Lumos row:
+  final wells = Axion activity-sidecar-selected wells
+                OR decoded Axion .platemap active/labeled wells
+```
+
+The v5 manifest writes that explicit union into the `wells` column for every
+Lumos row, so the preparation step will not silently use only one source.
+
+Current v5 no-submit artifacts:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/raw_variant_decision_manifest_DRAFT_v5_lumos_activity_OR_platemap_review.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/recordings_manifest_nonlfp_th5_DRAFT_v5_lumos_activity_OR_platemap_submit_false.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/summary_v5_lumos_activity_OR_platemap_review.json
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_manifest_design_20260708_no_submit/v5_lumos_OR_policy_command.txt
+```
+
+Counts remain unchanged from v4 because the 6/22 Lumos activity-sidecar wells
+match the decoded `.platemap` wells exactly:
+
+```text
+candidate raw rows: 57
+expected per-well jobs: 454
+
+CytoView 6-well:
+  rows: 33
+  well jobs: 198
+  selection mode: manual_all_wells_sixwell_policy
+
+Lumos 48-well:
+  rows: 24
+  well jobs: 256
+  selection mode: manual_lumos_activity_OR_platemap
+```
+
+Lumos source behavior in v5:
+
+```text
+2/25 Lumos:
+  activity sidecar only
+  2 rows x 14 wells = 28 jobs
+
+6/18 Lumos:
+  decoded .platemap only
+  10 rows x 12 wells = 120 jobs
+
+6/22 Lumos:
+  activity sidecar + decoded .platemap
+  both sources give A3,B4,B5,C3,C5,C6,D2,D6,E5
+  12 rows x 9 wells = 108 jobs
+```
+
+Preflight for v5:
+
+```text
+submit=false rows: 57
+blank params_template rows: 0
+missing raw/plate-map/electrode-geometry/params/raw-metadata paths: 0
+existing results/aind recording_stem collisions: 0
+```
+
+Use the v5 recordings manifest, not v4, for the next reviewed Step 1 submission
+copy.
