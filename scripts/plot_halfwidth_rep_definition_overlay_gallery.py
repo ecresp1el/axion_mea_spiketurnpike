@@ -202,6 +202,8 @@ def _row_to_unit(row: pd.Series) -> dict[str, object]:
 
 
 def _write_all_units_pdf(plt, units: list[dict[str, object]], output_path: Path, *, units_per_page: int) -> None:
+    from matplotlib.backends.backend_pdf import PdfPages
+
     units_per_page = max(1, int(units_per_page))
     with PdfPages(output_path) as pdf:
         page_count = int(math.ceil(len(units) / units_per_page))

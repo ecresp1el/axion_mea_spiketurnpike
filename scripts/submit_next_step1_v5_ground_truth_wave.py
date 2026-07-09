@@ -49,6 +49,15 @@ def parse_args() -> argparse.Namespace:
         help="Allow rows already present in the submitted ledger to be submitted again.",
     )
     parser.add_argument(
+        "--skip-submitted-wave-prefix",
+        action="append",
+        default=[],
+        help=(
+            "Even with --allow-resubmit, skip rows already submitted under a wave_label "
+            "starting with this prefix. May be passed more than once."
+        ),
+    )
+    parser.add_argument(
         "--sbatch-time",
         default="",
         help="Optional parent-wrapper walltime override passed to sbatch, e.g. 12:00:00.",
@@ -56,14 +65,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def already_submitted(path: Path) -> set[tuple[str, str]]:
+def already_submitted(path: Path, wave_prefixes: list[str] | None = None) -> set[tuple[str, str]]:
     seen: set[tuple[str, str]] = set()
     if not path.is_file():
         return seen
+    prefixes = tuple(prefix for prefix in (wave_prefixes or []) if prefix)
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.strip() or line.startswith("submitted_at\t"):
             continue
         row = dict(part.split("=", 1) for part in line.split() if "=" in part)
+        if prefixes and not row.get("wave_label", "").startswith(prefixes):
+            continue
         recording = row.get("recording", "")
         well = row.get("well", "")
         if recording and well:
@@ -88,10 +100,13 @@ def main() -> int:
     statuses = {item.strip() for item in args.status.split(",") if item.strip()}
     rows = list(csv.DictReader(args.ledger.open(newline="", encoding="utf-8")))
     submitted = already_submitted(args.submitted)
+    skip_submitted = already_submitted(args.submitted, args.skip_submitted_wave_prefix)
 
     candidates: list[dict[str, str]] = []
     for row in rows:
         key = (row["recording"], row["well"])
+        if key in skip_submitted:
+            continue
         if key in submitted and not args.allow_resubmit:
             continue
         if row.get("ground_truth_status") not in statuses:

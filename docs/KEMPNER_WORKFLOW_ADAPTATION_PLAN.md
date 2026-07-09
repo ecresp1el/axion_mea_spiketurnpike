@@ -7396,6 +7396,14 @@ Canonical commands:
     Use `--submit --sbatch-time 12:00:00` only after Lumos standard-route
     submissions are fully drained and the live queue is clean.
 
+  Automation update:
+    `scripts/submit_next_step1_v5_ground_truth_wave.py` now supports
+    `--skip-submitted-wave-prefix`. This is required for the Cytoview priority
+    retry because the old all-Cytoview wave
+    `cytoview_remaining_all_20260709_0214` was canceled and the retry therefore
+    needs `--allow-resubmit`; the new prefix skip prevents re-submitting rows
+    already launched under the watched Cytoview priority waves.
+
 - [x] 2026-07-09 11:05 EDT - Lumos batch-size experiment started after the
   previous 20-well wave drained cleanly and the live Lumos/AIND queue was empty.
 
@@ -7520,9 +7528,35 @@ Canonical commands:
     Lumos sparse candidates remain documented for possible future fallback, but
     no additional standard Lumos submission is pending.
 
-- [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
-  with the prepared 20-well dry run, and confirm `job_dispatch` completion
-  before submitting more Cytoview wells.
+- [x] 2026-07-09 13:08 EDT - Cytoview/SixWell plate-map-backed dorsal/ventral
+  priority retry wave 1 submitted immediately after Lumos standard-route
+  completion.
+
+  Submit command:
+    python scripts/submit_next_step1_v5_ground_truth_wave.py \
+      --ledger /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_platemap_dorsal_ventral_priority_20260709.csv \
+      --status not_ready_or_not_started \
+      --plate-family cytoview_6well \
+      --limit 20 \
+      --allow-resubmit \
+      --skip-submitted-wave-prefix cytoview_platemap_dv_priority_ \
+      --sbatch-time 12:00:00 \
+      --wave-label cytoview_platemap_dv_priority_20_20260709_1308 \
+      --submit
+
+  Submitted Cytoview parent wrapper jobs:
+    `53180287-53180306`
+
+  Live queue checkpoint after submission:
+    All 20 Cytoview parent wrappers were `RUNNING` at approximately `0:38`
+    elapsed. All 20 corresponding `nf-job_dispatch_(job-dispatch)` jobs had
+    also started and were `RUNNING` at approximately `0:04` elapsed
+    (`53180338-53180357`). This is different from the previous failed Cytoview
+    all-at-once wave: the new wave is not just idle parent wrappers.
+
+- [ ] Next checkpoint - For Cytoview priority wave 1, confirm that
+  `nf-job_dispatch` completes and at least one downstream stage records progress
+  before submitting the next 20-well priority wave.
 
 - [ ] Next checkpoint - After any Cytoview retry starts, record:
   parent wrapper state, `nf-job_dispatch` state, number of completed
