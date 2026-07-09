@@ -124,6 +124,10 @@ class PsthBuilder:
 
 DEFAULT_TRAIN_WINDOW = AnalysisWindow(pre_ms=200.0, post_ms=800.0)
 DEFAULT_PULSE_WINDOW = PulseWindow(pre_ms=25.0, post_ms=50.0)
+OPTO_BASELINE_START_MS = -25.0
+OPTO_BASELINE_END_MS = -8.0
+OPTO_RESPONSE_START_MS = -5.0
+OPTO_RESPONSE_END_MS = 50.0
 DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=20.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0,))
 DEFAULT_WAVEFORM_RENDER = WaveformRenderConfig(sample_dt_ms=1.0, smooth_window_ms=2.0)
@@ -1647,9 +1651,7 @@ def _score_opto_tagged_unit_group(
             baseline_spikes=0,
         )
 
-    pre_s = abs(min(builder.pulse_window.start_ms, 0.0)) / 1000.0
-    post_ms = max(builder.pulse_window.end_ms, 0.0)
-    pre_intervals: list[tuple[float, float]] = []
+    baseline_intervals: list[tuple[float, float]] = []
     post_intervals: list[tuple[float, float]] = []
     for event in events.itertuples(index=False):
         stim_time_s = float(getattr(event, "event_time_s"))
@@ -1660,11 +1662,20 @@ def _score_opto_tagged_unit_group(
                 else np.inf
             )
             onset_s = stim_time_s + pulse.start_ms / 1000.0
-            if pre_s > 0:
-                pre_intervals.append((onset_s - pre_s, onset_s))
-            if post_ms > 0:
-                post_end_ms = min(pulse.start_ms + post_ms, next_start_ms)
-                post_intervals.append((onset_s, stim_time_s + post_end_ms / 1000.0))
+            baseline_start_s = onset_s + OPTO_BASELINE_START_MS / 1000.0
+            baseline_end_s = onset_s + OPTO_BASELINE_END_MS / 1000.0
+            if baseline_end_s > baseline_start_s:
+                baseline_intervals.append((baseline_start_s, baseline_end_s))
+
+            post_start_ms = OPTO_RESPONSE_START_MS
+            post_end_ms = min(pulse.start_ms + OPTO_RESPONSE_END_MS, next_start_ms) - pulse.start_ms
+            if post_end_ms > post_start_ms:
+                post_intervals.append(
+                    (
+                        onset_s + post_start_ms / 1000.0,
+                        onset_s + post_end_ms / 1000.0,
+                    )
+                )
 
     baseline_spikes = 0
     post_spikes = 0
@@ -1673,12 +1684,11 @@ def _score_opto_tagged_unit_group(
         if spike_frames.size == 0:
             continue
         spike_times = np.sort(spike_frames / builder.sampling_frequency_hz)
-        baseline_spikes += _count_spikes_in_intervals(spike_times, pre_intervals)
+        baseline_spikes += _count_spikes_in_intervals(spike_times, baseline_intervals)
         post_spikes += _count_spikes_in_intervals(spike_times, post_intervals)
 
-    n_pre = max(len(pre_intervals), 1)
-    n_post = max(len(post_intervals), 1)
-    baseline_rate = baseline_spikes / (n_pre * pre_s) if pre_s > 0 else 0.0
+    baseline_durations = sum(max(end_s - start_s, 0.0) for start_s, end_s in baseline_intervals)
+    baseline_rate = baseline_spikes / baseline_durations if baseline_durations > 0 else 0.0
     post_durations = sum(max(end_s - start_s, 0.0) for start_s, end_s in post_intervals)
     post_rate = post_spikes / post_durations if post_durations > 0 else 0.0
     return OptoTaggedUnitScore(
@@ -1718,19 +1728,29 @@ def _score_opto_tagged_response(
 
     pulse_spikes = response.pulse_aligned_spikes
     n_trials = max(len(response.pulse_trials), 1)
-    pre_ms = abs(min(builder.pulse_window.start_ms, 0.0))
-    post_ms = max(builder.pulse_window.end_ms, 0.0)
+    baseline_duration_ms = OPTO_BASELINE_END_MS - OPTO_BASELINE_START_MS
+    post_duration_ms = OPTO_RESPONSE_END_MS - OPTO_RESPONSE_START_MS
 
     if pulse_spikes.empty:
         baseline_spikes = 0
         post_spikes = 0
     else:
         times = pulse_spikes["pulse_aligned_time_ms"]
-        baseline_spikes = int(((times >= -pre_ms) & (times < 0.0)).sum()) if pre_ms > 0 else 0
-        post_spikes = int(((times >= 0.0) & (times <= post_ms)).sum()) if post_ms > 0 else 0
+        baseline_spikes = int(
+            ((times >= OPTO_BASELINE_START_MS) & (times < OPTO_BASELINE_END_MS)).sum()
+        )
+        post_spikes = int(
+            ((times >= OPTO_RESPONSE_START_MS) & (times <= OPTO_RESPONSE_END_MS)).sum()
+        )
 
-    baseline_rate = baseline_spikes / (n_trials * (pre_ms / 1000.0)) if pre_ms > 0 else 0.0
-    post_rate = post_spikes / (n_trials * (post_ms / 1000.0)) if post_ms > 0 else 0.0
+    baseline_rate = (
+        baseline_spikes / (n_trials * (baseline_duration_ms / 1000.0))
+        if baseline_duration_ms > 0
+        else 0.0
+    )
+    post_rate = (
+        post_spikes / (n_trials * (post_duration_ms / 1000.0)) if post_duration_ms > 0 else 0.0
+    )
     return OptoTaggedUnitScore(
         unit_label=unit_label,
         unit_ids=unit_ids,

@@ -48,6 +48,11 @@ STEP1_GUI_REMINDER = """\
 - Treat saved decisions as per-well notes until the rest of the rerun finishes.
 """
 
+STEP1_GUI_COMPACT_REMINDER = (
+    "Step 1 only; save writes the external curation JSON; "
+    "merge/delete in the unit list, restore/unmerge/unsplit in the curation panel."
+)
+
 STEP1_DISPLAYED_UNIT_PROPERTIES = [
     "KSLabel",
     "Amplitude",
@@ -358,6 +363,7 @@ def make_gui_app(
         disable_save_settings_button=True,
         verbose=verbose,
     )
+    curation_grids = configure_step1_curation_layout(win.main_layout, height=680, allow_resize=True)
 
     header = pn.Row(
         pn.pane.Markdown(
@@ -367,10 +373,42 @@ def make_gui_app(
         ),
         sizing_mode="stretch_width",
     )
-    status = pn.pane.Markdown(
-        f"{STEP1_GUI_REMINDER}\n**Manual curation JSON**  \n`{curation_output}`",
+    compact_status = pn.pane.Markdown(
+        f"**{STEP1_GUI_COMPACT_REMINDER}**  \n"
+        f"**Curation JSON:** `{curation_output}`",
         sizing_mode="stretch_width",
     )
+    details = pn.Accordion(
+        (
+            "Instructions / assumptions",
+            pn.pane.Markdown(
+                f"{STEP1_GUI_REMINDER}\n**Manual curation JSON**  \n`{curation_output}`",
+                sizing_mode="stretch_width",
+            ),
+        ),
+        active=[],
+        sizing_mode="stretch_width",
+    )
+    grid_height = pn.widgets.IntSlider(
+        name="Curation grid height",
+        start=520,
+        end=1100,
+        step=40,
+        value=680,
+        width=280,
+    )
+    resize_toggle = pn.widgets.Checkbox(name="Resizable panels", value=True, width=150)
+
+    def apply_curation_layout_controls(*_: Any) -> None:
+        for grid in curation_grids:
+            if "height" in grid.param:
+                grid.height = int(grid_height.value)
+            if "allow_resize" in grid.param:
+                grid.allow_resize = bool(resize_toggle.value)
+
+    grid_height.param.watch(apply_curation_layout_controls, "value")
+    resize_toggle.param.watch(apply_curation_layout_controls, "value")
+    layout_controls = pn.Row(grid_height, resize_toggle, sizing_mode="stretch_width", height=44)
     tab_items = [("Curation", win.main_layout)]
     if stim_response_enabled:
         from axion_mea.gui_stim_response import make_stim_response_panel
@@ -393,7 +431,35 @@ def make_gui_app(
     print(f"Manual curation JSON: {curation_output}", flush=True)
     if stim_response_enabled:
         print(f"Stim response raw roots: {', '.join(str(path) for path in stim_raw_roots)}", flush=True)
-    return pn.Column(header, status, tabs, sizing_mode="stretch_both")
+    return pn.Column(
+        header,
+        compact_status,
+        details,
+        layout_controls,
+        tabs,
+        sizing_mode="stretch_both",
+    )
+
+
+def configure_step1_curation_layout(panel_obj, *, height: int, allow_resize: bool) -> list[Any]:
+    """Make the embedded SpikeInterface GridStack denser and user-resizable."""
+
+    grids: list[Any] = []
+
+    def visit(obj) -> None:
+        if obj.__class__.__name__ == "GridStack":
+            grids.append(obj)
+            if "height" in obj.param:
+                obj.height = height
+            if "allow_resize" in obj.param:
+                obj.allow_resize = allow_resize
+            if "allow_drag" in obj.param:
+                obj.allow_drag = False
+        for child in getattr(obj, "objects", []) or []:
+            visit(child)
+
+    visit(panel_obj)
+    return grids
 
 
 def _sorted_opto_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:

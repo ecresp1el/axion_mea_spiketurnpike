@@ -6645,3 +6645,449 @@ How to submit safely next time:
 8. Keep failed-export wells in a separate failure ledger with recording, well,
    failure stage, and error text.
 ```
+
+## 2026-07-09 Operational Cleanup: Original Failure, Lumos, and Cytoview
+
+```text
+Short version:
+  The original 2026-07-08 TH=5 v5 Step 1 launch failed operationally because it
+  launched too many AIND wrapper jobs at once. The wrappers occupied Slurm
+  resources while the inner Nextflow `nf-job_dispatch` tasks were stuck pending.
+  That produced many running parent wrappers but no AIND assets.
+
+  Lumos and Cytoview then diverged:
+    - Lumos was recovered by controlled continuation waves and proved the
+      wrapper/Nextflow path by completing `job_dispatch`, preprocessing,
+      nwb_ecephys, and reaching Kilosort.
+    - Cytoview later repeated the idle-wrapper pattern: parent wrappers were
+      live, but no Nextflow stage completed. That Cytoview idle set was canceled
+      at 2026-07-09 09:11 EDT.
+
+Original TH=5 v5 submission package:
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826
+
+Original submitted workload:
+  recording rows prepared: 57
+  well chains submitted: 454
+  pipeline Slurm jobs submitted: 1816
+  recording supervisor jobs submitted: 57
+  total tracked top-level Slurm IDs including supervisors: 1873
+
+Original failure snapshot at 2026-07-08 23:04 EDT:
+  Nextflow traces present: 245 wells
+  Nextflow traces header-only: 245 wells
+  No Nextflow trace yet: 209 wells
+  job_dispatch completed: 0 wells
+  preprocessing submitted: 0 wells
+  nwb_ecephys submitted: 0 wells
+  spikesort_kilosort4 submitted: 0 wells
+  nwb_units completed: 0 wells
+  nf-job_dispatch jobs pending by Priority: 245
+
+Original failure interpretation:
+  This was not a Kilosort parameter failure and not a biology result. The run had
+  not reached Kilosort yet. It was an operational scheduling failure: too many
+  parent AIND wrappers were alive while the inner Nextflow dispatch jobs waited
+  behind Slurm priority/limits.
+
+Known non-operational failures from the original launch:
+  Eight Lumos well chains failed before AIND/Kilosort because Axion export could
+  not find requested waveforms for wells that had been selected from the decoded
+  plate map:
+
+    6_18_2026_plate2...ventral_sosrs_2_opsin(000) primary_raw:
+      B6, C7, D7, E6
+    6_18_2026_plate2...ventral_sosrs_2_opsin(000) filter_200Hz-3kHz:
+      B6, C7, D7, E6
+
+  Representative export error:
+    Missing waveform for B6_11 at Axion index {2,6,1,1}.
+
+  These 8 are export/well-selection failures, not Kilosort failures. They should
+  remain explicit `export_failed` rows unless the well-selection/export boundary
+  is corrected and binary export succeeds.
+
+First recovery action at 2026-07-08 23:49 EDT:
+  The over-launched AIND layer was canceled while preserving upstream export,
+  interim NWB, and SpikeInterface-prep products.
+
+  Canceled:
+    top-level AIND/supervisor Slurm IDs: 511
+    inner nf-job_dispatch Slurm IDs: 250
+    total unique Slurm IDs: 761
+
+  Asset audit from the canceled original AIND jobs:
+    original AIND wrapper jobs: 454
+    result directories created: 250
+    wrapper logs created: 250
+    Nextflow traces missing: 204
+    Nextflow traces header-only: 250
+    Nextflow traces with task rows: 0
+    actual AIND pipeline assets produced: 0
+
+  Recovery package:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646
+
+Lumos recovery details:
+  Lumos continuation was deliberately restarted from the pickup boundary, not
+  from the whole original manifest.
+
+  Pickup boundary required all four per-well files:
+    binary export
+    interim NWB
+    AIND SpikeInterface env
+    AIND SpikeInterface params JSON
+
+  Lumos continuation-ready wells in the first recovery package: 106
+
+  Lumos continuation batches:
+    batch 1: 20 wells, jobs 53136425-53136444
+    batch 2: 40 wells, jobs 53137582-53137621
+    batch 3: 20 wells, jobs 53140905-53140924
+    batch 4: 26 wells, jobs 53142035-53142038 and 53142052-53142073
+    total submitted from first Lumos recovery package: 106 / 106
+
+  Important Lumos proof point:
+    The first 20-well Lumos continuation wave completed job_dispatch 20/20 and
+    reached preprocessing, nwb_ecephys, and Kilosort. This proved the original
+    idle-wrapper failure was avoidable with controlled waves.
+
+  First-wave Lumos Kilosort outcome:
+    spikesort_kilosort4 completed: 16 / 20
+    spikesort_kilosort4 failed: 4 / 20
+
+  Representative Lumos Kilosort failures:
+    ValueError: n_samples=1 should be >= n_clusters=6.
+    ValueError: n_samples=2 should be >= n_clusters=6.
+    ValueError: Found array with 0 sample(s) ... while a minimum of 1 is required
+    by TruncatedSVD.
+
+  Interpretation:
+    These are sparse/low-sortability Kilosort failures after the workflow reached
+    the sorter. They are not the same failure as the original dispatch stall.
+    They belong in the labeled sparse fallback route.
+
+Lumos ground-truth wave:
+  After the 106-well continuation package, the canonical ground-truth ledger
+  identified remaining pickup-ready Lumos rows. Those were submitted as:
+
+    wave_label: lumos_remaining_all_20260709_0208
+    submitted wells: 142
+    Slurm axion-aind-nwb jobs: 53143276-53143417
+
+  This wave should be tracked separately from the first 106-well continuation.
+
+Current Lumos state from refreshed canonical ledger at 2026-07-09 09:18 EDT:
+  total Lumos rows: 256
+  gui_ready_standard: 65
+  running_standard: 131
+  standard_failed_sparse_fallback_candidate: 52
+  export_failed: 8
+
+  Lumos rows in ground-truth wave `lumos_remaining_all_20260709_0208`:
+    running_standard: 131
+    standard_failed_sparse_fallback_candidate: 11
+    trace_exists: 142 / 142
+
+  Highest completed stage inside this Lumos ground-truth wave:
+    job_dispatch: 57
+    preprocessing: 32
+    nwb_ecephys: 39
+    spikesort_kilosort4: 14
+    no completed stage yet: 0
+
+  First failed stage inside this Lumos ground-truth wave:
+    spikesort_kilosort4: 11
+
+  All current sparse fallback candidates are Lumos:
+    low_activity_ks4_nt2_npcs2: 52 wells
+
+Required Lumos fallback handling:
+  Do not globally lower standard Lumos Kilosort params.
+  Do not treat sparse KS4 failures as operationally stuck jobs.
+  Route standard KS4 sparse failures to:
+
+    fallback label: low_activity_ks4_nt2_npcs2
+    n_templates: 2
+    nearest_templates: 2
+    n_pcs: 2
+
+  The fallback route must keep separate results/work roots and report rescued
+  wells as `fallback_completed`, not `gui_ready_standard`.
+
+Cytoview/SixWell ground-truth wave:
+  Cytoview was submitted later as its own ground-truth wave:
+
+    wave_label: cytoview_remaining_all_20260709_0214
+    submitted wells: 198
+    Slurm axion-aind-nwb jobs: 53143770-53143967
+
+  At 2026-07-09 03:50 EDT:
+    parent axion-aind-nwb jobs running: 113
+    parent axion-aind-nwb jobs pending: 85
+    inner nf-job_dispatch jobs pending by Priority: 113
+    GUI-ready from this wave: 0
+    highest completed stage: none for all 198
+    first failed stage: none for all 198
+
+  This matched the original over-launch failure pattern, but now specifically in
+  Cytoview: parent wrappers existed, inner dispatch jobs were pending, and no
+  pipeline stage had completed.
+
+Cytoview cleanup action at 2026-07-09 09:11 EDT:
+  The Cytoview idle wrapper set was canceled because after roughly 4.5 hours it
+  still had zero completed Nextflow stages and the parent wrappers were consuming
+  scheduler/accounting space.
+
+  Cleanup package:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/operational_cleanup_cytoview_idle_wrappers_20260709_091142
+
+  Cleanup context:
+    Cytoview rows considered: 198
+    parent jobs canceled: 198
+    parent states before cancel:
+      RUNNING: 113
+      PENDING: 85
+    pending nf-job_dispatch child jobs canceled: 113
+    total unique Slurm IDs canceled: 311
+    trace_exists before cancel:
+      true: 144
+      false: 54
+    highest_completed_stage before cancel:
+      none: 198
+    first_failed_stage before cancel:
+      none: 198
+
+  Cleanup files:
+    cytoview_parent_jobs_to_cancel.tsv
+    pending_nf_job_dispatch_to_cancel.tsv
+    cancel_job_ids.txt
+    cancel_command.sh
+    cleanup_context.json
+    cytoview_retry_20_dry_run.txt
+
+Current Cytoview state after cleanup:
+  total Cytoview rows: 198
+  ground_truth_status: not_ready_or_not_started for all 198
+  ground_truth_wave_aind_state: CANCELLED for all 198
+  highest_completed_stage: none for all 198
+  first_failed_stage: none for all 198
+  nf-job_dispatch jobs remaining in live queue: 0
+
+Current live queue checkpoint after cleanup:
+  total live jobs: 306
+  RUNNING: 132
+  PENDING: 174
+  axion-aind-nwb: 130
+  nf-preprocessing: 46
+  nf-nwb_ecephys: 45
+  nf-spikesort_kilosort4: 69
+  nf-postprocessing: 15
+  unrelated siletti-div90-xfer-3d transfer job: 1
+
+Operational interpretation:
+  Lumos and Cytoview must not be described as the same current failure.
+
+  Lumos:
+    Active and progressing through real Nextflow stages.
+    Some wells are failing at Kilosort because of sparse/low-sortability data.
+    Those failures should go to the proven labeled fallback route.
+
+  Cytoview:
+    Was not failing biologically and was not failing at Kilosort.
+    It was operationally stalled before any completed Nextflow stage.
+    It was canceled back to a clean retry point.
+
+Retry plan prepared but not submitted:
+  A 20-well Cytoview retry dry run was created:
+
+    wave_label:
+      cytoview_retry_20_after_idle_cancel_20260709_091142
+
+    dry-run output:
+      /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/operational_cleanup_cytoview_idle_wrappers_20260709_091142/cytoview_retry_20_dry_run.txt
+
+  It was intentionally not submitted at the cleanup checkpoint because Lumos
+  still had active parent wrappers and a large downstream backlog. Submitting
+  Cytoview immediately would risk recreating the same idle-wrapper bottleneck.
+
+Safe next operating rule:
+  1. Regenerate the canonical Step 1 v5 ground-truth ledger before every answer.
+  2. Let Lumos drain further; do not interrupt real Lumos stage progress.
+  3. Route Lumos sparse KS4 failures to `low_activity_ks4_nt2_npcs2`.
+  4. Retry Cytoview only in a small wave, starting with 20 wells.
+  5. After submitting a Cytoview retry, watch for `job_dispatch` completion, not
+     just parent wrapper RUNNING state.
+  6. If Cytoview retry shows parent wrappers running but no `job_dispatch`
+     completion after a meaningful interval, stop and inspect Slurm limits before
+     submitting more.
+
+Canonical commands:
+  Regenerate status:
+    cd /home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike
+    source config/greatlakes_project.env
+    source "${CONDA_BASE}/etc/profile.d/conda.sh"
+    conda activate "${CONDA_ENV}"
+    python scripts/summarize_step1_v5_ground_truth.py
+
+  Check live queue:
+    squeue -u "$USER" -o "%.18i %.9P %.32j %.10T %.10M %.10l %.6D %R"
+
+  Review cleanup package:
+    ls -lah /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/operational_cleanup_cytoview_idle_wrappers_20260709_091142
+
+  Review canonical ledger:
+    /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/step1_v5_well_ground_truth.csv
+```
+
+### Timestamped Operations Checklist
+
+- [x] 2026-07-08 22:18 EDT - Prepared and launched Step 1 TH=5 v5 submission from:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_submit_20260708_221826`
+
+- [x] 2026-07-08 23:04 EDT - Identified original operational failure:
+  `245` `nf-job_dispatch` jobs were pending by Slurm priority, `0` wells had
+  completed `job_dispatch`, and no wells had reached preprocessing,
+  `nwb_ecephys`, Kilosort, or `nwb_units`.
+
+- [x] 2026-07-08 23:04 EDT - Separated the 8 true export failures from the
+  operational failure. These were Lumos plate-map/waveform mismatches for
+  `6_18_2026_plate2...ventral_sosrs_2_opsin(000)` primary/filter rows:
+  `B6`, `C7`, `D7`, and `E6` in each row.
+
+- [x] 2026-07-08 23:49 EDT - Canceled the original over-launched AIND layer:
+  `511` top-level AIND/supervisor IDs plus `250` inner `nf-job_dispatch` IDs,
+  `761` unique Slurm IDs total.
+
+- [x] 2026-07-08 23:49 EDT - Preserved upstream products and created Lumos
+  continuation package:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_lumos_aind_continue_20260708_234646`
+
+- [x] 2026-07-09 00:06 EDT - Confirmed Lumos controlled wave 1 fixed the
+  original wrapper/dispatch bottleneck: `20 / 20` Lumos jobs completed
+  `job_dispatch` and began downstream Nextflow stages.
+
+- [x] 2026-07-09 00:20 EDT - Confirmed first Lumos Kilosort failures were real
+  sparse/low-sortability sorter failures, not the original dispatch stall:
+  `16 / 20` completed Kilosort and `4 / 20` failed at Kilosort with
+  `n_samples < n_clusters=6` or empty PCA/SVD input.
+
+- [x] 2026-07-09 01:35 EDT - Completed first Lumos continuation submission:
+  `106 / 106` pickup-ready Lumos continuation wells submitted across four
+  controlled batches.
+
+- [x] 2026-07-09 02:08 EDT - Submitted remaining pickup-ready Lumos ground-truth
+  wave:
+  `lumos_remaining_all_20260709_0208`, `142` wells, Slurm jobs
+  `53143276-53143417`.
+
+- [x] 2026-07-09 02:14 EDT - Submitted Cytoview/SixWell ground-truth wave:
+  `cytoview_remaining_all_20260709_0214`, `198` wells, Slurm jobs
+  `53143770-53143967`.
+
+- [x] 2026-07-09 03:50 EDT - Identified Cytoview repeat of the original
+  idle-wrapper failure pattern: `113` parent wrappers running, `85` parent
+  wrappers pending, `113` inner `nf-job_dispatch` jobs pending, and `0 / 198`
+  Cytoview rows with any completed Nextflow stage.
+
+- [x] 2026-07-09 09:11 EDT - Canceled Cytoview idle wrapper set only:
+  `198` parent wrappers plus `113` pending `nf-job_dispatch` children,
+  `311` unique Slurm IDs total. Audit package:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/operational_cleanup_cytoview_idle_wrappers_20260709_091142`
+
+- [x] 2026-07-09 09:11 EDT - Prepared but did not submit a Cytoview retry dry
+  run:
+  `cytoview_retry_20_after_idle_cancel_20260709_091142`.
+  Reason: Lumos still had active parent wrappers and downstream backlog, so an
+  immediate Cytoview retry risked recreating the idle-wrapper problem.
+
+- [x] 2026-07-09 09:28 EDT - Refreshed canonical Step 1 v5 ledger:
+  `454` total rows, `198` Cytoview rows, `256` Lumos rows.
+
+- [x] 2026-07-09 09:28 EDT - Current Lumos status from canonical ledger:
+  `65` `gui_ready_standard`, `123` `running_standard`, `60`
+  `standard_failed_sparse_fallback_candidate`, and `8` `export_failed`.
+
+- [x] 2026-07-09 09:28 EDT - Current Lumos ground-truth wave status for
+  `lumos_remaining_all_20260709_0208`: `123` running, `19` failed at
+  `spikesort_kilosort4`, `142 / 142` with traces present.
+
+- [x] 2026-07-09 09:28 EDT - Current Lumos ground-truth wave highest completed
+  stages:
+  `61` preprocessing, `58` `nwb_ecephys`, `16` `spikesort_kilosort4`, and
+  `7` postprocessing. There are `0` Lumos rows in this wave with no completed
+  stage, so Lumos is not in the Cytoview idle-wrapper state.
+
+- [x] 2026-07-09 09:28 EDT - Current sparse fallback queue:
+  `60` Lumos wells need the labeled `low_activity_ks4_nt2_npcs2` fallback.
+  No Cytoview wells are currently sparse-fallback candidates because Cytoview
+  was canceled before reaching Kilosort.
+
+- [ ] Next checkpoint - Let Lumos continue draining until the `123`
+  `running_standard` rows either become `gui_ready_standard` or
+  `standard_failed_sparse_fallback_candidate`.
+
+- [ ] Next checkpoint - Do not cancel Lumos while `nf-spikesort_kilosort4`,
+  `nf-postprocessing`, or `nf-curation` are active; those indicate real
+  downstream progress, not the original dispatch stall.
+
+- [ ] Later optional checkpoint - If these sparse wells become important for the
+  analysis, start the Lumos sparse fallback workflow using
+  `low_activity_ks4_nt2_npcs2`. For now, sparse failures are documented but not
+  routed.
+
+- [x] 2026-07-09 09:34 EDT - Decision update: because time is limited, do not
+  route Lumos sparse KS4 failures through fallback right now. Document the
+  sparse candidates and keep the standard Lumos jobs draining.
+
+- [x] 2026-07-09 09:34 EDT - Refreshed Lumos state after another canonical
+  summary: `65` `gui_ready_standard`, `121` `running_standard`, `62`
+  `standard_failed_sparse_fallback_candidate`, and `8` `export_failed`.
+
+- [x] 2026-07-09 09:34 EDT - Checked whether Lumos is stuck. It is still making
+  progress: the canonical ledger changed from `123` running / `60` sparse
+  candidates at 09:28 EDT to `121` running / `62` sparse candidates at 09:34
+  EDT. That means two more rows reached a terminal sparse-KS4 classification.
+
+- [x] 2026-07-09 09:34 EDT - Checked live Kilosort queue age. There were `93`
+  live `nf-spikesort_kilosort4` jobs: `92` pending and `1` running. The oldest
+  Kilosort submissions were from `2026-07-09T02:21:04` (`11` jobs older than
+  7 hours), but most were recent (`36` submitted 15-60 minutes earlier and `46`
+  submitted within the prior 15 minutes). This indicates a GPU Kilosort backlog,
+  not a full Lumos workflow stall.
+
+- [x] 2026-07-09 09:43 EDT - Refined Lumos runtime interpretation. The earlier
+  controlled Lumos batches were smaller (`20`, `40`, `20`, `26`) and their
+  Kilosort tasks generally ran quickly once scheduled: successful Kilosort jobs
+  in the early batches commonly elapsed around `35-49` seconds, while sparse
+  failures often exited in around `15-19` seconds. The current slowdown is
+  mostly scheduler/GPU queueing, not per-file Kilosort runtime.
+
+- [x] 2026-07-09 09:43 EDT - Current live Kilosort queue had decreased to `83`
+  jobs: `82` pending and `1` running. Several old Kilosort jobs from the
+  `02:21` wave remain pending, but many current Kilosort/postprocessing/curation
+  tasks were submitted between `09:15` and `09:41`, which means Lumos continued
+  producing downstream work during the morning checkpoint.
+
+- [x] 2026-07-09 09:43 EDT - Difference between earlier Lumos batches and the
+  current Lumos wave:
+    Earlier continuation batches covered `106` pickup-ready wells in controlled
+    chunks and are now terminal as either `gui_ready_standard` or
+    `standard_failed_sparse_fallback_candidate`.
+    The current ground-truth Lumos wave submitted `142` wells at once
+    (`lumos_remaining_all_20260709_0208`), heavily represented by `6_22_2026`
+    day3 primary/filter variants plus remaining `6_18_2026` plate2 variants.
+    That larger simultaneous wave created a much larger GPU Kilosort backlog.
+
+- [ ] Next checkpoint - If the live Kilosort queue is still dominated by the
+  same old `02:21` pending jobs after the scheduler's predicted starts pass,
+  inspect Slurm GPU priority/limits rather than changing pipeline parameters.
+
+- [ ] Next checkpoint - Retry Cytoview only as a small watched wave, starting
+  with the prepared 20-well dry run, and confirm `job_dispatch` completion
+  before submitting more Cytoview wells.
+
+- [ ] Next checkpoint - After any Cytoview retry starts, record:
+  parent wrapper state, `nf-job_dispatch` state, number of completed
+  `job_dispatch` tasks, number of completed preprocessing tasks, and whether
+  any trace has task rows. Do not rely on parent wrapper `RUNNING` alone.

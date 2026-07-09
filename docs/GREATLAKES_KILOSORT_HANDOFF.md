@@ -419,3 +419,43 @@ audit root is:
 ```text
 /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/
 ```
+
+## Step 1 V5 Ground-Truth Run State
+
+Updated 2026-07-09. Treat this folder as the current single source for the
+Step 1 v5 rerun state and batch cross-reference:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/
+```
+
+Key files:
+
+```text
+step1_v5_well_ground_truth.csv              # per-well status across batches
+step1_v5_ground_truth_summary.txt           # human-readable current summary
+step1_v5_ground_truth_summary.json          # machine-readable current summary
+submitted_step1_v5_ground_truth_waves.tsv   # wave/batch submission labels
+lumos_gui_ready_trial_tag_screen_250pulse_jitterwin_20260709.csv
+lumos_manual_spike_sorting_guide_jitterwin_20260709.csv
+```
+
+Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
+`ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference
+batch 1 vs batch 2 vs batch 3. Do not infer batch membership from recording
+name alone.
+
+The jitter-aware Lumos trial-tagging screen uses:
+
+```text
+baseline: -25..-8 ms
+response: -5..+50 ms
+during-stim QC: 0 ms through reconstructed pulse end
+```
+
+As of the refresh, the Lumos GUI-ready subset is 65 wells: 23 scored with
+usable stimulation metadata and 42 marked `stim_unavailable`.
+
+The manual guide CSV keeps `D2` as a top-priority review case rather than
+treating it as a negative control, because the current working interpretation is
+that `D2` may be a real outside-prior response.

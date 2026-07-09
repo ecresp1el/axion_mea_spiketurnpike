@@ -474,3 +474,48 @@ Build this in three passes:
 
 This sequence keeps the important biology correct first, then wires it into the
 curation interface.
+
+## 2026-07-09 Jitter-Aware Optotag Scoring Update
+
+The Step 1 stim GUI still plots the pulse-locked view over the display context
+`-25..+50 ms`, but default opto ranking now uses explicit scoring windows:
+
+```text
+baseline: -25..-8 ms relative to each pulse onset
+response: -5..+50 ms relative to each pulse onset
+during-stim QC: 0 ms through reconstructed pulse end
+```
+
+This is intentional because the Lumos pulse timing can jitter slightly around
+nominal onset. The response rate is an average rate over all pulse pseudo-trials:
+total spikes in the scoring window divided by total seconds in that window.
+The `*_reliability_250` columns are trial fractions: pulse pseudo-trials with at
+least one spike in the window divided by the first 250 pulse pseudo-trials.
+
+Current refreshed screen:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_gui_ready_trial_tag_screen_250pulse_jitterwin_20260709.csv
+```
+
+It supersedes the older same-day screen for jitter-aware review:
+
+```text
+lumos_gui_ready_trial_tag_screen_250pulse_20260709.csv
+```
+
+The refreshed file has 65 Lumos GUI-ready wells: 23 scored with usable stim
+metadata and 42 marked `stim_unavailable`. Highest score rows in the refreshed
+screen are the June/July Lumos `D6` wells from the `opsin(000)` recording, with
+`D6` still the strongest manual-review candidate. Columns are numeric well
+columns, so the June/July prior "columns 4-8" means wells such as `B4`, `C6`,
+`D6`, and `E5`.
+
+Manual review guide:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/lumos_manual_spike_sorting_guide_jitterwin_20260709.csv
+```
+
+This guide deliberately promotes `D2` rows to the top review tier as possible
+real outside-prior responses.

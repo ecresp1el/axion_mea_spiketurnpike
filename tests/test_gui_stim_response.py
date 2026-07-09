@@ -182,6 +182,36 @@ class TestUnitStimResponseBuilder(unittest.TestCase):
 
         self.assertEqual(labels, ["5", "4"])
 
+    def test_pulse_ranking_uses_jitter_tolerant_response_window(self) -> None:
+        events = stim_events()
+        pulses = [PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0)]
+        pulse_structure = inspect_pulse_structure(events, pulses)
+        sorting = FakeSorting(
+            {
+                0: [990, 1990],  # baseline spikes at -10 ms
+                7: [996, 1996],  # jittered response spikes at -4 ms
+            }
+        )
+        builder = UnitStimResponseBuilder(
+            sorting=sorting,
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=pulse_structure,
+            train_window=AnalysisWindow(pre_ms=25.0, post_ms=50.0),
+            pulse_window=PulseWindow(pre_ms=25.0, post_ms=50.0),
+            train_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+            pulse_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+        )
+
+        labels = _default_opto_unit_labels(
+            builder,
+            {"0": (0,), "7": (7,)},
+            limit=2,
+        )
+
+        self.assertEqual(labels, ["7"])
+
     def test_curation_removed_units_and_merge_groups_are_reflected(self) -> None:
         groups = _label_to_unit_groups(
             [0, 4, 5, 9],
