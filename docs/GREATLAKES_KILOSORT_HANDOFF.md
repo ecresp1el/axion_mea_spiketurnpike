@@ -562,6 +562,31 @@ Next handoff target:
   Step 1 analyzers ready. Step 2 linked assets were `0` for this v5 denominator,
   so A/B/C representative plots should use Step 1 analyzer-backed
   GUI-equivalent data first.
+- Corrected Wave A/B/C representative candidate scoring completed on 2026-07-09
+  17:30 EDT via Slurm job `53210960`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_abc_scoring_20260709_172908/`.
+  It scored `513` stability units, `851` within-well pairs, and `176` wells,
+  with `0` analyzer errors. The selected candidate manifests are
+  `waveA_stability_representative_units_20260709.csv`,
+  `waveB_correlogram_representative_units_20260709.csv`, and
+  `waveC_spatial_footprint_representative_wells_20260709.csv`. A prior scoring
+  run `53210725` is superseded for Wave B because the pair-distance cutoff was
+  too strict and returned same-best-channel pairs; job `53210960` ranks
+  nonzero-distance neighboring-electrode pairs first.
+- Final representative-figure selection manifests completed on 2026-07-09
+  17:43 EDT via Slurm job `53212357`:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_final_selection_20260709_174251/`.
+  This is the current source for first-pass representative figure rendering.
+  It preserves separate selection pools for Lumos geometry, Cytoview dorsal,
+  and Cytoview ventral. It writes `48` selected rows total: for each pool,
+  `6` Wave A stability units, `6` Wave B correlogram pairs, and `4` Wave C
+  spatial wells. Candidate denominators before final selection were Lumos
+  `276` units / `256` pairs / `126` wells, Cytoview dorsal `113` units /
+  `312` pairs / `22` wells, and Cytoview ventral `124` units / `283` pairs /
+  `28` wells. The manifest explicitly carries
+  `variant_policy=preserve_all_raw_filter_broadband_variants_no_deduplication`;
+  do not collapse primary, filtered, or broadband-processor variants when
+  rendering the figures.
 
 Use `continuation_batch`, `ground_truth_wave_label`, submitted job ids, and
 `ground_truth_status` in `step1_v5_well_ground_truth.csv` to cross-reference

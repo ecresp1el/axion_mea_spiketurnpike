@@ -8180,6 +8180,94 @@ Canonical commands:
     `repro/submit_command.sh`
     `repro/submitted_job.sbatch`
 
+- [x] 2026-07-09 17:30 EDT - Corrected Wave A/B/C representative candidate
+  scoring completed through a targeted Slurm job package.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_abc_scoring_20260709_172908/`
+
+  Completed corrected job:
+    `53210960` `COMPLETED` in `00:00:30` on `gl3044`.
+
+  Superseded job:
+    `53210725` completed, but its Wave B pair-distance search was too strict
+    (`200 um`) and selected same-best-channel pairs. It is retained as
+    provenance but should not be used as the final Wave B candidate source.
+
+  Corrected scoring summary:
+    input units: `513`
+    Wave A stability units scored: `513`
+    Wave A selected units: `30`
+    Wave B within-well pairs scored: `851`
+    Wave B selected pairs: `40`
+    Wave B selected nonzero-distance pairs: `40 / 40`
+    Wave C wells scored: `176`
+    Wave C selected wells: `20`
+    analyzer errors: `0`
+
+  Key outputs:
+    `waveA_stability_candidate_scores_20260709.csv`
+    `waveA_stability_representative_units_20260709.csv`
+    `waveB_correlogram_pair_scores_20260709.csv`
+    `waveB_correlogram_representative_units_20260709.csv`
+    `waveC_spatial_footprint_unit_scores_20260709.csv`
+    `waveC_spatial_footprint_representative_wells_20260709.csv`
+    `abc_scoring_summary_20260709.csv`
+    `abc_scoring_provenance_20260709.json`
+
+- [x] 2026-07-09 17:43 EDT - Final representative figure selection manifests
+  completed through a targeted Slurm job package.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_final_selection_20260709_174251/`
+
+  Completed job:
+    `53212357` `COMPLETED` in `00:00:06` on `gl3039`.
+
+  Policy correction:
+    Lumos and Cytoview/SixWell dorsal/ventral must not be selected from one
+    global top-N pool. The final selection now uses three separate pools:
+    `lumos`, `cytoview_dorsal`, and `cytoview_ventral`. Lumos remains the
+    opto/geometry track, not a dorsal/ventral biological comparison.
+
+  Variant rule:
+    do not deduplicate primary, filtered, broadband-processor, or other raw
+    variants anywhere in this representative selection layer. Each analyzed
+    variant remains a separate row identified by its recording stem and
+    provenance. The final manifest carries:
+    `variant_policy=preserve_all_raw_filter_broadband_variants_no_deduplication`.
+
+  Final selected counts:
+    Lumos: `6` Wave A stability units, `6` Wave B correlogram pairs, `4` Wave C
+      spatial wells
+    Cytoview dorsal: `6` Wave A stability units, `6` Wave B correlogram pairs,
+      `4` Wave C spatial wells
+    Cytoview ventral: `6` Wave A stability units, `6` Wave B correlogram pairs,
+      `4` Wave C spatial wells
+    total selected manifest rows: `48`
+
+  Candidate denominators before final selection:
+    Lumos: `276` Wave A unit candidates, `256` Wave B pair candidates, `126`
+      Wave C well candidates
+    Cytoview dorsal: `113` Wave A unit candidates, `312` Wave B pair
+      candidates, `22` Wave C well candidates
+    Cytoview ventral: `124` Wave A unit candidates, `283` Wave B pair
+      candidates, `28` Wave C well candidates
+
+  Key outputs:
+    `final_representative_figure_selection_manifest_20260709.csv`
+    `final_representative_figure_selection_summary_20260709.csv`
+    `final_representative_figure_selection_provenance_20260709.json`
+    `final_selection_lumos_waveA_stability_units_20260709.csv`
+    `final_selection_lumos_waveB_correlogram_pairs_20260709.csv`
+    `final_selection_lumos_waveC_spatial_wells_20260709.csv`
+    `final_selection_cytoview_dorsal_waveA_stability_units_20260709.csv`
+    `final_selection_cytoview_dorsal_waveB_correlogram_pairs_20260709.csv`
+    `final_selection_cytoview_dorsal_waveC_spatial_wells_20260709.csv`
+    `final_selection_cytoview_ventral_waveA_stability_units_20260709.csv`
+    `final_selection_cytoview_ventral_waveB_correlogram_pairs_20260709.csv`
+    `final_selection_cytoview_ventral_waveC_spatial_wells_20260709.csv`
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

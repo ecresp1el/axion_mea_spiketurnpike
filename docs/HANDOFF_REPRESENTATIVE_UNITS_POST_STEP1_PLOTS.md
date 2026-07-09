@@ -69,6 +69,138 @@ Interpretation:
   denominator, so Wave A/B/C should proceed from Step 1 analyzer-backed
   GUI-equivalent data. Step 2 remains a future optional linked metadata layer.
 
+Wave A/B/C candidate scoring has also been implemented and submitted through
+Slurm. The current corrected candidate source is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_abc_scoring_20260709_172908/
+```
+
+Completed corrected job:
+
+```text
+job_id: 53210960
+state: COMPLETED
+elapsed: 00:00:30
+node: gl3044
+```
+
+The first A/B/C scoring job, `53210725`, completed successfully but is
+superseded for Wave B selection because its pair-distance search was too strict
+(`200 um`) and admitted only same-best-channel pairs. The corrected job widens
+the neighbor-pair search to `1000 um` and ranks nonzero-distance pairs first.
+
+Corrected A/B/C output summary:
+
+| Metric | Count |
+|---|---:|
+| Input units | 513 |
+| Scored Wave A stability units | 513 |
+| Selected Wave A units | 30 |
+| Scored Wave B within-well pairs | 851 |
+| Selected Wave B pairs | 40 |
+| Selected Wave B nonzero-distance pairs | 40 / 40 |
+| Scored Wave C wells | 176 |
+| Selected Wave C wells | 20 |
+| Analyzer errors | 0 |
+
+Corrected A/B/C outputs:
+
+```text
+waveA_stability_candidate_scores_20260709.csv
+waveA_stability_representative_units_20260709.csv
+waveB_correlogram_pair_scores_20260709.csv
+waveB_correlogram_representative_units_20260709.csv
+waveC_spatial_footprint_unit_scores_20260709.csv
+waveC_spatial_footprint_representative_wells_20260709.csv
+abc_scoring_summary_20260709.csv
+abc_scoring_errors_20260709.csv
+abc_scoring_provenance_20260709.json
+repro/
+  project_config.env
+  python_command.sh
+  submit_command.sh
+  submitted_job.sbatch
+```
+
+Top corrected candidate examples:
+
+- Wave A stability rank 1: Lumos `D6`, unit `2`, recording
+  `6_22_2026_129-8445_ventral_sosrs_opsin_day3(003)_filter_200Hz-3kHz`,
+  `2433` spikes, presence ratio `1.0`, stability score `0.995509`.
+- Wave B correlogram/pair rank 1: Lumos `B4`, units `2` and `6`, FS/RS,
+  best-channel distance `700 um`, zero-lag duplicate score `0.0`.
+- Wave C spatial footprint rank 1: Cytoview dorsal `B3`, recording
+  `5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz`,
+  `13` good units in well, max best-channel distance `1081.665 um`.
+
+Final representative-figure selection manifests were then generated as a
+separate reproducible Slurm job so Lumos, Cytoview dorsal, and Cytoview ventral
+are selected independently from the same scored candidate tables. This is the
+current source for the first static figure-rendering pass:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/representative_units_20260709_final_selection_20260709_174251/
+```
+
+Completed final-selection job:
+
+```text
+job_id: 53212357
+state: COMPLETED
+elapsed: 00:00:06
+node: gl3039
+```
+
+The final-selection job writes `48` selected rows total:
+
+| Selection group | Wave A stability units | Wave B correlogram pairs | Wave C spatial wells |
+|---|---:|---:|---:|
+| Lumos geometry | 6 | 6 | 4 |
+| Cytoview dorsal | 6 | 6 | 4 |
+| Cytoview ventral | 6 | 6 | 4 |
+
+Candidate denominators before final selection:
+
+| Selection group | Wave A candidates | Wave B pair candidates | Wave C well candidates |
+|---|---:|---:|---:|
+| Lumos geometry | 276 | 256 | 126 |
+| Cytoview dorsal | 113 | 312 | 22 |
+| Cytoview ventral | 124 | 283 | 28 |
+
+Final-selection outputs:
+
+```text
+final_representative_figure_selection_manifest_20260709.csv
+final_representative_figure_selection_summary_20260709.csv
+final_representative_figure_selection_provenance_20260709.json
+final_selection_lumos_waveA_stability_units_20260709.csv
+final_selection_lumos_waveB_correlogram_pairs_20260709.csv
+final_selection_lumos_waveC_spatial_wells_20260709.csv
+final_selection_cytoview_dorsal_waveA_stability_units_20260709.csv
+final_selection_cytoview_dorsal_waveB_correlogram_pairs_20260709.csv
+final_selection_cytoview_dorsal_waveC_spatial_wells_20260709.csv
+final_selection_cytoview_ventral_waveA_stability_units_20260709.csv
+final_selection_cytoview_ventral_waveB_correlogram_pairs_20260709.csv
+final_selection_cytoview_ventral_waveC_spatial_wells_20260709.csv
+repro/
+  project_config.env
+  python_command.sh
+  submit_command.sh
+  submitted_job.sbatch
+```
+
+The final manifest carries:
+
+```text
+variant_policy = preserve_all_raw_filter_broadband_variants_no_deduplication
+selection_pool_policy = separate_lumos_cytoview_dorsal_cytoview_ventral
+```
+
+Selected rows include multiple raw/filter families (`primary_raw`,
+`filter_200Hz-3kHz`, and `broadband_processor`). This is intentional. Do not
+collapse those variants during representative selection or plotting.
+
 ## Goal
 
 Build a unified, reproducible representative-unit selection layer for the next
@@ -167,6 +299,12 @@ interactive GUI.
    ranking score, and selection reason.
 5. Manual picks are allowed, but they must be stored as an override table with a
    reason column. Do not hard-code hand-picked units inside plotting scripts.
+6. Lumos and Cytoview/SixWell dorsal/ventral examples must be selected as
+   separate pools. Lumos geometry is the opto/geometry track, not a
+   dorsal/ventral biological comparison.
+7. Do not deduplicate primary, filtered, broadband-processor, or other raw-file
+   variants during selection. Each analyzed variant remains a separate
+   candidate row identified by its recording stem and provenance.
 
 ## Canonical Sources
 
@@ -778,9 +916,11 @@ Recommended new scripts:
 
 ```text
 scripts/build_representative_unit_index.py
-scripts/select_representative_units_for_plot_waves.py
-scripts/score_representative_unit_stability_and_correlograms.py
-scripts/score_representative_spatial_footprints.py
+scripts/prepare_representative_unit_wave0_job.py
+scripts/score_representative_unit_candidates.py
+scripts/prepare_representative_unit_abc_scoring_job.py
+scripts/build_representative_figure_selection_manifests.py
+scripts/prepare_representative_figure_selection_job.py
 scripts/plot_representative_unit_pack.py
 ```
 
@@ -789,16 +929,19 @@ Implementation order:
 1. Build the unified unit index and reconciliation tables.
 2. Score Wave A/B/C candidates numerically from the existing Step 1 analyzer
    assets and write candidate tables.
-3. Render GUI-equivalent static panels from the same analyzer-backed data used
+3. Build the final representative selection manifests as separated Lumos,
+   Cytoview dorsal, and Cytoview ventral pools. Do not deduplicate recording
+   variants.
+4. Render GUI-equivalent static panels from the same analyzer-backed data used
    by the Step 1 GUI. Optional human spot-checks can be recorded, but are not
    required for automated plot generation.
-4. Generate wave-specific representative-unit CSVs for Lumos, Cytoview,
+5. Generate wave-specific representative-unit CSVs for Lumos, Cytoview,
    alignment-sensitivity, and QC-edge examples.
-5. Render a small smoke-test plot pack for one stability unit, one FS/RS
+6. Render a small smoke-test plot pack for one stability unit, one FS/RS
    correlogram pair, one spatial-footprint well, one Lumos optotag unit, one
    Cytoview dorsal unit, one Cytoview ventral unit, and one alignment-sensitive
    unit.
-6. Expand to the full representative plot pack only after the manifests look
+7. Expand to the full representative plot pack only after the manifests look
    correct.
 
 ## What To Avoid
@@ -806,6 +949,11 @@ Implementation order:
 - Do not use Step 2 classifier labels as ground truth.
 - Do not drop `KSLabel=good` units just because optional QC fields are missing.
 - Do not mix Lumos geometry groups with Cytoview dorsal/ventral biology.
+- Do not use one global top-N ranking as the final representative selection;
+  final examples must be chosen within separate Lumos, dorsal, and ventral
+  pools.
+- Do not deduplicate raw/filter/broadband variants during representative
+  selection or plotting.
 - Do not select representative units directly inside plotting code.
 - Do not overwrite the denominator-preserving Lumos/Cytoview composites.
 - Do not interpret filtered histograms until the reconciliation table is written.
