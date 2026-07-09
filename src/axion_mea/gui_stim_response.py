@@ -816,6 +816,173 @@ class UnitStimResponseBuilder:
         return pd.concat(rows, ignore_index=True).sort_values(["time_s", "unit_id"]).reset_index(drop=True)
 
 
+def make_stim_response_panel(
+    analyzer,
+    *,
+    recording_name: str,
+    well: str,
+    analyzer_path: Path | None = None,
+    raw_roots: Sequence[Path] = DEFAULT_STIM_RAW_ROOTS,
+    stim_events_csv: Path | None = None,
+    raw_file: Path | None = None,
+    plate_family: str = "",
+    plate_type_name: str = "",
+):
+    """Create a Panel tab for unit-level train/pulse response review."""
+
+    import matplotlib.pyplot as plt
+    import panel as pn
+
+    pn.extension()
+    resolution = resolve_stim_sidecars(
+        recording_name,
+        well,
+        analyzer_path=analyzer_path,
+        raw_roots=raw_roots,
+        stim_events_csv=stim_events_csv,
+        raw_file=raw_file,
+        plate_family=plate_family,
+        plate_type_name=plate_type_name,
+    )
+    status = pn.pane.Markdown(_format_resolution_status(resolution), sizing_mode="stretch_width")
+
+    if not resolution.eligibility.enabled or resolution.stim_events is None:
+        return pn.Column(
+            pn.pane.Markdown("## Stim response"),
+            status,
+            sizing_mode="stretch_width",
+        )
+
+    sorting = _sorting_from_analyzer(analyzer)
+    unit_ids = list(getattr(sorting, "unit_ids", []))
+    if not unit_ids and hasattr(sorting, "get_unit_ids"):
+        unit_ids = list(sorting.get_unit_ids())
+    if not unit_ids:
+        return pn.Column(
+            pn.pane.Markdown("## Stim response"),
+            status,
+            pn.pane.Markdown("No unit ids were available from the sorting object."),
+            sizing_mode="stretch_width",
+        )
+
+    pulse_structure = resolution.pulse_structure or inspect_pulse_structure(resolution.stim_events, [])
+    builder = UnitStimResponseBuilder.from_analyzer(
+        analyzer,
+        stim_events=resolution.stim_events,
+        well=well,
+        pulse_structure=pulse_structure,
+    )
+
+    label_to_unit = {_unit_label(unit_id): unit_id for unit_id in unit_ids}
+    default_label = next(iter(label_to_unit))
+    unit_selector = pn.widgets.MultiChoice(
+        name="Unit(s)",
+        options=list(label_to_unit),
+        value=[default_label],
+        sizing_mode="stretch_width",
+    )
+    refresh_button = pn.widgets.Button(name="Refresh", button_type="primary", width=110)
+    summary = pn.pane.Markdown("", sizing_mode="stretch_width")
+    train_plot = pn.pane.Matplotlib(sizing_mode="stretch_width", tight=True)
+    pulse_plot = pn.pane.Matplotlib(sizing_mode="stretch_width", tight=True)
+
+    def selected_units() -> list[object]:
+        labels = unit_selector.value or [default_label]
+        return [label_to_unit[label] for label in labels if label in label_to_unit]
+
+    def redraw(*_: object) -> None:
+        units = selected_units()
+        response = builder.build(units)
+        summary.object = _format_response_summary(response, resolution)
+        train_plot.object = plot_train_response(response, builder)
+        if response.pulse_structure.pulse_tab_enabled and not response.pulse_trials.empty:
+            pulse_plot.object = plot_pulse_response(response, builder)
+        else:
+            fig, axis = plt.subplots(figsize=(9, 2.5))
+            axis.axis("off")
+            axis.text(
+                0.02,
+                0.65,
+                f"Pulse view disabled: {response.pulse_structure.message}",
+                transform=axis.transAxes,
+                ha="left",
+                va="center",
+            )
+            pulse_plot.object = fig
+
+    refresh_button.on_click(redraw)
+    unit_selector.param.watch(redraw, "value")
+    redraw()
+
+    controls = pn.Row(unit_selector, refresh_button, sizing_mode="stretch_width")
+    tabs = pn.Tabs(
+        ("Train locked", pn.Column(summary, train_plot, sizing_mode="stretch_width")),
+        ("Pulse locked", pn.Column(pulse_plot, sizing_mode="stretch_width")),
+        sizing_mode="stretch_width",
+    )
+    return pn.Column(
+        pn.pane.Markdown("## Stim response"),
+        status,
+        controls,
+        tabs,
+        sizing_mode="stretch_width",
+    )
+
+
+def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBuilder):
+    """Render train-locked waveform, raster, and PSTH for selected units."""
+
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(
+        3,
+        1,
+        figsize=(11, 7),
+        sharex=True,
+        gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
+        constrained_layout=True,
+    )
+    _draw_train_waveform_axis(axes[0], builder)
+    _draw_train_raster_axis(axes[1], response, builder)
+    _draw_psth_axis(
+        axes[2],
+        response.train_psth,
+        builder.train_psth_config,
+        ylabel="rate (Hz)",
+        title="PSTH: trains as trials",
+    )
+    axes[2].set_xlabel("ms from train onset")
+    axes[2].set_xlim(builder.train_window.start_ms, builder.train_window.end_ms)
+    return fig
+
+
+def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBuilder):
+    """Render pooled pulse-locked raster and PSTH for selected units."""
+
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(
+        3,
+        1,
+        figsize=(11, 7),
+        sharex=True,
+        gridspec_kw={"height_ratios": [0.7, 2.2, 1.2]},
+        constrained_layout=True,
+    )
+    _draw_pulse_waveform_axis(axes[0], response, builder)
+    _draw_pulse_raster_axis(axes[1], response, builder)
+    _draw_psth_axis(
+        axes[2],
+        response.pulse_psth,
+        builder.pulse_psth_config,
+        ylabel="rate (Hz)",
+        title="PSTH: pulses as pseudo-trials",
+    )
+    axes[2].set_xlabel("ms from pulse onset")
+    axes[2].set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
+    return fig
+
+
 def _pulse_signature(pulse_epochs: Sequence[PulseEpoch]) -> tuple[tuple[float, float], ...]:
     """Return a stable pulse template signature from starts and durations."""
 
@@ -823,6 +990,173 @@ def _pulse_signature(pulse_epochs: Sequence[PulseEpoch]) -> tuple[tuple[float, f
         (round(pulse.start_ms, 6), round(pulse.end_ms - pulse.start_ms, 6))
         for pulse in pulse_epochs
     )
+
+
+def _draw_train_waveform_axis(axis, builder: UnitStimResponseBuilder) -> None:
+    pulse_epochs = builder.pulse_structure.pulse_epochs
+    for pulse in pulse_epochs:
+        axis.axvspan(pulse.start_ms, pulse.end_ms, color="#f59e0b", alpha=0.28, linewidth=0)
+        axis.text(
+            (pulse.start_ms + pulse.end_ms) / 2,
+            0.72,
+            f"P{pulse.pulse_index}",
+            ha="center",
+            va="center",
+            fontsize=8,
+        )
+    axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
+    axis.set_ylim(0, 1)
+    axis.set_yticks([])
+    axis.set_xlim(builder.train_window.start_ms, builder.train_window.end_ms)
+    axis.set_title("Reconstructed opto command windows")
+
+
+def _draw_train_raster_axis(axis, response: UnitStimResponse, builder: UnitStimResponseBuilder) -> None:
+    for trial_index in response.train_trials:
+        trial_spikes = response.train_aligned_spikes.loc[
+            response.train_aligned_spikes["trial_index"] == trial_index
+        ]
+        if trial_spikes.empty:
+            continue
+        axis.vlines(
+            trial_spikes["aligned_time_ms"],
+            ymin=trial_index - 0.4,
+            ymax=trial_index + 0.4,
+            color="black",
+            linewidth=0.8,
+        )
+    for pulse in builder.pulse_structure.pulse_epochs:
+        axis.axvspan(pulse.start_ms, pulse.end_ms, color="#f59e0b", alpha=0.08, linewidth=0)
+    axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
+    axis.set_xlim(builder.train_window.start_ms, builder.train_window.end_ms)
+    axis.set_ylim(
+        min(response.train_trials) - 1 if response.train_trials else -1,
+        max(response.train_trials) + 1 if response.train_trials else 1,
+    )
+    axis.set_title(f"Raster: {len(response.train_trials)} train trials")
+    axis.set_ylabel("trial")
+
+
+def _draw_pulse_waveform_axis(axis, response: UnitStimResponse, builder: UnitStimResponseBuilder) -> None:
+    first = response.pulse_structure.pulse_epochs[0] if response.pulse_structure.pulse_epochs else None
+    pulse_duration = (first.end_ms - first.start_ms) if first is not None else 0.0
+    axis.axvspan(0, pulse_duration, color="#f59e0b", alpha=0.28, linewidth=0)
+    axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
+    axis.set_ylim(0, 1)
+    axis.set_yticks([])
+    axis.set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
+    axis.set_title("Single-pulse command window")
+
+
+def _draw_pulse_raster_axis(axis, response: UnitStimResponse, builder: UnitStimResponseBuilder) -> None:
+    for pulse_trial_index in response.pulse_trials["pulse_trial_index"].astype(int).tolist():
+        trial_spikes = response.pulse_aligned_spikes.loc[
+            response.pulse_aligned_spikes["pulse_trial_index"] == pulse_trial_index
+        ]
+        if trial_spikes.empty:
+            continue
+        axis.vlines(
+            trial_spikes["pulse_aligned_time_ms"],
+            ymin=pulse_trial_index - 0.4,
+            ymax=pulse_trial_index + 0.4,
+            color="black",
+            linewidth=0.8,
+        )
+    first = response.pulse_structure.pulse_epochs[0] if response.pulse_structure.pulse_epochs else None
+    if first is not None:
+        axis.axvspan(0, first.end_ms - first.start_ms, color="#f59e0b", alpha=0.08, linewidth=0)
+    axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
+    axis.set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
+    axis.set_ylim(-1, len(response.pulse_trials) + 1 if not response.pulse_trials.empty else 1)
+    axis.set_title(f"Raster: {len(response.pulse_trials)} pulse pseudo-trials")
+    axis.set_ylabel("pseudo-trial")
+
+
+def _draw_psth_axis(axis, psth: pd.DataFrame, config: PsthConfig, *, ylabel: str, title: str) -> None:
+    axis.bar(
+        psth["bin_center_ms"],
+        psth["rate_hz"],
+        width=config.bin_ms,
+        color="#dbeafe",
+        edgecolor="#93c5fd",
+        linewidth=0.5,
+        align="center",
+        label="raw",
+    )
+    axis.plot(
+        psth["bin_center_ms"],
+        psth["smooth_rate_hz"],
+        color="#0f766e",
+        linewidth=1.5,
+        label="smoothed",
+    )
+    axis.axvline(0, color="crimson", linestyle="--", linewidth=1.1)
+    axis.set_title(title)
+    axis.set_ylabel(ylabel)
+    axis.legend(loc="upper right", fontsize=8)
+
+
+def _format_resolution_status(resolution: StimSidecarResolution) -> str:
+    eligibility = resolution.eligibility
+    lines = [
+        f"**Status:** {'enabled' if eligibility.enabled else 'disabled'}",
+        f"**Reason:** {eligibility.message}",
+    ]
+    if resolution.inputs.raw_file is not None:
+        lines.append(f"**Raw:** `{resolution.inputs.raw_file}`")
+    if resolution.pulse_structure is not None:
+        lines.append(f"**Pulse structure:** {resolution.pulse_structure.message}")
+    if resolution.message:
+        lines.append(f"```text\n{resolution.message}\n```")
+    return "  \n".join(lines)
+
+
+def _format_response_summary(response: UnitStimResponse, resolution: StimSidecarResolution) -> str:
+    return (
+        f"**Selected units:** `{', '.join(_unit_label(unit_id) for unit_id in response.selected_unit_ids)}`  \n"
+        f"**Train trials:** {len(response.train_trials)}  \n"
+        f"**Train-aligned spikes:** {len(response.train_aligned_spikes)}  \n"
+        f"**Pulse mode:** {response.pulse_structure.status}  \n"
+        f"**Pulse pseudo-trials:** {len(response.pulse_trials)}  \n"
+        f"**Pulse-aligned spikes:** {len(response.pulse_aligned_spikes)}  \n"
+        f"**Stimulated wells:** `{', '.join(resolution.eligibility.stimulated_wells)}`"
+    )
+
+
+def _unit_label(unit_id: object) -> str:
+    return str(unit_id)
+
+
+def _raw_base_stem(path: Path) -> str:
+    stem = path.stem
+    for suffix in ("_BroadbandProcessor", "_Filter(1Hz-200Hz)", "_Filter(200Hz-3kHz)"):
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def _raw_variant_penalty(path: Path) -> int:
+    name = path.name
+    if "_Filter(" in name:
+        return 20
+    if "_BroadbandProcessor" in name:
+        return 10
+    return 0
+
+
+def _normalized_match_text(value: object) -> str:
+    text = str(value).lower()
+    text = re.sub(r"[^a-z0-9]+", "", text)
+    return text
+
+
+def _looks_like_lumos_recording(recording_name: str, raw_file: Path | None) -> bool:
+    text = f"{recording_name} {raw_file or ''}".lower()
+    if "lumos" in text or "fortyeightwell" in text:
+        return True
+    if "129-8445" in text or "129-8447" in text:
+        return True
+    return False
 
 
 def _event_includes_well(value: object, well: str) -> bool:

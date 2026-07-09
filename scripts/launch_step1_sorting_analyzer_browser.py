@@ -5,10 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 DEFAULT_AIND_RESULTS_ROOT = Path(
     "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind"
@@ -16,6 +22,10 @@ DEFAULT_AIND_RESULTS_ROOT = Path(
 DEFAULT_CURATION_ROOT = Path(
     "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/step1_gui_curation"
 )
+DEFAULT_STIM_RAW_ROOTS = [
+    Path("/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/manny4tbum_20260706"),
+    Path("/nfs/turbo/umms-parent/axion_mea_files_directory"),
+]
 RECORDING_NAME = "block0_None_recording1"
 
 STEP1_LAYOUT = {
@@ -74,6 +84,21 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--no-traces", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--stim-raw-root",
+        type=Path,
+        action="append",
+        default=None,
+        help=(
+            "Root to search for Axion .raw files used by the Stim response tab. "
+            "May be supplied more than once."
+        ),
+    )
+    parser.add_argument(
+        "--no-stim-response",
+        action="store_true",
+        help="Disable the Axion opto-stim response tab.",
+    )
     args = parser.parse_args()
 
     analyzers = discover_analyzers(args.root_folder.expanduser().resolve())
@@ -109,7 +134,14 @@ def main() -> None:
     pn.serve(
         {
             "/": lambda: make_chooser_app(analyzers, args.curation_root, args.no_traces),
-            "/gui": lambda: make_gui_app(analyzers, args.curation_root, args.no_traces, args.verbose),
+            "/gui": lambda: make_gui_app(
+                analyzers,
+                args.curation_root,
+                args.no_traces,
+                args.verbose,
+                stim_response_enabled=not args.no_stim_response,
+                stim_raw_roots=stim_raw_roots,
+            ),
         },
         address=args.address,
         port=args.port,
@@ -189,6 +221,9 @@ def make_gui_app(
     curation_root: Path,
     no_traces_default: bool,
     verbose: bool,
+    *,
+    stim_response_enabled: bool,
+    stim_raw_roots: list[Path],
 ):
     import panel as pn
 
@@ -244,9 +279,27 @@ def make_gui_app(
         f"{STEP1_GUI_REMINDER}\n**Manual curation JSON**  \n`{curation_output}`",
         sizing_mode="stretch_width",
     )
+    tabs = pn.Tabs(
+        ("Curation", win.main_layout),
+        sizing_mode="stretch_both",
+    )
+    if stim_response_enabled:
+        from axion_mea.gui_stim_response import make_stim_response_panel
+
+        stim_panel = make_stim_response_panel(
+            analyzer,
+            recording_name=recording,
+            well=well,
+            analyzer_path=analyzer_path,
+            raw_roots=stim_raw_roots,
+        )
+        tabs.append(("Stim response", stim_panel))
+
     print(f"Opened Step 1 GUI: {recording} / {well}", flush=True)
     print(f"Manual curation JSON: {curation_output}", flush=True)
-    return pn.Column(header, status, win.main_layout, sizing_mode="stretch_both")
+    if stim_response_enabled:
+        print(f"Stim response raw roots: {', '.join(str(path) for path in stim_raw_roots)}", flush=True)
+    return pn.Column(header, status, tabs, sizing_mode="stretch_both")
 
 
 def discover_analyzers(root: Path) -> list[dict[str, str]]:
@@ -351,3 +404,4 @@ def patch_curation_download_export_path() -> None:
 
 if __name__ == "__main__":
     main()
+    stim_raw_roots = args.stim_raw_root if args.stim_raw_root is not None else DEFAULT_STIM_RAW_ROOTS
