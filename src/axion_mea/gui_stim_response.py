@@ -396,22 +396,41 @@ def resolve_stim_sidecars(
     )
 
 
-def find_matching_raw_file(recording_name: str, raw_roots: Sequence[Path]) -> Path | None:
-    """Find the most likely Axion raw file for a Step 1 recording folder name."""
+def list_raw_files(raw_roots: Sequence[Path]) -> tuple[Path, ...]:
+    """Return all raw files below the requested roots once for fast matching."""
 
-    recording_key = _normalized_match_text(recording_name)
-    candidates: list[tuple[int, int, Path]] = []
+    paths: list[Path] = []
+    seen: set[Path] = set()
     for root in raw_roots:
         root = root.expanduser()
         if not root.exists():
             continue
         for path in root.rglob("*.raw"):
-            stem = _raw_base_stem(path)
-            key = _normalized_match_text(stem)
-            if not key or key not in recording_key:
-                continue
-            suffix_penalty = _raw_variant_penalty(path)
-            candidates.append((len(key), -suffix_penalty, path.resolve()))
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                paths.append(resolved)
+    return tuple(paths)
+
+
+def find_matching_raw_file(
+    recording_name: str,
+    raw_roots: Sequence[Path],
+    *,
+    raw_paths: Sequence[Path] | None = None,
+) -> Path | None:
+    """Find the most likely Axion raw file for a Step 1 recording folder name."""
+
+    recording_key = _normalized_match_text(recording_name)
+    candidates: list[tuple[int, int, Path]] = []
+    paths = raw_paths if raw_paths is not None else list_raw_files(raw_roots)
+    for path in paths:
+        stem = _raw_base_stem(path)
+        key = _normalized_match_text(stem)
+        if not key or key not in recording_key:
+            continue
+        suffix_penalty = _raw_variant_penalty(path)
+        candidates.append((len(key), -suffix_penalty, path.resolve()))
 
     if not candidates:
         return None

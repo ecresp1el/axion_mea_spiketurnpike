@@ -101,20 +101,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    analyzers = discover_analyzers(args.root_folder.expanduser().resolve())
-    if args.recording_prefix:
-        analyzers = [
-            row
-            for row in analyzers
-            if any(row["recording"].startswith(prefix) for prefix in args.recording_prefix)
-        ]
+    root_folder = args.root_folder.expanduser().resolve()
+    recording_prefixes = list(args.recording_prefix)
+    stim_raw_roots = args.stim_raw_root if args.stim_raw_root is not None else DEFAULT_STIM_RAW_ROOTS
+    state: dict[str, Any] = {
+        "raw_paths": build_raw_index(stim_raw_roots),
+        "analyzers": [],
+        "last_refresh_message": "",
+    }
+    state["analyzers"] = discover_analyzers(
+        root_folder,
+        recording_prefixes,
+        stim_raw_roots,
+        raw_paths=state["raw_paths"],
+    )
+    analyzers = state["analyzers"]
     if not analyzers:
         prefix_text = (
             f" matching prefix(es): {', '.join(args.recording_prefix)}"
             if args.recording_prefix
             else ""
         )
-        raise SystemExit(f"No Step 1 analyzers found under {args.root_folder}{prefix_text}")
+        raise SystemExit(f"No Step 1 analyzers found under {root_folder}{prefix_text}")
 
     patch_probe_view_for_bokeh_compatibility()
     patch_curation_download_export_path()
@@ -133,9 +141,16 @@ def main() -> None:
     print(f"Open on the Mac via SSH tunnel: http://localhost:{args.port}", flush=True)
     pn.serve(
         {
-            "/": lambda: make_chooser_app(analyzers, args.curation_root, args.no_traces),
+            "/": lambda: make_chooser_app(
+                state,
+                root_folder,
+                recording_prefixes,
+                stim_raw_roots,
+                args.curation_root,
+                args.no_traces,
+            ),
             "/gui": lambda: make_gui_app(
-                analyzers,
+                state,
                 args.curation_root,
                 args.no_traces,
                 args.verbose,
@@ -150,44 +165,88 @@ def main() -> None:
     )
 
 
-def make_chooser_app(analyzers: list[dict[str, str]], curation_root: Path, no_traces_default: bool):
+def make_chooser_app(
+    state: dict[str, Any],
+    root_folder: Path,
+    recording_prefixes: list[str],
+    stim_raw_roots: list[Path],
+    curation_root: Path,
+    no_traces_default: bool,
+):
     import panel as pn
 
     pn.extension()
 
-    recordings = sorted({row["recording"] for row in analyzers})
-    by_recording = {
-        recording: sorted(
-            [row for row in analyzers if row["recording"] == recording],
-            key=lambda item: item["well"],
-        )
-        for recording in recordings
-    }
-
+    opto_only_checkbox = pn.widgets.Checkbox(name="Opto/Lumos eligible only", value=True, width=190)
+    refresh_button = pn.widgets.Button(name="Refresh analyzers", button_type="primary", width=150)
     recording_select = pn.widgets.Select(
         name="Recording",
-        options=recordings,
-        value=recordings[0],
+        options=[],
+        value=None,
         sizing_mode="stretch_width",
     )
     well_select = pn.widgets.Select(name="Well", width=140)
     no_traces_checkbox = pn.widgets.Checkbox(name="No traces", value=no_traces_default, width=120)
+    summary = pn.pane.Markdown("", sizing_mode="stretch_width")
     selected_path = pn.pane.Markdown("", sizing_mode="stretch_width")
     open_link = pn.pane.Markdown("", sizing_mode="stretch_width")
+    by_recording: dict[str, list[dict[str, str]]] = {}
+
+    def visible_rows() -> list[dict[str, str]]:
+        rows = list(state["analyzers"])
+        if opto_only_checkbox.value:
+            rows = [row for row in rows if row.get("opto_eligible") == "true"]
+        return rows
+
+    def rebuild_options(*_: Any) -> None:
+        nonlocal by_recording
+        rows = visible_rows()
+        recordings = sorted({row["recording"] for row in rows})
+        by_recording = {
+            recording: sorted(
+                [row for row in rows if row["recording"] == recording],
+                key=lambda item: item["well"],
+            )
+            for recording in recordings
+        }
+        recording_select.options = recordings
+        recording_select.value = recordings[0] if recordings else None
+        update_wells()
+
+        total = len(state["analyzers"])
+        opto = sum(row.get("opto_eligible") == "true" for row in state["analyzers"])
+        prefix_text = ", ".join(recording_prefixes) if recording_prefixes else "none"
+        summary.object = (
+            f"**Visible analyzers:** {len(rows)} / {total}  \n"
+            f"**Visible recordings:** {len(recordings)}  \n"
+            f"**Opto/Lumos candidate analyzers:** {opto}  \n"
+            f"**Prefix filter:** `{prefix_text}`  \n"
+            f"{state.get('last_refresh_message', '')}"
+        )
 
     def selected_row() -> dict[str, str]:
-        for row in by_recording[recording_select.value]:
+        if recording_select.value is None:
+            raise RuntimeError("No recording is selected.")
+        for row in by_recording.get(recording_select.value, []):
             if row["well"] == well_select.value:
                 return row
         raise RuntimeError("Selected well is not in the analyzer list.")
 
     def update_wells(*_: Any) -> None:
+        if recording_select.value is None:
+            well_select.options = []
+            well_select.value = None
+            selected_path.object = "No analyzers match the current filters."
+            open_link.object = ""
+            return
         rows = by_recording[recording_select.value]
         well_select.options = [row["well"] for row in rows]
         well_select.value = rows[0]["well"]
         update_selected_path()
 
     def update_selected_path(*_: Any) -> None:
+        if recording_select.value is None or well_select.value is None:
+            return
         row = selected_row()
         url = (
             "/gui?"
@@ -197,19 +256,36 @@ def make_chooser_app(analyzers: list[dict[str, str]], curation_root: Path, no_tr
         )
         selected_path.object = (
             f"**Selected analyzer**  \n`{row['analyzer_path']}`  \n"
-            f"**Curation JSON**  \n`{default_curation_output(row, curation_root)}`"
+            f"**Curation JSON**  \n`{default_curation_output(row, curation_root)}`  \n"
+            f"**Opto/Lumos candidate**  \n`{row.get('opto_eligible', 'false')}`  \n"
+            f"**Matched raw**  \n`{row.get('stim_raw_path', '') or 'not resolved'}`"
         )
         open_link.object = f"### [Open selected well]({url})"
 
+    def refresh_analyzers(*_: Any) -> None:
+        state["raw_paths"] = build_raw_index(stim_raw_roots)
+        state["analyzers"] = discover_analyzers(
+            root_folder,
+            recording_prefixes,
+            stim_raw_roots,
+            raw_paths=state["raw_paths"],
+        )
+        state["last_refresh_message"] = "Refreshed analyzer list from disk."
+        rebuild_options()
+
+    opto_only_checkbox.param.watch(rebuild_options, "value")
+    refresh_button.on_click(refresh_analyzers)
     recording_select.param.watch(update_wells, "value")
     well_select.param.watch(update_selected_path, "value")
     no_traces_checkbox.param.watch(update_selected_path, "value")
-    update_wells()
+    rebuild_options()
 
     return pn.Column(
         pn.pane.Markdown("# Step 1 SortingAnalyzer Browser"),
         pn.pane.Markdown(STEP1_GUI_REMINDER, sizing_mode="stretch_width"),
-        pn.Row(recording_select, well_select, no_traces_checkbox, sizing_mode="stretch_width"),
+        pn.Row(opto_only_checkbox, refresh_button, no_traces_checkbox, sizing_mode="stretch_width"),
+        summary,
+        pn.Row(recording_select, well_select, sizing_mode="stretch_width"),
         selected_path,
         open_link,
         sizing_mode="stretch_width",
@@ -217,7 +293,7 @@ def make_chooser_app(analyzers: list[dict[str, str]], curation_root: Path, no_tr
 
 
 def make_gui_app(
-    analyzers: list[dict[str, str]],
+    state: dict[str, Any],
     curation_root: Path,
     no_traces_default: bool,
     verbose: bool,
@@ -234,7 +310,7 @@ def make_gui_app(
     no_traces_arg = args.get("no_traces", [b"true" if no_traces_default else b"false"])[0].decode("utf-8")
     no_traces = no_traces_arg.lower() == "true"
 
-    row = next((item for item in analyzers if item["recording"] == recording and item["well"] == well), None)
+    row = next((item for item in state["analyzers"] if item["recording"] == recording and item["well"] == well), None)
     if row is None:
         return pn.Column(
             pn.pane.Markdown("# Unknown recording/well"),
@@ -302,7 +378,17 @@ def make_gui_app(
     return pn.Column(header, status, tabs, sizing_mode="stretch_both")
 
 
-def discover_analyzers(root: Path) -> list[dict[str, str]]:
+def discover_analyzers(
+    root: Path,
+    recording_prefixes: list[str] | None = None,
+    stim_raw_roots: list[Path] | None = None,
+    *,
+    raw_paths: list[Path] | tuple[Path, ...] | None = None,
+) -> list[dict[str, str]]:
+    from axion_mea.gui_stim_response import find_matching_raw_file, is_lumos_plate
+
+    recording_prefixes = recording_prefixes or []
+    stim_raw_roots = stim_raw_roots or DEFAULT_STIM_RAW_ROOTS
     rows: list[dict[str, str]] = []
     pattern = f"*/*/postprocessed/{RECORDING_NAME}.zarr"
     for analyzer_path in sorted(root.glob(pattern)):
@@ -310,14 +396,40 @@ def discover_analyzers(root: Path) -> list[dict[str, str]]:
             continue
         well_dir = analyzer_path.parents[1]
         recording_dir = analyzer_path.parents[2]
+        recording = recording_dir.name
+        if recording_prefixes and not any(recording.startswith(prefix) for prefix in recording_prefixes):
+            continue
+        raw_path = find_matching_raw_file(recording, stim_raw_roots, raw_paths=raw_paths)
+        lumos = is_lumos_plate(
+            plate_family="lumos_48well" if _recording_looks_lumos(recording, raw_path) else "",
+            plate_type_name="FortyEightWellLumos" if "fortyeightwell" in recording.lower() else "",
+        )
         rows.append(
             {
-                "recording": recording_dir.name,
+                "recording": recording,
                 "well": well_dir.name,
                 "analyzer_path": str(analyzer_path),
+                "opto_eligible": "true" if lumos and raw_path is not None else "false",
+                "stim_raw_path": str(raw_path) if raw_path is not None else "",
             }
         )
     return rows
+
+
+def build_raw_index(stim_raw_roots: list[Path]) -> tuple[Path, ...]:
+    from axion_mea.gui_stim_response import list_raw_files
+
+    return list_raw_files(stim_raw_roots)
+
+
+def _recording_looks_lumos(recording: str, raw_path: Path | None) -> bool:
+    text = f"{recording} {raw_path or ''}".lower()
+    return (
+        "lumos" in text
+        or "fortyeightwell" in text
+        or "129-8445" in text
+        or "129-8447" in text
+    )
 
 
 def default_curation_output(row: dict[str, str], curation_root: Path) -> Path:
@@ -404,4 +516,3 @@ def patch_curation_download_export_path() -> None:
 
 if __name__ == "__main__":
     main()
-    stim_raw_roots = args.stim_raw_root if args.stim_raw_root is not None else DEFAULT_STIM_RAW_ROOTS
