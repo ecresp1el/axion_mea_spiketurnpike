@@ -200,6 +200,7 @@ def summarize_unit_activity(
         "median_burst_duration_ms": _median_or_nan(durations_ms),
         "mean_spikes_per_burst": _mean_or_nan(spikes_per_burst),
         "median_spikes_per_burst": _median_or_nan(spikes_per_burst),
+        "max_spikes_per_burst": float(np.max(spikes_per_burst)) if spikes_per_burst.size else np.nan,
         "interburst_interval_count": int(ibis_s.size),
         "mean_interburst_interval_s": _mean_or_nan(ibis_s),
         "median_interburst_interval_s": _median_or_nan(ibis_s),

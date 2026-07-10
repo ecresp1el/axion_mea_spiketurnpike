@@ -542,6 +542,7 @@ def _aggregate_recording_wells(units: pd.DataFrame, universe: pd.DataFrame) -> p
                 ),
                 "mean_unit_spikes_per_burst": _mean(group["mean_spikes_per_burst"]),
                 "units_contributing_spikes_per_burst": _finite_count(group["mean_spikes_per_burst"]),
+                "maximum_spikes_in_any_sua_burst": _max(group["max_spikes_per_burst"]),
                 "mean_unit_fraction_spikes_in_bursts": _mean(group["fraction_spikes_in_bursts"]),
             }
         )
@@ -567,6 +568,7 @@ def _aggregate_recording_wells(units: pd.DataFrame, universe: pd.DataFrame) -> p
             "burst_positive_unit_count": 0,
             "burst_positive_unit_fraction": np.nan,
             "mean_unit_fraction_spikes_in_bursts": np.nan,
+            "maximum_spikes_in_any_sua_burst": np.nan,
         }
         conditional_columns = [
             "mean_unit_firing_rate_within_bursts_hz",
@@ -633,6 +635,7 @@ def _aggregate_regions(wells: pd.DataFrame) -> pd.DataFrame:
         "mean_unit_burst_duration_ms",
         "mean_unit_interburst_interval_s",
         "mean_unit_spikes_per_burst",
+        "maximum_spikes_in_any_sua_burst",
         "mean_unit_fraction_spikes_in_bursts",
     ]
     rows: list[dict[str, object]] = []
@@ -839,10 +842,19 @@ def _plot_panel_e(
     method_note: str | None = None,
 ) -> list[Path]:
     specs = _panel_specs() if specs is None else specs
-    fig, axes = plt.subplots(2, 3, figsize=(14.5, 8.8), constrained_layout=False)
+    ncols = 3
+    nrows = int(math.ceil(len(specs) / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(14.5, 4.35 * nrows),
+        constrained_layout=False,
+        squeeze=False,
+    )
     fig.patch.set_facecolor("white")
     rng = np.random.default_rng(20260710)
-    for ax, (panel, metric, title, ylabel) in zip(axes.ravel(), specs, strict=True):
+    flat_axes = axes.ravel()
+    for ax, (panel, metric, title, ylabel) in zip(flat_axes[: len(specs)], specs, strict=True):
         ax.set_facecolor("white")
         for region_index, region in enumerate(REGION_ORDER):
             subset = wells.loc[wells["region_call"].eq(region)].copy()
@@ -897,6 +909,9 @@ def _plot_panel_e(
         ax.set_title(f"{panel}  {title}", loc="left", fontsize=11, fontweight="bold")
         ax.grid(axis="y", color="#D9D9D9", linewidth=0.8, alpha=0.8)
         ax.spines[["top", "right"]].set_visible(False)
+
+    for ax in flat_axes[len(specs) :]:
+        ax.set_visible(False)
 
     variant_handles = [
         Line2D(
@@ -1072,8 +1087,8 @@ def _panel_specs() -> list[tuple[str, str, str, str]]:
         (
             "E3",
             "mean_unit_firing_rate_within_bursts_hz",
-            "Firing rate within bursts",
-            "Mean within-burst firing rate (Hz)",
+            "Mean firing rate per burst (MFR/Burst)",
+            "MFR/Burst (Hz)",
         ),
         ("E4", "mean_unit_burst_duration_ms", "Burst duration", "Mean burst duration (ms)"),
         (
@@ -1083,6 +1098,12 @@ def _panel_specs() -> list[tuple[str, str, str, str]]:
             "Mean inter-burst interval (s)",
         ),
         ("E6", "mean_unit_spikes_per_burst", "Spikes per burst", "Mean spikes per burst"),
+        (
+            "E7",
+            "maximum_spikes_in_any_sua_burst",
+            "Maximum spikes in a burst",
+            "Maximum spikes in any SUA burst",
+        ),
     ]
 
 
@@ -1192,6 +1213,11 @@ def _mean(series: pd.Series) -> float:
 def _median(series: pd.Series) -> float:
     values = pd.to_numeric(series, errors="coerce").dropna().to_numpy(dtype=float)
     return float(np.median(values)) if values.size else np.nan
+
+
+def _max(series: pd.Series) -> float:
+    values = pd.to_numeric(series, errors="coerce").dropna().to_numpy(dtype=float)
+    return float(np.max(values)) if values.size else np.nan
 
 
 def _finite_count(series: pd.Series) -> int:

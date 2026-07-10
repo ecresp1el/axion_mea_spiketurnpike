@@ -94,6 +94,7 @@ class SpontaneousActivityTests(unittest.TestCase):
         self.assertTrue(np.isclose(summary["mean_interburst_interval_s"], 0.9))
         self.assertTrue(np.isclose(summary["fraction_spikes_in_bursts"], 1.0))
         self.assertTrue(np.isclose(summary["burst_rate_per_min"], 60.0))
+        self.assertEqual(summary["max_spikes_per_burst"], 3.0)
 
 
 if __name__ == "__main__":

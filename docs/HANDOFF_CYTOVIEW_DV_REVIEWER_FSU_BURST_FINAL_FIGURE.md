@@ -977,3 +977,129 @@ inclusive gates. After applying the three filters, only B1-primary remains above
 40 Hz in the dorsal temporal-maximum panel (unit 38; organoid value 77.1 Hz).
 That unit passes all locked QC gates and is therefore retained rather than
 removed based on its biological outcome.
+
+### Outcome-guided QC search requested for mechanism discovery
+
+The three-gate run above was subsequently rejected as a final approach. A new
+exploratory objective was explicitly requested: search QC thresholds that lower
+the dorsal smoothed inverse-ISI temporal-maximum mean while leaving the ventral
+mean unchanged or minimally changed, then identify the units responsible. This
+is intentionally outcome-guided mechanism discovery and must not be confused
+with a prespecified confirmatory QC analysis.
+
+The fixed starting population is the successful template-PTP >=10-uV run
+(`...template_ptp_ge10uV_20260710_061756`). Baseline temporal-maximum means are
+33.5529 Hz dorsal (17 recording/well observations, 74 eligible units) and
+34.1974 Hz ventral (25 observations, 102 eligible units).
+
+Audit output:
+
+```text
+...template_ptp_ge10uV_20260710_061756/
+rs_max_driver_audit_iteration1_20260710/
+```
+
+Two outcome-selective candidate boundaries were found:
+
+```text
+short-ISI fraction <=3.0%:
+  dorsal 33.5529 -> 30.7387 Hz (-8.39%)
+  ventral unchanged at 34.1974 Hz
+  removes 2 dorsal units, 0 ventral units
+  dorsal recording/well n changes 17 -> 16; ventral remains 25
+
+ContamPct <=19.4%:
+  dorsal 33.5529 -> 30.8116 Hz (-8.17%)
+  ventral unchanged at 34.1974 Hz
+  removes 1 dorsal unit, 0 ventral units
+  dorsal recording/well n changes 17 -> 16; ventral remains 25
+```
+
+Both results are driven primarily by B1-filter unit 9, an RS unit with temporal
+maximum 77.4131 Hz, template PTP 28.2079 uV, ContamPct 19.5%, and 8/254 adjacent
+ISIs below 2 ms (3.1496%). It is the only eligible SUA unit in that
+recording/well, so excluding it removes the entire plotted 77.4-Hz observation.
+The 3% short-ISI boundary additionally removes B3-filter unit 19, an RS unit
+with temporal maximum 33.9705 Hz, PTP 24.5953 uV, ContamPct 0%, and 8/250 short
+ISIs (3.2%); its incremental effect is small.
+
+The threshold response is step-like: an ISI cutoff <=3.14% excludes B1-u9,
+whereas 3.15% retains it and restores dorsal n=17. A ContamPct cutoff <=19.49%
+excludes B1-u9, whereas 19.5% retains it. Thus the selective outcome is not a
+broad distributional effect; it is mainly leverage from one single-unit
+recording/well observation.
+
+### Selected outcome-guided rerun: template PTP >=10 uV and short-ISI <=3%
+
+The round 3% short-ISI candidate was selected for a complete rerun without a
+ContamPct filter.
+
+```text
+job_id: 53239731
+state: COMPLETED
+elapsed: 00:01:03
+exit_code: 0:0
+stderr: 0 bytes
+output:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/
+step1_nonlfp_th5_v5_ground_truth_latest/
+cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_20260710_071132/
+```
+
+Validated result:
+
+```text
+237 KSLabel=good units before added QC
+59 excluded for template PTP <10 uV -> 178
+0 excluded by ContamPct (no contamination filter)
+2 dorsal RS units excluded for short-ISI fraction >3% -> 176
+retained units: 74 dorsal, 102 ventral; 155 RS, 21 FS
+smoothed-rate eligible units: 72 dorsal, 102 ventral
+recording/well observations with qualifying SUA: 16 dorsal, 25 ventral
+dorsal temporal-maximum mean: 33.5529 -> 30.7387 Hz (-8.39%)
+ventral temporal-maximum mean: unchanged at 34.1974 Hz
+accepted bursts: 7,101
+```
+
+The two excluded units are B1-filter u9 and B3-filter u19, described above.
+B1-primary u38 remains as a 77.1-Hz dorsal observation because its short-ISI
+fraction is 0.8688%, below the selected 3% cutoff.
+
+The same selected analysis was rerun solely to make the E3 label explicit as
+`Mean firing rate per burst (MFR/Burst)` / `MFR/Burst (Hz)`. The underlying E3
+calculation remains spike count divided by burst duration for each accepted
+burst, averaged across bursts per unit and across qualifying units per
+recording/well. All unit and burst values were verified identical to job
+53239731.
+
+```text
+job_id: 53240208
+state: COMPLETED
+elapsed: 00:00:57
+stderr: 0 bytes
+output:
+.../cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_20260710_071723/
+```
+
+An E7 panel was then added for the separately defined metric requested by the
+user: `Maximum spikes in a burst`. For each recording/well, this is the single
+largest `spike_count` among all accepted bursts from all retained SUA units. It
+is not MFR/Burst and it is not the mean spikes-per-burst metric in E6.
+
+```text
+job_id: 53240378
+state: COMPLETED
+elapsed: 00:01:00
+stderr: 0 bytes
+output:
+.../cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_20260710_072146/
+```
+
+E7 was validated directly against the long burst-event table for all 41
+contributing recording/well observations. Region summaries are dorsal n=16,
+mean=11.1875, median=10.5, maximum=30 spikes; ventral n=25, mean=24.12,
+median=16, maximum=70 spikes. All previously plotted unit and burst metrics are
+numerically identical to job 53240208.
