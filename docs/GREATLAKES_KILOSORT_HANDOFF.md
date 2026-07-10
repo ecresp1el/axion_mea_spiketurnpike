@@ -1464,3 +1464,110 @@ conda run -p /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/a
 
 Initial queue check immediately after submission showed all 30 jobs pending for
 priority.
+
+### Testing MEA Transient Plateing A3 Repeated-Recording Stability Figure, 2026-07-09
+
+This is a separate figure lane from the finalized Lumos/dorsal/ventral hybrid
+QC package.
+
+User request:
+
+- Use `Testing_mea_transient_plateing/134-0150/My Experiment(000..004).raw`.
+- Treat the block as a repeated-recording/stability cohort, not as
+  dorsal/ventral biology.
+- Focus first on numeric well `3`.
+- Find the best single-unit candidates that appear trackable across repeated
+  recordings and plot whether the apparent same unit remains stable over time.
+
+Current well-number assumption:
+
+```text
+1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3
+```
+
+Under that assumption, numeric well `3` is `A3`. This assumption is written
+into the output provenance and availability CSV so it can be changed later if
+the wet-lab well numbering used a different convention.
+
+Script:
+
+```text
+scripts/plot_recording_series_unit_stability.py
+```
+
+Command used:
+
+```bash
+source config/greatlakes_project.env
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
+conda activate "${CONDA_ENV}"
+python scripts/plot_recording_series_unit_stability.py \
+  --well-number 3 \
+  --top-chains 3 \
+  --export-formats png,pdf,svg
+```
+
+Data source:
+
+- Current `step1_nonlfp_th5` SpikeInterface sorting analyzers only.
+- Historical `sixwell_manual_primary_*` outputs were not used.
+- `KSLabel=good` is the candidate-unit ground truth filter.
+- Saved analyzer assets reused: `templates`, `spike_amplitudes`,
+  `correlograms`, `random_spikes`, `unit_locations`, and sorting properties.
+
+A3 current-analyzer availability:
+
+| Repeat | A3 current analyzer | Duration | Sampling rate | Total units | KSLabel=good units |
+|---|---|---:|---:|---:|---:|
+| `000` | no |  |  |  |  |
+| `001` | no |  |  |  |  |
+| `002` | yes | `653.75 s` | `12500 Hz` | `42` | `15` |
+| `003` | yes | `866.25 s` | `12500 Hz` | `41` | `11` |
+| `004` | yes | `600.00 s` | `12500 Hz` | `39` | `15` |
+
+Because A3 does not have current analyzers for `000` or `001`, the first A3
+stability figure compares only repeats `002`, `003`, and `004`. Do not backfill
+`000/001` from historical outputs unless this is explicitly chosen later.
+
+Matching logic:
+
+- Candidate units are restricted to `KSLabel=good`.
+- Units are grouped only when the best-channel electrode is exactly the same
+  across all usable repeats.
+- Candidate chains are ranked by absolute cosine similarity of the normalized
+  best-channel template waveform.
+- Figure-selected chains must pass:
+  - minimum pairwise waveform similarity `>= 0.40`
+  - firing-rate coefficient of variation `<= 0.80`
+  - best-channel PTP coefficient of variation `<= 1.00`
+  - maximum saved `ContamPct <= 20`
+- These criteria identify putative same-channel/same-unit candidates for visual
+  inspection; they do not prove biological identity.
+
+Outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_1340150_recording_series_stability_20260709/
+```
+
+Files:
+
+```text
+transient_plateing_A3_putative_same_unit_stability_20260709.png
+transient_plateing_A3_putative_same_unit_stability_20260709.pdf
+transient_plateing_A3_putative_same_unit_stability_20260709.svg
+transient_plateing_A3_recording_series_availability_20260709.csv
+transient_plateing_A3_good_unit_inventory_20260709.csv
+transient_plateing_A3_putative_same_channel_chains_20260709.csv
+transient_plateing_A3_recording_series_provenance_20260709.json
+```
+
+First-pass A3 figure selection:
+
+| Selected chain | Best channel | Unit IDs across `002;003;004` | Mean waveform similarity | Min waveform similarity | FR values (Hz) | PTP values (uV) | Comment |
+|---:|---:|---|---:|---:|---|---|---|
+| 1 | `45` | `1;32;34` | `0.709` | `0.595` | `0.405;0.425;0.237` | `0.520;1.396;0.871` | strongest A3 candidate |
+| 2 | `45` | `2;12;7` | `0.581` | `0.442` | `0.421;0.414;0.425` | `1.103;0.461;5.658` | FR-stable but amplitude/PTP shifts strongly in `004`; inspect cautiously |
+
+The SVG output was verified to contain editable `<text>` elements and requests
+Arial first in the font family, matching the final hybrid QC export behavior.

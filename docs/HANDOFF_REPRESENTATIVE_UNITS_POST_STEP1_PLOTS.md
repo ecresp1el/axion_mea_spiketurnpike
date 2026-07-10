@@ -1324,6 +1324,71 @@ Implementation order:
   good-unit review root and the noise-comparator review root; both completed
   with `36` panels and `0` errors.
 
+- [x] 2026-07-09 20:36 EDT - Started the separate repeated-recording stability
+  figure lane for
+  `Testing_mea_transient_plateing/134-0150/My Experiment(000..004)`.
+
+  This is not part of the finalized Lumos/dorsal/ventral hybrid QC package.
+  It is a separate Cytoview/SixWell repeated-recording cohort with no
+  dorsal/ventral metadata strings in the raw metadata area.
+
+  User-facing goal:
+  find the best putative single units within numeric well `3` and visualize
+  whether the apparent same unit can be followed across repeated recordings.
+
+  Current assumption:
+  numeric well `3` maps to `A3` under
+  `1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3`. This is recorded in the provenance and
+  availability CSV.
+
+  Script:
+  `scripts/plot_recording_series_unit_stability.py`
+
+  Output root:
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_1340150_recording_series_stability_20260709/
+  ```
+
+  Rendered figure:
+  ```text
+  transient_plateing_A3_putative_same_unit_stability_20260709.png
+  transient_plateing_A3_putative_same_unit_stability_20260709.pdf
+  transient_plateing_A3_putative_same_unit_stability_20260709.svg
+  ```
+
+  Tracking tables:
+  ```text
+  transient_plateing_A3_recording_series_availability_20260709.csv
+  transient_plateing_A3_good_unit_inventory_20260709.csv
+  transient_plateing_A3_putative_same_channel_chains_20260709.csv
+  transient_plateing_A3_recording_series_provenance_20260709.json
+  ```
+
+  Current Step 1 A3 availability:
+  repeats `002`, `003`, and `004` have usable current analyzers; repeats `000`
+  and `001` do not have current A3 analyzer assets and were not backfilled from
+  historical `sixwell_manual_primary_*` outputs.
+
+  Selection logic:
+  candidates are `KSLabel=good`; putative chains must share the exact same
+  best-channel electrode across usable repeats; ranking uses normalized
+  best-channel template waveform similarity. Figure-selected chains also
+  require minimum pairwise similarity `>= 0.40`, firing-rate CV `<= 0.80`, PTP
+  CV `<= 1.00`, and saved `ContamPct <= 20`.
+
+  First-pass selected A3 chains:
+  chain 1 is channel `45`, units `1;32;34` across `002;003;004`, mean
+  similarity `0.709`, min similarity `0.595`, FR `0.405;0.425;0.237 Hz`, and
+  PTP `0.520;1.396;0.871 uV`. This is the strongest A3 candidate. Chain 2 is
+  channel `45`, units `2;12;7`, mean similarity `0.581`, min similarity
+  `0.442`, FR `0.421;0.414;0.425 Hz`, and PTP `1.103;0.461;5.658 uV`; it is
+  FR-stable but has a large `004` PTP increase, so inspect cautiously.
+
+  Interpretation guardrail:
+  call these putative same-channel/same-unit candidates. The figure supports
+  visual selection and stability screening, but by itself does not prove the
+  biological identity of a neuron across repeated files.
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.

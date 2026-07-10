@@ -8542,3 +8542,46 @@ Canonical commands:
     median TTP: `0.720 ms`
     artifact:
       `good_kslabel_ttp_distribution_template_best_ptp_20260709.png`
+
+- [x] 2026-07-09 20:36 EDT - Added isolated repeated-recording stability
+  plotting for `Testing_mea_transient_plateing/134-0150/My Experiment(000..004)`.
+
+  This cohort remains separate from the dorsal/ventral and Lumos figure pools.
+  No dorsal/ventral metadata strings were found in the raw metadata area, and
+  the earlier `sixwell_manual_primary_*` outputs remain historical only.
+
+  Script:
+    `scripts/plot_recording_series_unit_stability.py`
+
+  Current first target:
+    numeric well `3`, assumed to map to `A3` using
+    `1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3`.
+
+  Current Step 1 A3 availability:
+    `000` missing current analyzer, `001` missing current analyzer,
+    `002` usable, `003` usable, `004` usable.
+
+  Output root:
+    `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_1340150_recording_series_stability_20260709/`
+
+  Main figure:
+    `transient_plateing_A3_putative_same_unit_stability_20260709.png`
+    plus matching PDF/SVG.
+
+  Tables:
+    `transient_plateing_A3_recording_series_availability_20260709.csv`
+    `transient_plateing_A3_good_unit_inventory_20260709.csv`
+    `transient_plateing_A3_putative_same_channel_chains_20260709.csv`
+    `transient_plateing_A3_recording_series_provenance_20260709.json`
+
+  Selection guardrails:
+    use `KSLabel=good`; require exact same best-channel electrode across usable
+    repeats; rank by normalized best-channel template waveform similarity; for
+    figure-selected chains require min similarity `>= 0.40`, firing-rate CV
+    `<= 0.80`, PTP CV `<= 1.00`, and saved `ContamPct <= 20`.
+
+  First-pass result:
+    two A3 chains survived figure selection. Chain 1, units `1;32;34` across
+    repeats `002;003;004` on channel `45`, is the strongest candidate. Chain 2,
+    units `2;12;7`, is firing-rate stable but has a large `004` PTP increase
+    and should be treated as a weaker visual candidate.
