@@ -39,6 +39,12 @@ DEFAULT_OUTPUT_ROOT = (
     / "step1_nonlfp_th5_v5_ground_truth_latest"
     / "transient_plateing_1340150_recording_series_stability_20260709"
 )
+DEFAULT_RAW_METADATA_CSV = (
+    PROJECT_ROOT
+    / "jobs"
+    / "axion_file_ground_truth_20260708_filter_metadata_patch"
+    / "raw_files.csv"
+)
 DEFAULT_PATTERN = (
     "step1_nonlfp_th5_*Testing_mea_transient_plateing_134-0150_"
     "My_Experiment(*)_primary_Neural_Spikes_hp_200_Hz_IIR_lp_3_kHz_Kaiser_Window"
@@ -110,6 +116,10 @@ def main() -> int:
     parser.add_argument("--max-best-channel-drift-um", type=float, default=0.0)
     parser.add_argument("--local-channels", type=int, default=16)
     parser.add_argument("--best-unit-only", action="store_true")
+    parser.add_argument("--raw-metadata-csv", type=Path, default=DEFAULT_RAW_METADATA_CSV)
+    parser.add_argument("--direct-trace-window-start-s", type=float, default=60.0)
+    parser.add_argument("--direct-trace-window-duration-s", type=float, default=1.0)
+    parser.add_argument("--disable-direct-trace-row", action="store_true")
     parser.add_argument("--export-formats", default="png,pdf,svg")
     args = parser.parse_args()
 
@@ -216,14 +226,26 @@ def main() -> int:
             "max_best_channel_drift_um": args.max_best_channel_drift_um,
             "best_unit_only": args.best_unit_only,
             "include_repeats": args.include_repeats,
+            "raw_metadata_csv": str(args.raw_metadata_csv.expanduser()),
+            "direct_trace_row": not args.disable_direct_trace_row,
+            "direct_trace_window_start_s": args.direct_trace_window_start_s,
+            "direct_trace_window_duration_s": args.direct_trace_window_duration_s,
         },
         "data_source": "Current Step 1 non-LFP th5 SpikeInterface sorting analyzers only.",
+        "direct_trace_source": (
+            "Best-unit figure direct traces are extracted with analyzer.recording.get_traces(return_in_uV=True) "
+            "from the same Step 1 Neural Spikes recording stream used for Kilosort; raw_files.csv is used only "
+            "to annotate acquisition timestamps."
+        ),
         "missing_repeat_policy": "Repeats without a current analyzer are listed as unavailable and are not backfilled from historical sixwell_manual_primary outputs.",
         "outputs": {
             "availability": str(availability_path),
             "unit_inventory": str(unit_table_path),
             "chain_table": str(chain_table_path),
             "figures": [str(path) for path in figure_paths],
+            "direct_trace_table": str(direct_trace_table_path(output_dir, target_well, args.date_label))
+            if direct_trace_table_path(output_dir, target_well, args.date_label).exists()
+            else "",
         },
         "usable_repeats": usable_repeats,
         "selected_chain_count": len(selected_chains),
@@ -569,6 +591,7 @@ def build_chain_table(
                 "max_contam_pct": max_contam,
                 **spatial,
             }
+            row["stability_selection_score"] = stability_selection_score(row)
             row["passes_figure_thresholds"] = bool(
                 row["min_abs_waveform_similarity"] >= args.min_chain_similarity
                 and row["firing_rate_hz_cv"] <= args.max_chain_fr_cv
@@ -593,11 +616,10 @@ def build_chain_table(
         chain_records,
         key=lambda item: (
             bool(item[0]["passes_figure_thresholds"]),
-            np.nan_to_num(item[0]["mean_abs_waveform_similarity"], nan=-1.0),
-            np.nan_to_num(item[0]["min_abs_waveform_similarity"], nan=-1.0),
-            -np.nan_to_num(item[0]["max_best_channel_distance_um"], nan=999999.0),
+            np.nan_to_num(item[0]["stability_selection_score"], nan=-999.0),
             -np.nan_to_num(item[0]["firing_rate_hz_cv"], nan=999.0),
             -np.nan_to_num(item[0]["best_channel_ptp_uV_cv"], nan=999.0),
+            np.nan_to_num(item[0]["min_abs_waveform_similarity"], nan=-1.0),
         ),
         reverse=True,
     ):
@@ -617,6 +639,8 @@ def build_chain_table(
     rows_df["selected_for_figure"] = [
         (row["best_channel_indices"], row["unit_ids"]) in selected_keys for row in rows_df.to_dict("records")
     ]
+    rows_df = rows_df.sort_values("stability_selection_score", ascending=False).reset_index(drop=True)
+    rows_df["stability_rank"] = np.arange(1, len(rows_df) + 1)
     return rows_df, selected
 
 
@@ -646,6 +670,23 @@ def best_channel_spatial_metrics(combo: list[UnitCandidate]) -> dict[str, float]
         "max_best_channel_distance_um": float(np.nanmax(distances)),
         "mean_best_channel_distance_from_centroid_um": float(np.nanmean(centroid_distances)),
     }
+
+
+def stability_selection_score(row: dict[str, object]) -> float:
+    mean_similarity = safe_float(row.get("mean_abs_waveform_similarity"))
+    min_similarity = safe_float(row.get("min_abs_waveform_similarity"))
+    fr_cv = safe_float(row.get("firing_rate_hz_cv"))
+    ptp_cv = safe_float(row.get("best_channel_ptp_uV_cv"))
+    drift = safe_float(row.get("max_best_channel_distance_um"))
+    contam = safe_float(row.get("max_contam_pct"))
+    return float(
+        2.0 * np.nan_to_num(mean_similarity, nan=0.0)
+        + 1.0 * np.nan_to_num(min_similarity, nan=0.0)
+        - 0.75 * np.nan_to_num(fr_cv, nan=10.0)
+        - 0.65 * np.nan_to_num(ptp_cv, nan=10.0)
+        - 0.25 * (np.nan_to_num(drift, nan=500.0) / 500.0)
+        - 0.20 * (np.nan_to_num(contam, nan=20.0) / 20.0)
+    )
 
 
 def pairwise_similarities(combo: tuple[UnitCandidate, ...] | list[UnitCandidate]) -> list[float]:
@@ -732,14 +773,24 @@ def render_best_unit_figure(
     target_well: str,
     args,
 ) -> list[Path]:
-    fig = plt.figure(figsize=(14.5, 8.6), constrained_layout=False)
-    grid = GridSpec(3, 4, figure=fig, height_ratios=[1.55, 2.05, 1.25], hspace=0.52, wspace=0.42)
+    direct_trace_infos = []
+    if not args.disable_direct_trace_row:
+        direct_trace_infos = direct_trace_info_for_chain(chain, bundles, args)
+        write_direct_trace_table(direct_trace_infos, output_dir, target_well, args.date_label)
+    has_direct_trace_row = bool(direct_trace_infos)
+
+    if has_direct_trace_row:
+        fig = plt.figure(figsize=(14.5, 11.1), constrained_layout=False)
+        grid = GridSpec(4, 4, figure=fig, height_ratios=[1.45, 1.9, 1.1, 1.35], hspace=0.58, wspace=0.42)
+    else:
+        fig = plt.figure(figsize=(14.5, 8.6), constrained_layout=False)
+        grid = GridSpec(3, 4, figure=fig, height_ratios=[1.55, 2.05, 1.25], hspace=0.52, wspace=0.42)
 
     ax_overlay = fig.add_subplot(grid[0, 0:2])
     draw_best_unit_waveform_overlay(ax_overlay, chain)
 
     ax_summary = fig.add_subplot(grid[0, 2:4])
-    draw_best_unit_summary(ax_summary, chain, availability_df, target_well, args)
+    draw_best_unit_summary(ax_summary, chain, availability_df, target_well, args, has_direct_trace_row)
 
     for col, candidate in enumerate(chain):
         ax = fig.add_subplot(grid[1, col])
@@ -754,8 +805,16 @@ def render_best_unit_figure(
     draw_single_chain_metric(ax_amp, chain, "amplitude_median_uV", "Spike amplitude median (uV)")
     draw_single_chain_metric(ax_spikes, chain, "num_spikes", "Spike count")
 
+    if has_direct_trace_row:
+        direct_ylim = common_direct_trace_ylim(direct_trace_infos)
+        for col, info in enumerate(direct_trace_infos[:3]):
+            ax = fig.add_subplot(grid[3, col])
+            draw_direct_trace_panel(ax, info, direct_ylim)
+        ax_note = fig.add_subplot(grid[3, 3])
+        draw_direct_trace_note(ax_note, direct_trace_infos, args)
+
     channel_label = compact_channel_label(chain)
-    fig.suptitle(f"Best putative stable unit, well {target_well}: {channel_label}", fontsize=15, fontweight="bold", y=0.98)
+    fig.suptitle(f"Best putative stable unit, well {target_well}: {channel_label}", fontsize=15, fontweight="bold", y=0.985)
     stem = f"transient_plateing_{target_well}_best_unit_stability_{args.date_label}"
     paths = []
     for fmt in [item.strip().lower() for item in args.export_formats.split(",") if item.strip()]:
@@ -778,7 +837,14 @@ def draw_best_unit_waveform_overlay(ax, chain: list[UnitCandidate]) -> None:
     ax.spines[["top", "right"]].set_visible(False)
 
 
-def draw_best_unit_summary(ax, chain: list[UnitCandidate], availability_df: pd.DataFrame, target_well: str, args) -> None:
+def draw_best_unit_summary(
+    ax,
+    chain: list[UnitCandidate],
+    availability_df: pd.DataFrame,
+    target_well: str,
+    args,
+    has_direct_trace_row: bool = False,
+) -> None:
     ax.axis("off")
     usable = availability_df.loc[availability_df["status"].eq("usable"), "repeat"].astype(str).tolist()
     missing = availability_df.loc[~availability_df["status"].eq("usable"), "repeat"].astype(str).tolist()
@@ -797,6 +863,8 @@ def draw_best_unit_summary(ax, chain: list[UnitCandidate], availability_df: pd.D
         f"Firing-rate CV: {coeff_var(fr):.3f}; PTP CV: {coeff_var(ptp):.3f}",
         "Waveforms: aligned persisted random-spike snippets from current Step 1 analyzer recording.",
     ]
+    if has_direct_trace_row:
+        lines.append("Bottom row: direct spike-band channel trace from the Kilosort input recording.")
     ax.text(0.0, 0.96, "\n".join(lines), va="top", ha="left", fontsize=10.5, linespacing=1.35)
 
 
@@ -907,16 +975,6 @@ def draw_local_footprint(ax, candidate: UnitCandidate, bundle: Bundle, local_cha
     )
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.text(
-        0.02,
-        0.02,
-        "aligned snippets, unit PTP scale" if source.startswith("aligned") else "template fallback, unit PTP scale",
-        transform=ax.transAxes,
-        fontsize=7.0,
-        va="bottom",
-        ha="left",
-        color="0.25",
-    )
     for spine in ax.spines.values():
         spine.set_color("0.75")
         spine.set_linewidth(0.7)

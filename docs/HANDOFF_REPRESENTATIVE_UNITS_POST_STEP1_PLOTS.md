@@ -1454,10 +1454,10 @@ Implementation order:
   ```
 
   Content:
-  only the best B2 drift-tolerant chain is plotted, using evenly spaced repeats
-  `000`, `002`, and `004`. Repeat `001` is missing and repeat `003` is skipped
-  for temporal spacing. The selected units are `34;16;22`; best channels are
-  `21;28;21`, so the apparent unit is allowed to move locally across time.
+  only the best B2 chain is plotted, using evenly spaced repeats `000`, `002`,
+  and `004`. Repeat `001` is missing and repeat `003` is skipped for temporal
+  spacing. After stability-weighted reranking, the selected units are
+  `53;52;12`; best channels are `30;30;30`.
 
   Corrected waveform source:
   the overlay and local footprint traces are aligned persisted `random_spikes`
@@ -1467,8 +1467,15 @@ Implementation order:
   waveform-alignment workflow.
 
   Current metrics:
-  mean/min waveform similarity `0.991 / 0.990`, maximum best-channel drift
-  `424 um`, firing-rate CV `0.520`, PTP CV `0.149`.
+  mean/min waveform similarity `0.978 / 0.966`, maximum best-channel drift
+  `0 um`, firing-rate CV `0.094`, PTP CV `0.124`.
+
+  Selection correction:
+  the first drift-tolerant pick over-weighted waveform similarity and selected
+  `34;16;22`, which had firing-rate CV `0.520`. The script now records and uses
+  `stability_selection_score`, which penalizes firing-rate CV, PTP CV,
+  contamination, and spatial drift while still requiring high waveform
+  similarity.
 
 ## What To Avoid
 

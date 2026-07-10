@@ -1634,16 +1634,24 @@ repeats `000`, `002`, and `004` only, skipping `003` for temporal spacing and
 omitting `001` because no current analyzer exists. It allows local best-channel
 drift up to `500 um`.
 
-Current selected B2 chain:
+Current selected B2 chain after stability-weighted reranking:
 
 | Repeat | Unit | Best channel | Waveform source |
 |---|---:|---:|---|
-| `000` | `34` | `21` | aligned persisted `random_spikes` snippet mean |
-| `002` | `16` | `28` | aligned persisted `random_spikes` snippet mean |
-| `004` | `22` | `21` | aligned persisted `random_spikes` snippet mean |
+| `000` | `53` | `30` | aligned persisted `random_spikes` snippet mean |
+| `002` | `52` | `30` | aligned persisted `random_spikes` snippet mean |
+| `004` | `12` | `30` | aligned persisted `random_spikes` snippet mean |
 
-Summary: mean/min waveform similarity `0.991 / 0.990`, maximum best-channel
-drift `424 um`, firing-rate CV `0.520`, PTP CV `0.149`.
+Summary: mean/min waveform similarity `0.978 / 0.966`, maximum best-channel
+drift `0 um`, firing-rate CV `0.094`, PTP CV `0.124`.
+
+Selection note:
+
+The earlier drift-tolerant pick (`34;16;22`, channels `21;28;21`) was selected
+because waveform similarity dominated the ranking, but it had a firing-rate CV
+of `0.520`. The current selection uses `stability_selection_score`, which keeps
+waveform similarity high while penalizing firing-rate instability, PTP
+instability, contamination, and spatial drift.
 
 ```text
 transient_plateing_B2_best_unit_stability_20260709.png
