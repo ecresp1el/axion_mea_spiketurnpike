@@ -1430,8 +1430,9 @@ Implementation order:
   analyzer templates plus analyzer `KSLabel=good`; saved `spike_amplitudes` are
   shown only as analyzer-backed stability summaries.
 
-- [x] 2026-07-09 20:50 EDT - Replaced the broad repeated-recording screening
-  visual with a clean best-unit-only figure.
+- [x] 2026-07-09 20:57 EDT - Replaced the broad repeated-recording screening
+  visual with a clean best-unit-only figure, then corrected the waveform source
+  and drift logic.
 
   Use this as the current best example:
   ```text
@@ -1444,16 +1445,30 @@ Implementation order:
   ```bash
   python scripts/plot_recording_series_unit_stability.py \
     --well B2 \
+    --include-repeats 000,002,004 \
     --top-chains 1 \
     --best-unit-only \
+    --matching-mode spatial_drift \
+    --max-best-channel-drift-um 500 \
     --export-formats png,pdf,svg
   ```
 
   Content:
-  only the best B2 chain is plotted: units `34;31;36;22` across
-  `000;002;003;004` on best channel `21`. The figure shows the best-channel
-  waveform overlay, local multichannel footprints for each repeat, and compact
-  firing-rate/PTP/spike-amplitude/spike-count trends.
+  only the best B2 drift-tolerant chain is plotted, using evenly spaced repeats
+  `000`, `002`, and `004`. Repeat `001` is missing and repeat `003` is skipped
+  for temporal spacing. The selected units are `34;16;22`; best channels are
+  `21;28;21`, so the apparent unit is allowed to move locally across time.
+
+  Corrected waveform source:
+  the overlay and local footprint traces are aligned persisted `random_spikes`
+  snippet means extracted from the current Step 1 analyzer recording. They are
+  not raw `templates.average` glyphs. Snippets are aligned to the local trough
+  near the expected spike center before averaging, matching the earlier
+  waveform-alignment workflow.
+
+  Current metrics:
+  mean/min waveform similarity `0.991 / 0.990`, maximum best-channel drift
+  `424 um`, firing-rate CV `0.520`, PTP CV `0.149`.
 
 ## What To Avoid
 

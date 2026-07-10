@@ -56,11 +56,14 @@ class Bundle:
     unit_ids: list[object]
     channel_ids: list[object]
     templates: np.ndarray
+    nbefore: int
+    nafter: int
     channel_locations: np.ndarray
     sampling_frequency_hz: float
     duration_s: float
     spike_vector: np.ndarray
     spike_amplitudes: np.ndarray | None
+    random_spikes_ext: object | None
 
 
 @dataclass
@@ -84,12 +87,15 @@ class UnitCandidate:
     template: np.ndarray
     amplitude_median_uV: float
     amplitude_mad_uV: float
+    waveform_source: str
+    usable_waveform_snippets: int
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-root", type=Path, default=RESULTS_ROOT)
     parser.add_argument("--recording-pattern", default=DEFAULT_PATTERN)
+    parser.add_argument("--include-repeats", default="")
     parser.add_argument("--well", default="")
     parser.add_argument("--well-number", default="3")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
@@ -100,6 +106,8 @@ def main() -> int:
     parser.add_argument("--max-chain-ptp-cv", type=float, default=1.00)
     parser.add_argument("--max-chain-contam-pct", type=float, default=20.0)
     parser.add_argument("--max-chain-combinations-per-channel", type=int, default=25000)
+    parser.add_argument("--matching-mode", choices=["exact_channel", "spatial_drift"], default="exact_channel")
+    parser.add_argument("--max-best-channel-drift-um", type=float, default=0.0)
     parser.add_argument("--local-channels", type=int, default=16)
     parser.add_argument("--best-unit-only", action="store_true")
     parser.add_argument("--export-formats", default="png,pdf,svg")
@@ -119,6 +127,9 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     root_rows = discover_recording_roots(args.results_root.expanduser(), args.recording_pattern)
+    include_repeats = parse_repeat_list(args.include_repeats)
+    if include_repeats:
+        root_rows = [row for row in root_rows if row["repeat"] in include_repeats]
     bundles: dict[str, Bundle] = {}
     availability_rows: list[dict[str, object]] = []
     unit_rows: list[dict[str, object]] = []
@@ -201,7 +212,10 @@ def main() -> int:
             "max_chain_fr_cv": args.max_chain_fr_cv,
             "max_chain_ptp_cv": args.max_chain_ptp_cv,
             "max_chain_contam_pct": args.max_chain_contam_pct,
+            "matching_mode": args.matching_mode,
+            "max_best_channel_drift_um": args.max_best_channel_drift_um,
             "best_unit_only": args.best_unit_only,
+            "include_repeats": args.include_repeats,
         },
         "data_source": "Current Step 1 non-LFP th5 SpikeInterface sorting analyzers only.",
         "missing_repeat_policy": "Repeats without a current analyzer are listed as unavailable and are not backfilled from historical sixwell_manual_primary outputs.",
@@ -237,12 +251,22 @@ def discover_recording_roots(results_root: Path, pattern: str) -> list[dict[str,
     return sorted(rows, key=lambda row: row["repeat"])
 
 
+def parse_repeat_list(text: str) -> set[str]:
+    repeats = set()
+    for item in str(text).split(","):
+        item = item.strip()
+        if item:
+            repeats.add(item.zfill(3))
+    return repeats
+
+
 def load_bundle(si, repeat: str, well: str, analyzer_path: Path) -> Bundle:
     analyzer = si.load_sorting_analyzer(analyzer_path, load_extensions=True)
     templates_ext = analyzer.get_extension("templates")
     if templates_ext is None:
         raise ValueError("missing templates extension")
     spike_amplitudes_ext = analyzer.get_extension("spike_amplitudes")
+    random_spikes_ext = analyzer.get_extension("random_spikes")
     spike_amplitudes = None
     if spike_amplitudes_ext is not None:
         spike_amplitudes = np.asarray(spike_amplitudes_ext.get_data(), dtype=float)
@@ -254,11 +278,14 @@ def load_bundle(si, repeat: str, well: str, analyzer_path: Path) -> Bundle:
         unit_ids=list(analyzer.sorting.unit_ids),
         channel_ids=list(analyzer.recording.channel_ids),
         templates=templates_average(templates_ext),
+        nbefore=int(getattr(templates_ext, "nbefore", 0)),
+        nafter=int(getattr(templates_ext, "nafter", 0)),
         channel_locations=np.asarray(analyzer.recording.get_channel_locations(), dtype=float),
         sampling_frequency_hz=float(analyzer.recording.get_sampling_frequency()),
         duration_s=float(analyzer.recording.get_total_duration()),
         spike_vector=np.asarray(analyzer.sorting.to_spike_vector()),
         spike_amplitudes=spike_amplitudes,
+        random_spikes_ext=random_spikes_ext,
     )
 
 
@@ -272,6 +299,117 @@ def templates_average(templates_ext) -> np.ndarray:
         return np.asarray(data, dtype=float)
 
 
+def aligned_random_spike_mean(
+    bundle: Bundle,
+    unit_id: object,
+    unit_index: int,
+    channel_indices: list[int],
+    *,
+    alignment_channel_index: int,
+    max_spikes: int = 500,
+    search_radius: int = 6,
+) -> tuple[np.ndarray, int, str]:
+    if bundle.random_spikes_ext is None:
+        return np.empty((0, len(channel_indices)), dtype=float), 0, "missing_random_spikes_extension"
+    nbefore = int(bundle.nbefore)
+    nafter = int(bundle.nafter)
+    if nbefore <= 0 or nafter <= 0:
+        nbefore = int(bundle.templates.shape[1] // 2)
+        nafter = int(bundle.templates.shape[1] - nbefore)
+    channel_ids = [bundle.channel_ids[int(index)] for index in channel_indices]
+    align_channel_id = bundle.channel_ids[int(alignment_channel_index)]
+    snippets = []
+    align_snippets = []
+    selected_total = 0
+    for segment_index in range(bundle.analyzer.sorting.get_num_segments()):
+        spike_train = np.asarray(
+            bundle.analyzer.sorting.get_unit_spike_train(unit_id=unit_id, segment_index=segment_index),
+            dtype=np.int64,
+        )
+        if spike_train.size == 0:
+            continue
+        try:
+            selected_indices = np.asarray(
+                bundle.random_spikes_ext.get_selected_indices_in_spike_train(unit_id, segment_index),
+                dtype=np.int64,
+            )
+        except Exception:
+            selected_indices = np.arange(spike_train.size, dtype=np.int64)
+        selected_indices = selected_indices[(selected_indices >= 0) & (selected_indices < spike_train.size)]
+        if selected_indices.size == 0:
+            continue
+        if selected_indices.size > max_spikes:
+            keep = np.linspace(0, selected_indices.size - 1, max_spikes).round().astype(int)
+            selected_indices = selected_indices[keep]
+        selected_total += int(selected_indices.size)
+        frames = spike_train[selected_indices]
+        num_samples = int(bundle.analyzer.recording.get_num_samples(segment_index=segment_index))
+        for frame in frames:
+            start = int(frame) - nbefore
+            end = int(frame) + nafter
+            if start < 0 or end > num_samples or end <= start:
+                continue
+            trace = bundle.analyzer.recording.get_traces(
+                segment_index=segment_index,
+                start_frame=start,
+                end_frame=end,
+                channel_ids=channel_ids,
+                return_in_uV=True,
+            )
+            align_trace = bundle.analyzer.recording.get_traces(
+                segment_index=segment_index,
+                start_frame=start,
+                end_frame=end,
+                channel_ids=[align_channel_id],
+                return_in_uV=True,
+            )
+            trace = np.asarray(trace, dtype=float)
+            align_trace = np.asarray(align_trace[:, 0], dtype=float)
+            if trace.shape != (nbefore + nafter, len(channel_indices)) or align_trace.size != nbefore + nafter:
+                continue
+            snippets.append(trace)
+            align_snippets.append(align_trace)
+    if not snippets:
+        return np.empty((0, len(channel_indices)), dtype=float), 0, f"no_usable_random_spike_snippets_selected_{selected_total}"
+    snippets_array = np.stack(snippets, axis=0)
+    align_array = np.stack(align_snippets, axis=0)
+    aligned = align_multichannel_snippets_to_local_trough(
+        snippets_array,
+        align_array,
+        target_index=nbefore,
+        search_radius=search_radius,
+    )
+    return np.nanmean(aligned, axis=0), int(aligned.shape[0]), "aligned_persisted_random_spike_snippet_mean"
+
+
+def align_multichannel_snippets_to_local_trough(
+    snippets: np.ndarray,
+    align_snippets: np.ndarray,
+    *,
+    target_index: int,
+    search_radius: int,
+) -> np.ndarray:
+    aligned = np.full_like(snippets, np.nan, dtype=float)
+    sample_index = np.arange(snippets.shape[1], dtype=float)
+    left = max(0, target_index - search_radius)
+    right = min(snippets.shape[1], target_index + search_radius + 1)
+    for row_index, align_trace in enumerate(align_snippets):
+        local = align_trace[left:right]
+        if local.size == 0 or not np.isfinite(local).any():
+            continue
+        trough_index = left + int(np.nanargmin(local))
+        shift = trough_index - target_index
+        for channel_pos in range(snippets.shape[2]):
+            aligned[row_index, :, channel_pos] = np.interp(
+                sample_index + shift,
+                sample_index,
+                snippets[row_index, :, channel_pos],
+                left=np.nan,
+                right=np.nan,
+            )
+    return aligned
+
+
 def unit_candidates(bundle: Bundle) -> list[UnitCandidate]:
     kslabels = property_values(bundle.analyzer.sorting, "KSLabel", len(bundle.unit_ids), default="")
     contam = property_values(bundle.analyzer.sorting, "ContamPct", len(bundle.unit_ids), default=np.nan)
@@ -283,7 +421,20 @@ def unit_candidates(bundle: Bundle) -> list[UnitCandidate]:
         template = np.asarray(bundle.templates[unit_index], dtype=float)
         ptps = np.nanmax(template, axis=0) - np.nanmin(template, axis=0)
         best_channel_index = int(np.nanargmax(np.abs(ptps)))
-        waveform = np.asarray(template[:, best_channel_index], dtype=float)
+        template_waveform = np.asarray(template[:, best_channel_index], dtype=float)
+        waveform, usable_snippets, waveform_source = aligned_random_spike_mean(
+            bundle,
+            unit_id,
+            unit_index,
+            [best_channel_index],
+            alignment_channel_index=best_channel_index,
+        )
+        if waveform.ndim == 2 and waveform.shape[1] == 1:
+            waveform = waveform[:, 0]
+        else:
+            waveform = template_waveform
+            waveform_source = "fallback_templates_average_best_channel"
+            usable_snippets = 0
         waveform_norm = normalize_waveform_for_similarity(waveform)
         spike_mask = bundle.spike_vector["unit_index"] == unit_index
         num_spikes = int(np.count_nonzero(spike_mask))
@@ -310,6 +461,8 @@ def unit_candidates(bundle: Bundle) -> list[UnitCandidate]:
                 template=template,
                 amplitude_median_uV=float(np.nanmedian(amplitudes)) if amplitudes.size else np.nan,
                 amplitude_mad_uV=float(np.nanmedian(np.abs(amplitudes - np.nanmedian(amplitudes)))) if amplitudes.size else np.nan,
+                waveform_source=waveform_source,
+                usable_waveform_snippets=int(usable_snippets),
             )
         )
     return candidates
@@ -364,6 +517,8 @@ def unit_candidate_row(candidate: UnitCandidate) -> dict[str, object]:
         "best_channel_ptp_uV": candidate.best_channel_ptp_uV,
         "spike_amplitude_median_uV": candidate.amplitude_median_uV,
         "spike_amplitude_mad_uV": candidate.amplitude_mad_uV,
+        "waveform_source": candidate.waveform_source,
+        "usable_waveform_snippets": candidate.usable_waveform_snippets,
     }
 
 
@@ -374,21 +529,17 @@ def build_chain_table(
 ) -> tuple[pd.DataFrame, list[list[UnitCandidate]]]:
     if len(usable_repeats) < 2:
         return pd.DataFrame(), []
-    channel_sets = []
-    for repeat in usable_repeats:
-        channel_sets.append({candidate.best_channel_index for candidate in candidates_by_repeat[repeat]})
-    common_channels = sorted(set.intersection(*channel_sets)) if channel_sets else []
     rows = []
     chain_records = []
-    for channel in common_channels:
-        per_repeat = [
-            [candidate for candidate in candidates_by_repeat[repeat] if candidate.best_channel_index == channel]
-            for repeat in usable_repeats
-        ]
+    for per_repeat in candidate_groups_for_matching(candidates_by_repeat, usable_repeats, args):
         total_combinations = int(np.prod([len(items) for items in per_repeat]))
-        if total_combinations > args.max_chain_combinations_per_channel:
+        if total_combinations > args.max_chain_combinations_per_channel and args.matching_mode == "exact_channel":
             continue
         for combo in itertools.product(*per_repeat):
+            combo = list(combo)
+            spatial = best_channel_spatial_metrics(combo)
+            if args.matching_mode == "spatial_drift" and spatial["max_best_channel_distance_um"] > args.max_best_channel_drift_um:
+                continue
             similarities = pairwise_similarities(combo)
             firing_rates = np.asarray([candidate.firing_rate_hz for candidate in combo], dtype=float)
             ptps = np.asarray([candidate.best_channel_ptp_uV for candidate in combo], dtype=float)
@@ -397,8 +548,13 @@ def build_chain_table(
             row = {
                 "chain_rank": np.nan,
                 "well": combo[0].well,
-                "best_channel_index": channel,
+                "matching_mode": args.matching_mode,
+                "best_channel_index": combo[0].best_channel_index,
                 "best_channel_id": combo[0].best_channel_id,
+                "best_channel_indices": ";".join(str(candidate.best_channel_index) for candidate in combo),
+                "best_channel_ids": ";".join(str(candidate.best_channel_id) for candidate in combo),
+                "best_channel_x_values": ";".join(f"{candidate.best_channel_x:.6g}" for candidate in combo),
+                "best_channel_y_values": ";".join(f"{candidate.best_channel_y:.6g}" for candidate in combo),
                 "repeat_count": len(combo),
                 "repeats": ";".join(candidate.repeat for candidate in combo),
                 "unit_ids": ";".join(str(candidate.unit_id) for candidate in combo),
@@ -411,6 +567,7 @@ def build_chain_table(
                 "best_channel_ptp_uV_cv": coeff_var(ptps),
                 "contam_pct_values": ";".join(f"{candidate.contam_pct:.6g}" for candidate in combo),
                 "max_contam_pct": max_contam,
+                **spatial,
             }
             row["passes_figure_thresholds"] = bool(
                 row["min_abs_waveform_similarity"] >= args.min_chain_similarity
@@ -419,7 +576,7 @@ def build_chain_table(
                 and row["max_contam_pct"] <= args.max_chain_contam_pct
             )
             rows.append(row)
-            chain_records.append((row, list(combo)))
+            chain_records.append((row, combo))
     rows_df = pd.DataFrame(rows)
     if rows_df.empty:
         return rows_df, []
@@ -438,6 +595,7 @@ def build_chain_table(
             bool(item[0]["passes_figure_thresholds"]),
             np.nan_to_num(item[0]["mean_abs_waveform_similarity"], nan=-1.0),
             np.nan_to_num(item[0]["min_abs_waveform_similarity"], nan=-1.0),
+            -np.nan_to_num(item[0]["max_best_channel_distance_um"], nan=999999.0),
             -np.nan_to_num(item[0]["firing_rate_hz_cv"], nan=999.0),
             -np.nan_to_num(item[0]["best_channel_ptp_uV_cv"], nan=999.0),
         ),
@@ -453,13 +611,41 @@ def build_chain_table(
         if len(selected) >= args.top_chains:
             break
     selected_keys = {
-        (combo[0].best_channel_index, ";".join(str(candidate.unit_id) for candidate in combo))
+        (";".join(str(candidate.best_channel_index) for candidate in combo), ";".join(str(candidate.unit_id) for candidate in combo))
         for combo in selected
     }
     rows_df["selected_for_figure"] = [
-        (row["best_channel_index"], row["unit_ids"]) in selected_keys for row in rows_df.to_dict("records")
+        (row["best_channel_indices"], row["unit_ids"]) in selected_keys for row in rows_df.to_dict("records")
     ]
     return rows_df, selected
+
+
+def candidate_groups_for_matching(
+    candidates_by_repeat: dict[str, list[UnitCandidate]],
+    usable_repeats: list[str],
+    args,
+) -> list[list[list[UnitCandidate]]]:
+    if args.matching_mode == "spatial_drift":
+        return [[candidates_by_repeat[repeat] for repeat in usable_repeats]]
+    channel_sets = [{candidate.best_channel_index for candidate in candidates_by_repeat[repeat]} for repeat in usable_repeats]
+    common_channels = sorted(set.intersection(*channel_sets)) if channel_sets else []
+    return [
+        [[candidate for candidate in candidates_by_repeat[repeat] if candidate.best_channel_index == channel] for repeat in usable_repeats]
+        for channel in common_channels
+    ]
+
+
+def best_channel_spatial_metrics(combo: list[UnitCandidate]) -> dict[str, float]:
+    xy = np.asarray([[candidate.best_channel_x, candidate.best_channel_y] for candidate in combo], dtype=float)
+    if xy.shape[0] < 2:
+        return {"max_best_channel_distance_um": 0.0, "mean_best_channel_distance_from_centroid_um": 0.0}
+    distances = np.sqrt(((xy[:, None, :] - xy[None, :, :]) ** 2).sum(axis=2))
+    centroid = np.nanmean(xy, axis=0)
+    centroid_distances = np.sqrt(((xy - centroid[None, :]) ** 2).sum(axis=1))
+    return {
+        "max_best_channel_distance_um": float(np.nanmax(distances)),
+        "mean_best_channel_distance_from_centroid_um": float(np.nanmean(centroid_distances)),
+    }
 
 
 def pairwise_similarities(combo: tuple[UnitCandidate, ...] | list[UnitCandidate]) -> list[float]:
@@ -568,7 +754,8 @@ def render_best_unit_figure(
     draw_single_chain_metric(ax_amp, chain, "amplitude_median_uV", "Spike amplitude median (uV)")
     draw_single_chain_metric(ax_spikes, chain, "num_spikes", "Spike count")
 
-    fig.suptitle(f"Best putative stable unit, well {target_well}: channel {chain[0].best_channel_id}", fontsize=15, fontweight="bold", y=0.98)
+    channel_label = compact_channel_label(chain)
+    fig.suptitle(f"Best putative stable unit, well {target_well}: {channel_label}", fontsize=15, fontweight="bold", y=0.98)
     stem = f"transient_plateing_{target_well}_best_unit_stability_{args.date_label}"
     paths = []
     for fmt in [item.strip().lower() for item in args.export_formats.split(",") if item.strip()]:
@@ -584,9 +771,9 @@ def draw_best_unit_waveform_overlay(ax, chain: list[UnitCandidate]) -> None:
     for color, candidate in zip(colors, chain, strict=True):
         ax.plot(waveform_time_ms(candidate), candidate.waveform, lw=2.2, alpha=0.95, color=color, label=f"{candidate.repeat}: unit {candidate.unit_id}")
     ax.axhline(0, color="0.82", lw=0.8)
-    ax.set_title("Best-channel template overlay", fontsize=11)
+    ax.set_title("Aligned random-spike mean waveform overlay", fontsize=11)
     ax.set_xlabel("Time from trough (ms)")
-    ax.set_ylabel("Template waveform (uV)")
+    ax.set_ylabel("Mean waveform (uV)")
     ax.legend(frameon=False, fontsize=8.5, loc="best")
     ax.spines[["top", "right"]].set_visible(False)
 
@@ -599,15 +786,24 @@ def draw_best_unit_summary(ax, chain: list[UnitCandidate], availability_df: pd.D
     fr = np.asarray([candidate.firing_rate_hz for candidate in chain], dtype=float)
     ptp = np.asarray([candidate.best_channel_ptp_uV for candidate in chain], dtype=float)
     units = ";".join(str(candidate.unit_id) for candidate in chain)
+    channels = ";".join(str(candidate.best_channel_id) for candidate in chain)
+    spatial = best_channel_spatial_metrics(chain)
     lines = [
         f"Well {target_well}; repeats shown: {';'.join(candidate.repeat for candidate in chain)}",
-        f"Unavailable current repeats: {', '.join(missing) if missing else 'none'}",
-        f"KSLabel=good chain: units {units} on best channel {chain[0].best_channel_id}",
+        repeat_note(args, missing),
+        f"KSLabel=good chain: units {units}; best channels {channels}",
         f"Mean/min waveform similarity: {np.nanmean(similarities):.3f} / {np.nanmin(similarities):.3f}",
+        f"Max best-channel drift: {spatial['max_best_channel_distance_um']:.0f} um",
         f"Firing-rate CV: {coeff_var(fr):.3f}; PTP CV: {coeff_var(ptp):.3f}",
-        "Source: current Step 1 analyzer templates and sorting spike vector only.",
+        "Waveforms: aligned persisted random-spike snippets from current Step 1 analyzer recording.",
     ]
     ax.text(0.0, 0.96, "\n".join(lines), va="top", ha="left", fontsize=10.5, linespacing=1.35)
+
+
+def repeat_note(args, missing: list[str]) -> str:
+    if args.include_repeats:
+        return f"Displayed repeats restricted to {args.include_repeats}; skipped 003 for even spacing, 001 is missing."
+    return f"Unavailable current repeats: {', '.join(missing) if missing else 'none'}"
 
 
 def draw_single_chain_metric(ax, chain: list[UnitCandidate], attr: str, ylabel: str) -> None:
@@ -618,6 +814,13 @@ def draw_single_chain_metric(ax, chain: list[UnitCandidate], attr: str, ylabel: 
     ax.set_ylabel(ylabel)
     ax.grid(axis="y", color="0.88", lw=0.75)
     ax.spines[["top", "right"]].set_visible(False)
+
+
+def compact_channel_label(chain: list[UnitCandidate]) -> str:
+    channels = [str(candidate.best_channel_id) for candidate in chain]
+    if len(set(channels)) == 1:
+        return f"channel {channels[0]}"
+    return "channels " + ";".join(channels)
 
 
 def draw_note_panel(ax, availability_df: pd.DataFrame, target_well: str, args) -> None:
@@ -663,7 +866,6 @@ def waveform_time_ms(candidate: UnitCandidate) -> np.ndarray:
 
 
 def draw_local_footprint(ax, candidate: UnitCandidate, bundle: Bundle, local_channels: int) -> None:
-    template = np.asarray(candidate.template, dtype=float)
     locations = np.asarray(bundle.channel_locations, dtype=float)
     best_loc = locations[candidate.best_channel_index]
     distances = np.linalg.norm(locations - best_loc[None, :], axis=1)
@@ -673,10 +875,20 @@ def draw_local_footprint(ax, candidate: UnitCandidate, bundle: Bundle, local_cha
     y_span = np.ptp(locations[channel_indices, 1]) or 1.0
     dx = max(x_span / 8.0, 6.0)
     dy = max(y_span / 5.5, 10.0)
-    t = np.linspace(-0.5, 0.5, template.shape[0])
-    for channel_index in channel_indices:
+    mean_waveforms, _, source = aligned_random_spike_mean(
+        bundle,
+        candidate.unit_id,
+        candidate.unit_index,
+        [int(index) for index in channel_indices],
+        alignment_channel_index=candidate.best_channel_index,
+    )
+    if mean_waveforms.shape != (bundle.templates.shape[1], len(channel_indices)):
+        mean_waveforms = np.asarray(candidate.template[:, channel_indices], dtype=float)
+        source = "fallback_templates_average_local_channels"
+    t = np.linspace(-0.5, 0.5, mean_waveforms.shape[0])
+    for channel_position, channel_index in enumerate(channel_indices):
         loc = locations[channel_index]
-        trace = template[:, channel_index] / ptp
+        trace = mean_waveforms[:, channel_position] / ptp
         lw = 2.2 if channel_index == candidate.best_channel_index else 1.15
         alpha = 1.0 if channel_index == candidate.best_channel_index else 0.78
         color = "#1f77b4" if channel_index == candidate.best_channel_index else "0.22"
@@ -698,9 +910,9 @@ def draw_local_footprint(ax, candidate: UnitCandidate, bundle: Bundle, local_cha
     ax.text(
         0.02,
         0.02,
-        "All traces scaled by unit best-channel PTP",
+        "aligned snippets, unit PTP scale" if source.startswith("aligned") else "template fallback, unit PTP scale",
         transform=ax.transAxes,
-        fontsize=7.5,
+        fontsize=7.0,
         va="bottom",
         ha="left",
         color="0.25",

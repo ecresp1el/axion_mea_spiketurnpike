@@ -1627,9 +1627,23 @@ Spike-source guardrail:
 
 Best-unit-only figure:
 
-The broad screening layout was too cluttered for presentation. The current
-clean figure uses only the best B2 chain, units `34;31;36;22` across
-`000;002;003;004` on best channel `21`.
+The broad screening layout was too cluttered for presentation, and the
+same-channel rule was too strict because the apparent unit may drift across
+neighboring electrodes over time. The current clean figure uses evenly spaced
+repeats `000`, `002`, and `004` only, skipping `003` for temporal spacing and
+omitting `001` because no current analyzer exists. It allows local best-channel
+drift up to `500 um`.
+
+Current selected B2 chain:
+
+| Repeat | Unit | Best channel | Waveform source |
+|---|---:|---:|---|
+| `000` | `34` | `21` | aligned persisted `random_spikes` snippet mean |
+| `002` | `16` | `28` | aligned persisted `random_spikes` snippet mean |
+| `004` | `22` | `21` | aligned persisted `random_spikes` snippet mean |
+
+Summary: mean/min waveform similarity `0.991 / 0.990`, maximum best-channel
+drift `424 um`, firing-rate CV `0.520`, PTP CV `0.149`.
 
 ```text
 transient_plateing_B2_best_unit_stability_20260709.png
@@ -1642,7 +1656,10 @@ Render command:
 ```bash
 python scripts/plot_recording_series_unit_stability.py \
   --well B2 \
+  --include-repeats 000,002,004 \
   --top-chains 1 \
   --best-unit-only \
+  --matching-mode spatial_drift \
+  --max-best-channel-drift-um 500 \
   --export-formats png,pdf,svg
 ```
