@@ -1695,13 +1695,20 @@ Direct trace expansion, 2026-07-09 21:12 EDT:
   while keeping PNG/PDF/SVG exports usable.
 - The trace display is not time-locked. The only alignment is acquisition order:
   repeat `000`, then repeat `002`, then repeat `004`. Each stacked row uses its
-  own x-axis in minutes within that recording. The `+/- X min post plating`
-  values are row-label context only, not a shared aligned time axis.
-- The contextual post-plating reference is `My Experiment(001).raw`
-  `block_vector_start_time = 2026-05-23 10:31:47.752`, because the raw note says
-  organoids were added for `001` through `004`. Row labels are: repeat `000`
-  starts `-22.8 min` post plating, repeat `002` starts `+0.7 min`, and repeat
-  `004` starts `+150.3 min`.
+  own x-axis in minutes within that recording. Row-label timing is contextual
+  only, not a shared aligned time axis.
+- Row timing now uses repeat `000` as timepoint one/reference. Row labels are:
+  repeat `000` starts `+0.0 min`, repeat `002` starts `+23.5 min`, and repeat
+  `004` starts `+173.1 min` from the repeat `000` raw start.
+- Red tick marks above each voltage trace are the plotted unit's exact
+  SpikeInterface/Kilosort spike times from `sorting.get_unit_spike_train(...)`,
+  converted to minutes within that recording. Tick counts match the selected
+  unit spike counts: `261` for repeat `000` unit `53`, `238` for repeat `002`
+  unit `52`, and `207` for repeat `004` unit `12`.
+- Each trace row now has a compact ACG panel immediately to the right. The ACG
+  uses the same plotted-unit spike times as the red ticks, with `1 ms` bins over
+  a `+/-100 ms` lag window and self-lags excluded. The center/self bin is `0` by
+  construction.
 - All three stacked trace panels share the same voltage y-limits computed from
   the full min/max envelope across all traces, with padding. The earlier
   percentile-style display limit was removed so voltage extrema are not clipped.
@@ -1718,10 +1725,97 @@ New sidecar output:
 
 ```text
 transient_plateing_B2_best_unit_direct_channel_trace_20260709.csv.gz
+transient_plateing_B2_best_unit_direct_channel_spike_ticks_20260709.csv
+transient_plateing_B2_best_unit_direct_channel_acg_20260709.csv
 ```
 
 The sidecar has `9,000` envelope rows and records repeat, unit, channel, plotted
-bin time in recording, plotted minutes post plating, bin min/max/mean voltage in
-uV, raw samples represented per bin, full source sample count, raw acquisition
-start time, plating reference time, elapsed hours, raw file path, and filter
-metadata signature.
+bin time in recording, plotted minutes from repeat `000`, bin min/max/mean
+voltage in uV, raw samples represented per bin, full source sample count, raw
+acquisition start time, reference repeat/time, elapsed hours, raw file path, and
+filter metadata signature. The spike-tick sidecar stores exact tick times in
+seconds/minutes within each recording. The ACG sidecar stores the plotted
+lag-bin counts for the right-hand ACG panels.
+
+### Testing MEA Transient Plateing Top-10 ACG Example Pack, 2026-07-09
+
+The best-unit recording-series figure was generalized into a contained top-10
+rendering pass so multiple candidate chains can be inspected in the same final
+layout. This pass keeps the final B2 figure style: aligned random-spike
+best-channel waveform overlay, local multichannel footprint panels, stability
+metrics, full continuous voltage traces stacked by repeat order, red spike
+ticks on the traces, and an ACG panel beside each trace row.
+
+Top-10 output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_top_acg_examples_20260709/
+```
+
+Script:
+
+```text
+scripts/prepare_recording_series_top_acg_examples.py
+```
+
+Reproducibility assets:
+
+```text
+top_acg_candidate_manifest.csv
+all_ranked_candidates.csv
+top_acg_rendered_output_summary.csv
+top10_acg_examples_contact_sheet.png
+submission.json
+repro/render_top_acg_commands.tsv
+repro/render_top_acg_examples.sbatch
+logs/
+```
+
+Slurm history:
+
+| Job | State | Note |
+|---:|---|---|
+| `53227028` | cancelled/failed early | First array hit the known conda activation problem under `set -u`: `xml_catalog_files_libxml2: unbound variable`. No figure outputs were produced from this failed array. |
+| `53227050` | completed | Corrected array used `set -eo pipefail` so conda activation could complete; all 10 candidate figures and sidecars rendered. |
+
+Candidate ranking:
+
+- Candidate chains came from the existing repeated-recording chain tables in
+  `transient_plateing_1340150_recording_series_stability_20260709`.
+- The ranking keeps `KSLabel=good` analyzer units and the same waveform
+  extraction/display logic as the final B2 figure.
+- Candidates are filtered for at least 3 repeats, minimum waveform similarity,
+  firing-rate CV, and PTP CV, then ranked to favor enough spikes for a visible
+  ACG while preserving waveform/stability quality.
+- The repeated recordings are shown in acquisition order only. The traces are
+  not time-locked; repeat `000` is the timing reference for row labels.
+
+Rendered top-10 candidates:
+
+| Rank | Well | Units across repeats | Best channels | Tick counts `000;002;004` | ACG counts `000;002;004` | Near-2 ms ACG fraction `000;002;004` |
+|---:|---|---|---|---|---|---|
+| 1 | `B2` | `16;16;22` | `28;28;21` | `893;1149;587` | `1954;4224;920` | `0.0061;0.0080;0.0065` |
+| 2 | `B2` | `16;31;22` | `28;21;21` | `893;369;587` | `1954;252;920` | `0.0061;0.0079;0.0065` |
+| 3 | `B2` | `31;7;24` | `36;29;37` | `517;1484;2793` | `72;5732;8034` | `0.0000;0.0080;0.0087` |
+| 4 | `B2` | `31;26;24` | `36;37;37` | `517;1723;2793` | `72;8078;8034` | `0.0000;0.0089;0.0087` |
+| 5 | `B2` | `34;16;22` | `21;28;21` | `380;1149;587` | `212;4224;920` | `0.0094;0.0080;0.0065` |
+| 6 | `B2` | `51;26;24` | `36;37;37` | `447;1723;2793` | `30;8078;8034` | `0.0000;0.0089;0.0087` |
+| 7 | `B2` | `51;7;24` | `36;29;37` | `447;1484;2793` | `30;5732;8034` | `0.0000;0.0080;0.0087` |
+| 8 | `B2` | `34;31;22` | `21;21;21` | `380;369;587` | `212;252;920` | `0.0094;0.0079;0.0065` |
+| 9 | `B2` | `55;26;24` | `44;37;37` | `422;1723;2793` | `44;8078;8034` | `0.0000;0.0089;0.0087` |
+| 10 | `A2` | `41;40;18` | `15;15;15` | `618;591;449` | `1004;1132;72` | `0.0080;0.0141;0.0000` |
+
+Each rank writes:
+
+```text
+transient_plateing_<WELL>_best_unit_stability_rank##_..._20260709_top_acg.png
+transient_plateing_<WELL>_best_unit_stability_rank##_..._20260709_top_acg.pdf
+transient_plateing_<WELL>_best_unit_stability_rank##_..._20260709_top_acg.svg
+transient_plateing_<WELL>_best_unit_direct_channel_trace_rank##_..._20260709_top_acg.csv.gz
+transient_plateing_<WELL>_best_unit_direct_channel_spike_ticks_rank##_..._20260709_top_acg.csv
+transient_plateing_<WELL>_best_unit_direct_channel_acg_rank##_..._20260709_top_acg.csv
+transient_plateing_<WELL>_recording_series_provenance_rank##_..._20260709_top_acg.json
+```
+
+Use `top10_acg_examples_contact_sheet.png` for a quick screen of all 10, then
+open the per-rank PNG/PDF/SVG for detailed inspection.

@@ -107,6 +107,7 @@ def main() -> int:
     parser.add_argument("--well-number", default="3")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--date-label", default="20260709")
+    parser.add_argument("--figure-stem-suffix", default="")
     parser.add_argument("--top-chains", type=int, default=3)
     parser.add_argument("--min-chain-similarity", type=float, default=0.40)
     parser.add_argument("--max-chain-fr-cv", type=float, default=0.80)
@@ -117,8 +118,13 @@ def main() -> int:
     parser.add_argument("--max-best-channel-drift-um", type=float, default=0.0)
     parser.add_argument("--local-channels", type=int, default=16)
     parser.add_argument("--best-unit-only", action="store_true")
+    parser.add_argument(
+        "--force-chain-unit-ids",
+        default="",
+        help="Optional comma-separated unit ids, one per usable repeat, to render a specific chain.",
+    )
     parser.add_argument("--raw-metadata-csv", type=Path, default=DEFAULT_RAW_METADATA_CSV)
-    parser.add_argument("--post-plating-reference-repeat", default="001")
+    parser.add_argument("--recording-time-reference-repeat", default="000")
     parser.add_argument("--direct-trace-window-start-s", type=float, default=0.0)
     parser.add_argument(
         "--direct-trace-window-duration-s",
@@ -193,6 +199,8 @@ def main() -> int:
     units_df = pd.DataFrame(unit_rows)
     usable_repeats = [repeat for repeat in sorted(candidates_by_repeat) if candidates_by_repeat[repeat]]
     chains_df, selected_chains = build_chain_table(candidates_by_repeat, usable_repeats, args)
+    if args.force_chain_unit_ids.strip():
+        selected_chains = [forced_chain(candidates_by_repeat, usable_repeats, args.force_chain_unit_ids)]
 
     availability_path = output_dir / f"transient_plateing_{target_well}_recording_series_availability_{args.date_label}.csv"
     unit_table_path = output_dir / f"transient_plateing_{target_well}_good_unit_inventory_{args.date_label}.csv"
@@ -233,9 +241,10 @@ def main() -> int:
             "matching_mode": args.matching_mode,
             "max_best_channel_drift_um": args.max_best_channel_drift_um,
             "best_unit_only": args.best_unit_only,
+            "force_chain_unit_ids": args.force_chain_unit_ids,
             "include_repeats": args.include_repeats,
             "raw_metadata_csv": str(args.raw_metadata_csv.expanduser()),
-            "post_plating_reference_repeat": str(args.post_plating_reference_repeat).zfill(3),
+            "recording_time_reference_repeat": str(args.recording_time_reference_repeat).zfill(3),
             "direct_trace_row": not args.disable_direct_trace_row,
             "direct_trace_window_start_s": args.direct_trace_window_start_s,
             "direct_trace_window_duration_s": args.direct_trace_window_duration_s,
@@ -253,14 +262,20 @@ def main() -> int:
             "unit_inventory": str(unit_table_path),
             "chain_table": str(chain_table_path),
             "figures": [str(path) for path in figure_paths],
-            "direct_trace_table": str(direct_trace_table_path(output_dir, target_well, args.date_label))
-            if direct_trace_table_path(output_dir, target_well, args.date_label).exists()
+            "direct_trace_table": str(direct_trace_table_path(output_dir, target_well, args.date_label, args.figure_stem_suffix))
+            if direct_trace_table_path(output_dir, target_well, args.date_label, args.figure_stem_suffix).exists()
+            else "",
+            "direct_trace_spike_ticks": str(direct_trace_spike_ticks_path(output_dir, target_well, args.date_label, args.figure_stem_suffix))
+            if direct_trace_spike_ticks_path(output_dir, target_well, args.date_label, args.figure_stem_suffix).exists()
+            else "",
+            "direct_trace_acg": str(direct_trace_acg_table_path(output_dir, target_well, args.date_label, args.figure_stem_suffix))
+            if direct_trace_acg_table_path(output_dir, target_well, args.date_label, args.figure_stem_suffix).exists()
             else "",
         },
         "usable_repeats": usable_repeats,
         "selected_chain_count": len(selected_chains),
     }
-    provenance_path = output_dir / f"transient_plateing_{target_well}_recording_series_provenance_{args.date_label}.json"
+    provenance_path = output_dir / f"transient_plateing_{target_well}_recording_series_provenance{safe_suffix(args.figure_stem_suffix)}_{args.date_label}.json"
     provenance_path.write_text(json.dumps(provenance, indent=2, default=str) + "\n", encoding="utf-8")
 
     print("Recording-series stability render complete")
@@ -290,6 +305,35 @@ def parse_repeat_list(text: str) -> set[str]:
         if item:
             repeats.add(item.zfill(3))
     return repeats
+
+
+def safe_suffix(text: str) -> str:
+    text = str(text).strip()
+    if not text:
+        return ""
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("_")
+    return f"_{cleaned}" if cleaned else ""
+
+
+def forced_chain(
+    candidates_by_repeat: dict[str, list[UnitCandidate]],
+    usable_repeats: list[str],
+    unit_ids_text: str,
+) -> list[UnitCandidate]:
+    requested = [item.strip() for item in str(unit_ids_text).split(",") if item.strip()]
+    if len(requested) != len(usable_repeats):
+        raise ValueError(
+            f"--force-chain-unit-ids expects {len(usable_repeats)} ids for repeats "
+            f"{';'.join(usable_repeats)}, got {len(requested)}: {unit_ids_text}"
+        )
+    chain = []
+    for repeat, unit_id_text in zip(usable_repeats, requested, strict=True):
+        matches = [candidate for candidate in candidates_by_repeat[repeat] if str(candidate.unit_id) == unit_id_text]
+        if not matches:
+            available = ",".join(str(candidate.unit_id) for candidate in candidates_by_repeat[repeat][:25])
+            raise ValueError(f"repeat {repeat} has no KSLabel=good unit {unit_id_text}; first available units: {available}")
+        chain.append(matches[0])
+    return chain
 
 
 def load_bundle(si, repeat: str, well: str, analyzer_path: Path) -> Bundle:
@@ -786,7 +830,9 @@ def render_best_unit_figure(
     direct_trace_infos = []
     if not args.disable_direct_trace_row:
         direct_trace_infos = direct_trace_info_for_chain(chain, bundles, args)
-        write_direct_trace_table(direct_trace_infos, output_dir, target_well, args.date_label)
+        write_direct_trace_table(direct_trace_infos, output_dir, target_well, args.date_label, args.figure_stem_suffix)
+        write_direct_trace_spike_ticks_table(direct_trace_infos, output_dir, target_well, args.date_label, args.figure_stem_suffix)
+        write_direct_trace_acg_table(direct_trace_infos, output_dir, target_well, args.date_label, args.figure_stem_suffix)
     has_direct_trace_row = bool(direct_trace_infos)
 
     if has_direct_trace_row:
@@ -826,14 +872,19 @@ def render_best_unit_figure(
         direct_ylim = common_direct_trace_ylim(direct_trace_infos)
         trace_axes = []
         for row, info in enumerate(direct_trace_infos[:3]):
-            ax = fig.add_subplot(grid[3 + row, :])
+            ax = fig.add_subplot(grid[3 + row, 0:3])
             draw_direct_trace_panel(
                 ax,
                 info,
                 direct_ylim,
                 show_xlabel=row == min(2, len(direct_trace_infos[:3]) - 1),
-                show_note=row == 0,
                 args=args,
+            )
+            ax_acg = fig.add_subplot(grid[3 + row, 3])
+            draw_direct_trace_acg_panel(
+                ax_acg,
+                info,
+                show_xlabel=row == min(2, len(direct_trace_infos[:3]) - 1),
             )
             trace_axes.append(ax)
         for ax in trace_axes[:-1]:
@@ -841,7 +892,7 @@ def render_best_unit_figure(
 
     channel_label = compact_channel_label(chain)
     fig.suptitle(f"Best putative stable unit, well {target_well}: {channel_label}", fontsize=15, fontweight="bold", y=0.985)
-    stem = f"transient_plateing_{target_well}_best_unit_stability_{args.date_label}"
+    stem = f"transient_plateing_{target_well}_best_unit_stability{safe_suffix(args.figure_stem_suffix)}_{args.date_label}"
     paths = []
     for fmt in [item.strip().lower() for item in args.export_formats.split(",") if item.strip()]:
         path = output_dir / f"{stem}.{fmt}"
@@ -863,19 +914,23 @@ def draw_best_unit_waveform_overlay(ax, chain: list[UnitCandidate]) -> None:
     ax.spines[["top", "right"]].set_visible(False)
 
 
-def direct_trace_table_path(output_dir: Path, target_well: str, date_label: str) -> Path:
-    return output_dir / f"transient_plateing_{target_well}_best_unit_direct_channel_trace_{date_label}.csv.gz"
+def direct_trace_table_path(output_dir: Path, target_well: str, date_label: str, suffix: str = "") -> Path:
+    return output_dir / f"transient_plateing_{target_well}_best_unit_direct_channel_trace{safe_suffix(suffix)}_{date_label}.csv.gz"
+
+
+def direct_trace_spike_ticks_path(output_dir: Path, target_well: str, date_label: str, suffix: str = "") -> Path:
+    return output_dir / f"transient_plateing_{target_well}_best_unit_direct_channel_spike_ticks{safe_suffix(suffix)}_{date_label}.csv"
 
 
 def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, Bundle], args) -> list[dict[str, object]]:
-    plating_reference_repeat = str(args.post_plating_reference_repeat).zfill(3)
-    metadata_repeats = sorted({candidate.repeat for candidate in chain} | {plating_reference_repeat})
+    time_reference_repeat = str(args.recording_time_reference_repeat).zfill(3)
+    metadata_repeats = sorted({candidate.repeat for candidate in chain} | {time_reference_repeat})
     metadata = raw_recording_metadata_by_repeat(args.raw_metadata_csv.expanduser(), metadata_repeats)
     first_start, reference_repeat = earliest_start_time_and_repeat(metadata, [candidate.repeat for candidate in chain])
-    plating_reference_time = metadata.get(plating_reference_repeat, {}).get("block_vector_start_time")
-    if not isinstance(plating_reference_time, pd.Timestamp):
-        plating_reference_time = first_start
-        plating_reference_repeat = reference_repeat
+    time_reference_time = metadata.get(time_reference_repeat, {}).get("block_vector_start_time")
+    if not isinstance(time_reference_time, pd.Timestamp):
+        time_reference_time = first_start
+        time_reference_repeat = reference_repeat
     infos = []
     for candidate in chain:
         bundle = bundles[candidate.repeat]
@@ -903,14 +958,16 @@ def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, B
         voltage = trace[:, 0] if trace.ndim == 2 and trace.shape[1] else np.asarray([], dtype=float)
         time_s = start_s + np.arange(voltage.size, dtype=float) / fs if fs > 0 else np.arange(voltage.size, dtype=float)
         display = direct_trace_display_envelope(time_s, voltage, max_bins=int(args.direct_trace_plot_max_bins))
+        spike_times_s = unit_spike_times_s(bundle, candidate.unit_id, start_frame, end_frame)
+        spike_times_min = spike_times_s / 60.0
         start_time = meta.get("block_vector_start_time")
         elapsed_hours = np.nan
         if isinstance(start_time, pd.Timestamp) and isinstance(first_start, pd.Timestamp):
             elapsed_hours = float((start_time - first_start).total_seconds() / 3600.0)
-        recording_start_min_post_plating = np.nan
-        if isinstance(start_time, pd.Timestamp) and isinstance(plating_reference_time, pd.Timestamp):
-            recording_start_min_post_plating = float((start_time - plating_reference_time).total_seconds() / 60.0)
-        display_time_min_post_plating = display["time_s"] / 60.0 + recording_start_min_post_plating
+        recording_start_min_from_reference = np.nan
+        if isinstance(start_time, pd.Timestamp) and isinstance(time_reference_time, pd.Timestamp):
+            recording_start_min_from_reference = float((start_time - time_reference_time).total_seconds() / 60.0)
+        display_time_min_from_reference = display["time_s"] / 60.0 + recording_start_min_from_reference
         infos.append(
             {
                 "candidate": candidate,
@@ -928,10 +985,13 @@ def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, B
                 "display_mean_uV": display["mean_uV"],
                 "display_sample_count": display["sample_count"],
                 "display_mode": display["mode"],
-                "display_time_min_post_plating": display_time_min_post_plating,
-                "recording_start_min_post_plating": recording_start_min_post_plating,
-                "post_plating_reference_repeat": plating_reference_repeat,
-                "post_plating_reference_time": plating_reference_time,
+                "display_time_min_from_reference": display_time_min_from_reference,
+                "recording_start_min_from_reference": recording_start_min_from_reference,
+                "recording_time_reference_repeat": time_reference_repeat,
+                "recording_time_reference_time": time_reference_time,
+                "unit_spike_times_s": spike_times_s,
+                "unit_spike_times_min": spike_times_min,
+                "unit_spike_count_in_trace": int(spike_times_s.size),
                 "block_vector_start_time": start_time,
                 "experiment_start_time": meta.get("experiment_start_time"),
                 "elapsed_hours_from_first_repeat": elapsed_hours,
@@ -981,6 +1041,44 @@ def direct_trace_display_envelope(time_s: np.ndarray, voltage_uV: np.ndarray, ma
         "sample_count": sample_count.astype(np.int64),
         "mode": "full_trace_minmax_envelope",
     }
+
+
+def unit_spike_times_s(bundle: Bundle, unit_id: object, start_frame: int, end_frame: int) -> np.ndarray:
+    frames = []
+    fs = float(bundle.sampling_frequency_hz)
+    if fs <= 0:
+        return np.asarray([], dtype=float)
+    for segment_index in range(bundle.analyzer.sorting.get_num_segments()):
+        spike_train = np.asarray(
+            bundle.analyzer.sorting.get_unit_spike_train(unit_id=unit_id, segment_index=segment_index),
+            dtype=np.int64,
+        )
+        if spike_train.size == 0:
+            continue
+        keep = (spike_train >= int(start_frame)) & (spike_train < int(end_frame))
+        frames.append(spike_train[keep])
+    if not frames:
+        return np.asarray([], dtype=float)
+    all_frames = np.concatenate(frames)
+    return np.sort((all_frames.astype(float) - float(start_frame)) / fs)
+
+
+def autocorrelogram_counts(
+    spike_times_s: np.ndarray,
+    *,
+    window_ms: float = 100.0,
+    bin_ms: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    spike_times_s = np.asarray(spike_times_s, dtype=float)
+    spike_times_s = spike_times_s[np.isfinite(spike_times_s)]
+    edges = np.arange(-window_ms, window_ms + bin_ms, bin_ms, dtype=float)
+    if spike_times_s.size < 2:
+        return edges, np.zeros(edges.size - 1, dtype=int)
+    lag_ms = (spike_times_s[:, None] - spike_times_s[None, :]).ravel() * 1000.0
+    lag_ms = lag_ms[np.abs(lag_ms) > 1e-9]
+    lag_ms = lag_ms[(lag_ms >= -window_ms) & (lag_ms <= window_ms)]
+    counts, _ = np.histogram(lag_ms, bins=edges)
+    return edges, counts.astype(int)
 
 
 def raw_recording_metadata_by_repeat(raw_metadata_csv: Path, repeats: list[str]) -> dict[str, dict[str, object]]:
@@ -1040,14 +1138,20 @@ def earliest_start_time_and_repeat(metadata: dict[str, dict[str, object]], repea
     return min(starts, key=lambda item: item[0])
 
 
-def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, target_well: str, date_label: str) -> Path | None:
+def write_direct_trace_table(
+    infos: list[dict[str, object]],
+    output_dir: Path,
+    target_well: str,
+    date_label: str,
+    suffix: str = "",
+) -> Path | None:
     if not infos:
         return None
     rows = []
     for info in infos:
         candidate = info["candidate"]
         time_s = np.asarray(info["display_time_s"], dtype=float)
-        time_min_post_plating = np.asarray(info["display_time_min_post_plating"], dtype=float)
+        time_min_from_reference = np.asarray(info["display_time_min_from_reference"], dtype=float)
         min_uV = np.asarray(info["display_min_uV"], dtype=float)
         max_uV = np.asarray(info["display_max_uV"], dtype=float)
         mean_uV = np.asarray(info["display_mean_uV"], dtype=float)
@@ -1064,12 +1168,13 @@ def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, t
                     "best_channel_index": candidate.best_channel_index,
                     "plot_bin_index": bin_index,
                     "plot_time_s_in_recording": sample_time_s,
-                    "plot_time_min_post_plating": time_min_post_plating[bin_index],
+                    "plot_time_min_from_reference": time_min_from_reference[bin_index],
                     "plot_bin_min_uV": bin_min_uV,
                     "plot_bin_max_uV": bin_max_uV,
                     "plot_bin_mean_uV": bin_mean_uV,
                     "raw_samples_represented": int(sample_count),
                     "source_sample_count": info["source_sample_count"],
+                    "unit_spike_count_in_trace": info["unit_spike_count_in_trace"],
                     "plot_mode": info["display_mode"],
                     "sampling_frequency_hz": info["sampling_frequency_hz"],
                     "trace_start_s": info["trace_start_s"],
@@ -1078,16 +1183,92 @@ def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, t
                     "experiment_start_time": info["experiment_start_time"],
                     "elapsed_hours_from_first_repeat": info["elapsed_hours_from_first_repeat"],
                     "elapsed_reference_repeat": info["elapsed_reference_repeat"],
-                    "recording_start_min_post_plating": info["recording_start_min_post_plating"],
-                    "post_plating_reference_repeat": info["post_plating_reference_repeat"],
-                    "post_plating_reference_time": info["post_plating_reference_time"],
+                    "recording_start_min_from_reference": info["recording_start_min_from_reference"],
+                    "recording_time_reference_repeat": info["recording_time_reference_repeat"],
+                    "recording_time_reference_time": info["recording_time_reference_time"],
                     "raw_file": info["raw_file"],
                     "filter_metadata_signature": info["filter_metadata_signature"],
                     "trace_source": "Step 1 analyzer.recording Neural Spikes stream used for Kilosort",
                 }
             )
-    path = direct_trace_table_path(output_dir, target_well, date_label)
+    path = direct_trace_table_path(output_dir, target_well, date_label, suffix)
     pd.DataFrame(rows).to_csv(path, index=False, compression="gzip")
+    return path
+
+
+def write_direct_trace_spike_ticks_table(
+    infos: list[dict[str, object]],
+    output_dir: Path,
+    target_well: str,
+    date_label: str,
+    suffix: str = "",
+) -> Path | None:
+    if not infos:
+        return None
+    rows = []
+    for info in infos:
+        candidate = info["candidate"]
+        spike_times_s = np.asarray(info["unit_spike_times_s"], dtype=float)
+        for spike_index, spike_time_s in enumerate(spike_times_s):
+            rows.append(
+                {
+                    "repeat": candidate.repeat,
+                    "well": candidate.well,
+                    "unit_id": candidate.unit_id,
+                    "best_channel_id": candidate.best_channel_id,
+                    "best_channel_index": candidate.best_channel_index,
+                    "spike_index": spike_index,
+                    "spike_time_s_in_recording": spike_time_s,
+                    "spike_time_min_in_recording": spike_time_s / 60.0,
+                    "recording_start_min_from_reference": info["recording_start_min_from_reference"],
+                    "recording_time_reference_repeat": info["recording_time_reference_repeat"],
+                    "recording_time_reference_time": info["recording_time_reference_time"],
+                    "block_vector_start_time": info["block_vector_start_time"],
+                    "trace_source": "SpikeInterface sorting.get_unit_spike_train for plotted unit",
+                }
+            )
+    path = direct_trace_spike_ticks_path(output_dir, target_well, date_label, suffix)
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return path
+
+
+def direct_trace_acg_table_path(output_dir: Path, target_well: str, date_label: str, suffix: str = "") -> Path:
+    return output_dir / f"transient_plateing_{target_well}_best_unit_direct_channel_acg{safe_suffix(suffix)}_{date_label}.csv"
+
+
+def write_direct_trace_acg_table(
+    infos: list[dict[str, object]],
+    output_dir: Path,
+    target_well: str,
+    date_label: str,
+    suffix: str = "",
+) -> Path | None:
+    if not infos:
+        return None
+    rows = []
+    for info in infos:
+        candidate = info["candidate"]
+        edges, counts = autocorrelogram_counts(np.asarray(info["unit_spike_times_s"], dtype=float))
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        for bin_index, (center_ms, left_ms, right_ms, count) in enumerate(zip(centers, edges[:-1], edges[1:], counts, strict=True)):
+            rows.append(
+                {
+                    "repeat": candidate.repeat,
+                    "well": candidate.well,
+                    "unit_id": candidate.unit_id,
+                    "best_channel_id": candidate.best_channel_id,
+                    "best_channel_index": candidate.best_channel_index,
+                    "acg_bin_index": bin_index,
+                    "lag_center_ms": center_ms,
+                    "lag_left_ms": left_ms,
+                    "lag_right_ms": right_ms,
+                    "count": int(count),
+                    "spike_count": int(info["unit_spike_count_in_trace"]),
+                    "source": "autocorrelogram from same spike times used for red trace ticks",
+                }
+            )
+    path = direct_trace_acg_table_path(output_dir, target_well, date_label, suffix)
+    pd.DataFrame(rows).to_csv(path, index=False)
     return path
 
 
@@ -1117,7 +1298,6 @@ def draw_direct_trace_panel(
     ylim: tuple[float, float],
     *,
     show_xlabel: bool,
-    show_note: bool,
     args,
 ) -> None:
     candidate = info["candidate"]
@@ -1132,12 +1312,19 @@ def draw_direct_trace_panel(
         ax.plot(time_min, mean_uV, color="#2b2b2b", lw=0.75)
     ax.axhline(0, color="0.86", lw=0.7)
     ax.set_ylim(*ylim)
+    spike_times_min = np.asarray(info["unit_spike_times_min"], dtype=float)
+    if spike_times_min.size:
+        yrange = float(ylim[1] - ylim[0])
+        tick_top = float(ylim[1] - 0.035 * yrange)
+        tick_bottom = float(ylim[1] - 0.18 * yrange)
+        ax.vlines(spike_times_min, tick_bottom, tick_top, color="#d62728", lw=0.55, alpha=0.72)
     if time_min.size:
         ax.set_xlim(float(time_min[0]), float(time_min[-1]))
-    start_min = info.get("recording_start_min_post_plating")
-    start_text = "start n/a" if not np.isfinite(start_min) else f"recording starts {start_min:+.1f} min post plating"
+    start_min = info.get("recording_start_min_from_reference")
+    reference_repeat = info.get("recording_time_reference_repeat", "000")
+    start_text = "start n/a" if not np.isfinite(start_min) else f"starts {start_min:+.1f} min from repeat {reference_repeat}"
     ax.set_title(
-        f"Repeat {candidate.repeat}: ch {candidate.best_channel_id}; {info['trace_duration_s']:.0f} s; {start_text}",
+        f"Repeat {candidate.repeat}: ch {candidate.best_channel_id}; {info['trace_duration_s']:.0f} s; {start_text}; {spike_times_min.size} spikes",
         fontsize=9.5,
         loc="left",
     )
@@ -1148,12 +1335,25 @@ def draw_direct_trace_panel(
     ax.set_ylabel("Voltage (uV)")
     ax.grid(axis="y", color="0.9", lw=0.65)
     ax.spines[["top", "right"]].set_visible(False)
-    if show_note:
-        note = (
-            "Rows are acquisition-order context, not time-locked alignment. "
-            f"Post-plating label reference = repeat {info['post_plating_reference_repeat']} raw start."
-        )
-        ax.text(0.995, 0.93, note, ha="right", va="top", transform=ax.transAxes, fontsize=8.4)
+
+
+def draw_direct_trace_acg_panel(ax, info: dict[str, object], *, show_xlabel: bool) -> None:
+    candidate = info["candidate"]
+    edges, counts = autocorrelogram_counts(np.asarray(info["unit_spike_times_s"], dtype=float))
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    ax.bar(centers, counts, width=np.diff(edges), align="center", color="0.28", alpha=0.82, linewidth=0)
+    ax.axvline(0, color="0.05", lw=0.8)
+    ax.axvline(-2, color="0.5", lw=0.8, ls=":")
+    ax.axvline(2, color="0.5", lw=0.8, ls=":")
+    ax.set_xlim(float(edges[0]), float(edges[-1]))
+    ax.set_title(f"ACG: repeat {candidate.repeat}, unit {candidate.unit_id}", fontsize=9.0, loc="left")
+    if show_xlabel:
+        ax.set_xlabel("Lag (ms)")
+    else:
+        ax.set_xlabel("")
+    ax.set_ylabel("Count")
+    ax.grid(axis="y", color="0.9", lw=0.6)
+    ax.spines[["top", "right"]].set_visible(False)
 
 
 def draw_direct_trace_note(ax, infos: list[dict[str, object]], args) -> None:
@@ -1200,6 +1400,7 @@ def draw_best_unit_summary(
     ]
     if has_direct_trace_row:
         lines.append("Bottom row: direct spike-band channel trace from the Kilosort input recording.")
+        lines.append("Trace rows are acquisition-order context; red ticks mark plotted-unit spike times; labels are minutes from repeat 000 start.")
     ax.text(0.0, 0.96, "\n".join(lines), va="top", ha="left", fontsize=10.5, linespacing=1.35)
 
 

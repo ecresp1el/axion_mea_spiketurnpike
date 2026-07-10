@@ -1521,13 +1521,26 @@ Implementation order:
   Timebase/alignment:
   this trace display is not time-locked. The only alignment is acquisition
   order: repeat `000`, then `002`, then `004`. Each stacked row uses its own
-  x-axis in minutes within that recording. The `+/- X min post plating` values
-  are displayed only as contextual row labels for reviewers, not as an aligned
-  shared x-axis. The contextual reference is `My Experiment(001).raw`
-  `block_vector_start_time = 2026-05-23 10:31:47.752`, because the raw note says
-  organoids were added for `001` through `004`. Row labels are: repeat `000`
-  starts `-22.8 min` post plating, repeat `002` starts `+0.7 min`, and repeat
-  `004` starts `+150.3 min`.
+  x-axis in minutes within that recording. Row labels are now contextual minutes
+  from the repeat `000` raw start, not post-plating alignment: repeat `000`
+  starts `+0.0 min`, repeat `002` starts `+23.5 min`, and repeat `004` starts
+  `+173.1 min` from repeat `000`.
+
+  Spike tick overlay:
+  red tick marks above each full voltage trace are the plotted unit's exact
+  SpikeInterface/Kilosort spike times from
+  `sorting.get_unit_spike_train(...)`, converted to minutes within that
+  recording. Tick counts match the selected unit spike counts: repeat `000`
+  unit `53` has `261` ticks, repeat `002` unit `52` has `238` ticks, and repeat
+  `004` unit `12` has `207` ticks.
+
+  ACG panels:
+  each trace row now has a compact autocorrelogram immediately to its right.
+  The ACG uses the same plotted-unit spike times as the red tick overlay, with
+  lags in milliseconds, `1 ms` bins, a `+/-100 ms` window, and self-lags
+  excluded. The center/self bin is therefore `0` by construction. The ACG is
+  intended as a quick timing/QC companion to the trace row, not as a separate
+  unit-selection calculation.
 
   Voltage scale:
   all three stacked trace panels share the same y-axis limits from the full
@@ -1540,13 +1553,77 @@ Implementation order:
   transient_plateing_B2_best_unit_stability_20260709.pdf
   transient_plateing_B2_best_unit_stability_20260709.svg
   transient_plateing_B2_best_unit_direct_channel_trace_20260709.csv.gz
+  transient_plateing_B2_best_unit_direct_channel_spike_ticks_20260709.csv
+  transient_plateing_B2_best_unit_direct_channel_acg_20260709.csv
   ```
 
   The sidecar trace table has `9,000` envelope rows total and includes repeat,
-  unit, channel, plotted bin time in recording, plotted minutes post plating,
-  bin min/max/mean voltage in uV, raw samples represented per bin, full source
-  sample count, raw start time, plating reference time, elapsed hours, raw file
-  path, and filter metadata signature.
+  unit, channel, plotted bin time in recording, plotted minutes from repeat
+  `000`, bin min/max/mean voltage in uV, raw samples represented per bin, full
+  source sample count, raw start time, reference repeat/time, elapsed hours, raw
+  file path, and filter metadata signature. The spike-tick table stores the
+  exact tick times in seconds/minutes within each recording. The ACG table
+  stores the plotted lag-bin counts for the right-hand ACG panels.
+
+- [x] 2026-07-09 22:18 EDT - Built and rendered a contained top-10
+  repeated-recording ACG example pack using the final best-unit figure layout.
+
+  Output root:
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_top_acg_examples_20260709/
+  ```
+
+  Script:
+  ```text
+  scripts/prepare_recording_series_top_acg_examples.py
+  ```
+
+  Reproducibility/tracking files:
+  ```text
+  top_acg_candidate_manifest.csv
+  all_ranked_candidates.csv
+  top_acg_rendered_output_summary.csv
+  top10_acg_examples_contact_sheet.png
+  submission.json
+  repro/render_top_acg_commands.tsv
+  repro/render_top_acg_examples.sbatch
+  logs/
+  ```
+
+  Slurm history:
+  first submission `53227028` failed immediately during conda activation because
+  the generated sbatch used strict nounset and a conda deactivate hook referenced
+  `xml_catalog_files_libxml2` before assignment. That array was cancelled and no
+  figure outputs were kept from it. The corrected submission `53227050` used
+  `set -eo pipefail` and completed; all 10 candidate figures and sidecars are
+  present.
+
+  Selection/ranking rule:
+  candidates were taken from the existing repeated-recording chain tables in
+  `transient_plateing_1340150_recording_series_stability_20260709`. The top-10
+  rank favors chains with enough spikes for a visible ACG, while preserving the
+  same analyzer-backed waveform extraction, aligned random-spike averaging,
+  local footprint rendering, full-trace plotting, red spike ticks, and ACG
+  calculation used in the final B2 best-unit figure.
+
+  Rendered candidates:
+  | Rank | Well | Units across repeats | Best channels | Tick counts `000;002;004` | ACG counts `000;002;004` | Near-2 ms ACG fraction `000;002;004` |
+  |---:|---|---|---|---|---|---|
+  | 1 | `B2` | `16;16;22` | `28;28;21` | `893;1149;587` | `1954;4224;920` | `0.0061;0.0080;0.0065` |
+  | 2 | `B2` | `16;31;22` | `28;21;21` | `893;369;587` | `1954;252;920` | `0.0061;0.0079;0.0065` |
+  | 3 | `B2` | `31;7;24` | `36;29;37` | `517;1484;2793` | `72;5732;8034` | `0.0000;0.0080;0.0087` |
+  | 4 | `B2` | `31;26;24` | `36;37;37` | `517;1723;2793` | `72;8078;8034` | `0.0000;0.0089;0.0087` |
+  | 5 | `B2` | `34;16;22` | `21;28;21` | `380;1149;587` | `212;4224;920` | `0.0094;0.0080;0.0065` |
+  | 6 | `B2` | `51;26;24` | `36;37;37` | `447;1723;2793` | `30;8078;8034` | `0.0000;0.0089;0.0087` |
+  | 7 | `B2` | `51;7;24` | `36;29;37` | `447;1484;2793` | `30;5732;8034` | `0.0000;0.0080;0.0087` |
+  | 8 | `B2` | `34;31;22` | `21;21;21` | `380;369;587` | `212;252;920` | `0.0094;0.0079;0.0065` |
+  | 9 | `B2` | `55;26;24` | `44;37;37` | `422;1723;2793` | `44;8078;8034` | `0.0000;0.0089;0.0087` |
+  | 10 | `A2` | `41;40;18` | `15;15;15` | `618;591;449` | `1004;1132;72` | `0.0080;0.0141;0.0000` |
+
+  Each rank has PNG/PDF/SVG figure outputs plus direct-trace, spike-tick, ACG,
+  and provenance sidecars. The contact sheet is the fastest way to inspect all
+  10 candidates at once; the per-rank SVG/PDF/PNG files are the detailed review
+  targets.
 
 ## What To Avoid
 
