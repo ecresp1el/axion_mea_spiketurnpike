@@ -35,7 +35,7 @@ STEM = "cytoview_unified_rsfs_activity_figure_20260710"
 CLASS_ORDER = ["FS", "RS"]
 CLASS_COLORS = {"FS": "#C87932", "RS": "#4F718C"}
 REGION_ORDER = ["dorsal", "ventral"]
-REGION_COLORS = {"dorsal": "#6F8061", "ventral": "#C59A52"}
+REGION_COLORS = {"dorsal": "#70877F", "ventral": "#C59A52"}
 VARIANT_MARKERS = {
     "primary_raw": "o",
     "filter_200Hz-3kHz": "s",
@@ -985,10 +985,11 @@ def _plot_unified_figure(
         {
             "font.family": "DejaVu Sans",
             "font.size": 7.0,
-            "axes.titlesize": 8.0,
-            "axes.labelsize": 7.0,
-            "xtick.labelsize": 6.5,
-            "ytick.labelsize": 6.5,
+            "axes.titlesize": 7.6,
+            "axes.titleweight": "normal",
+            "axes.labelsize": 6.4,
+            "xtick.labelsize": 5.7,
+            "ytick.labelsize": 5.7,
             "axes.linewidth": 0.7,
             "xtick.major.width": 0.7,
             "ytick.major.width": 0.7,
@@ -1003,8 +1004,20 @@ def _plot_unified_figure(
     )
     fig = plt.figure(figsize=(16.0, 9.8), facecolor="white")
     outer = fig.add_gridspec(2, 1, height_ratios=[1.72, 1.00], hspace=0.27)
-    top = outer[0].subgridspec(
-        2, 3, width_ratios=[1.40, 1.55, 1.05], hspace=0.20, wspace=0.18
+    upper_block = outer[0].subgridspec(2, 1, height_ratios=[0.10, 1.0], hspace=0.02)
+    ax_upper_title = fig.add_subplot(upper_block[0, 0])
+    ax_upper_title.set_axis_off()
+    ax_upper_title.text(
+        0.0,
+        0.56,
+        "Waveform-defined unit classification and validation",
+        transform=ax_upper_title.transAxes,
+        fontsize=10.0,
+        fontweight="bold",
+        va="center",
+    )
+    top = upper_block[1, 0].subgridspec(
+        2, 3, width_ratios=[1.05, 1.80, 1.10], hspace=0.20, wspace=0.25
     )
     panel_a_grid = top[:, 0].subgridspec(
         2, 2, width_ratios=[2.35, 0.86], height_ratios=[1.35, 0.65], hspace=0.28, wspace=0.34
@@ -1014,7 +1027,7 @@ def _plot_unified_figure(
     ax_a_composition = fig.add_subplot(panel_a_grid[1, 1])
     representative_axes: dict[str, list[tuple[object, object, object]]] = {"FS": [], "RS": []}
     for row_index, class_label in enumerate(CLASS_ORDER):
-        class_grid = top[row_index, 1].subgridspec(1, 2, wspace=0.10)
+        class_grid = top[row_index, 1].subgridspec(1, 2, wspace=0.035)
         for unit_index in range(2):
             card = class_grid[0, unit_index].subgridspec(
                 3, 1, height_ratios=[2.95, 0.30, 0.17], hspace=0.055
@@ -1057,7 +1070,7 @@ def _plot_unified_figure(
         lw=0.65,
         clip_on=False,
     )
-    bottom = bottom_block[1, 0].subgridspec(1, 6, wspace=0.52)
+    bottom = bottom_block[1, 0].subgridspec(1, 6, wspace=0.30)
     axes_f = [fig.add_subplot(bottom[index]) for index in range(6)]
     fig.subplots_adjust(left=0.045, right=0.992, top=0.982, bottom=0.060)
 
@@ -1418,7 +1431,7 @@ def _plot_panel_a_region_summary(ax_region, units: pd.DataFrame) -> None:
                     va="center",
                     fontsize=5.7,
                     color="white",
-                    fontweight="bold",
+                    fontweight="normal",
                 )
         bottom += percentages
     totals = summary.groupby("region_call")["region_total_units"].first()
@@ -1478,7 +1491,7 @@ def _plot_panel_a_composition_bar(ax, units: pd.DataFrame) -> None:
     ax.invert_yaxis()
     ax.set_xlim(0, 100)
     ax.set_xticks([])
-    ax.set_title("RS/FS composition", loc="left", fontsize=6.5, fontweight="bold", pad=2)
+    ax.set_title("RS/FS composition", loc="left", fontsize=6.2, fontweight="normal", pad=2)
     ax.tick_params(axis="y", labelsize=5.2, length=0, pad=2)
     for spine in ax.spines.values():
         spine.set_visible(False)
@@ -1497,7 +1510,7 @@ def _plot_panel_a_mean_waveforms(ax, waveform_summary: pd.DataFrame) -> None:
         all_means.append(mean)
         ax.plot(time, mean, color=CLASS_COLORS[class_label], lw=1.25, label=class_label)
     ax.set_xlim(-0.55, 1.15)
-    ax.set_title("Mean aligned waveforms", loc="left", fontweight="bold")
+    ax.set_title("Mean aligned waveforms", loc="left", fontweight="normal")
     combined = np.concatenate(all_means)
     y_min, y_max = float(np.nanmin(combined)), float(np.nanmax(combined))
     margin = 0.12 * max(y_max - y_min, 1.0)
@@ -1523,10 +1536,12 @@ def _plot_regional_class_unit_firing(
     source = _regional_classified_unit_firing_source(units)
     source = source.loc[source["rs_fs_class"].eq(class_label)].copy()
     rng = np.random.default_rng(20260710)
-    for position, region in enumerate(REGION_ORDER):
+    positions = {"dorsal": 0.0, "ventral": 0.58}
+    for region in REGION_ORDER:
+        position = positions[region]
         group = source.loc[source["region_call"].eq(region)].copy()
         values = group["classified_unit_firing_rate_hz"].to_numpy(float)
-        jitter = rng.uniform(-0.105, 0.105, size=len(group))
+        jitter = rng.uniform(-0.070, 0.070, size=len(group))
         ax.scatter(
             np.full(len(group), position, dtype=float) + jitter,
             values,
@@ -1560,11 +1575,11 @@ def _plot_regional_class_unit_firing(
             f"{region.title()}\n{len(group)} {class_label} units\n"
             f"{group['recording_well_id'].nunique()} wells"
         )
-    ax.set_xticks(np.arange(len(REGION_ORDER)), labels)
-    ax.set_xlim(-0.38, 1.38)
+    ax.set_xticks([positions[region] for region in REGION_ORDER], labels)
+    ax.set_xlim(-0.22, 0.80)
     ax.set_ylim(shared_ylim)
     ax.set_ylabel(f"{class_label}-unit firing rate (Hz)")
-    ax.set_title(f"Regional {class_label}-unit firing", loc="left", fontweight="bold")
+    ax.set_title(f"Regional {class_label}-unit firing", loc="left", fontweight="normal")
     ax.text(
         0.02,
         0.99,
@@ -1622,7 +1637,7 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
     ax.set_title(
         f"Aligned three-feature waveform space (n={len(plotted)} shown)",
         loc="left",
-        fontweight="bold",
+        fontweight="normal",
         pad=4,
     )
     ax.set_xlabel("Trough-to-peak (ms)", labelpad=5)
@@ -1737,7 +1752,7 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
         f"{display_id} · TTP {metadata['feature_ttp_ms']:.2f} ms",
         loc="left",
         fontsize=6.3,
-        fontweight="bold",
+        fontweight="normal",
         color=color,
         pad=2,
     )
@@ -2033,7 +2048,7 @@ def _plot_activity_strip(axes, wells, specs) -> None:
             [f"Dorsal\nn={counts[0]}", f"Ventral\nn={counts[1]}"],
         )
         ax.set_xlim(-0.18, 0.48)
-        ax.set_title(f"{panel}  {title}", loc="left", fontweight="bold", pad=4)
+        ax.set_title(f"{panel}  {title}", loc="left", fontweight="normal", pad=4)
         ax.set_ylabel(ylabel)
         ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.72)
         _clean_axis(ax)

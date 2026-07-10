@@ -1109,8 +1109,15 @@ def make_stim_response_panel(
     if not label_to_units:
         label_to_units = {_unit_label(unit_id): (unit_id,) for unit_id in unit_ids}
     good_label_to_units = kslabel_good_unit_groups(sorting, label_to_units)
-    if good_label_to_units:
+    if _sorting_property_by_unit(sorting, "KSLabel"):
         label_to_units = good_label_to_units
+    if not label_to_units:
+        return pn.Column(
+            pn.pane.Markdown("## Stim raster/PSTH"),
+            status,
+            pn.pane.Markdown("No `KSLabel=good` units are available in this well."),
+            sizing_mode="stretch_width",
+        )
     review_table = build_rapid_opto_review_table(
         builder,
         label_to_units,
@@ -1171,8 +1178,9 @@ def make_stim_response_panel(
         )
         if not refreshed:
             refreshed = {_unit_label(unit_id): (unit_id,) for unit_id in current_unit_ids}
-        good_refreshed = kslabel_good_unit_groups(_sorting_from_analyzer(analyzer), refreshed)
-        if good_refreshed:
+        refreshed_sorting = _sorting_from_analyzer(analyzer)
+        good_refreshed = kslabel_good_unit_groups(refreshed_sorting, refreshed)
+        if _sorting_property_by_unit(refreshed_sorting, "KSLabel"):
             refreshed = good_refreshed
         if not refreshed:
             unit_group_state["label_to_units"] = {}
@@ -2186,17 +2194,13 @@ def _format_rapid_review_table(table: pd.DataFrame, max_pulse_trials: int) -> st
     for rank, (_, row) in enumerate(table.head(20).iterrows(), start=1):
         latency = row["median_first_spike_latency_ms"]
         ttp = row["aligned_ttp_ms"]
+        latency_text = f"{float(latency):.2f}" if pd.notna(latency) else "—"
+        ttp_text = f"{float(ttp):.2f}" if pd.notna(ttp) else "—"
         lines.append(
             f"| {rank} | `{row['unit']}` | {float(row['opto_score_hz']):.2f} | "
             f"{float(row['response_reliability']):.1%} | "
-            f"{float(latency):.2f}" if pd.notna(latency) else
-            f"| {rank} | `{row['unit']}` | {float(row['opto_score_hz']):.2f} | "
-            f"{float(row['response_reliability']):.1%} | —"
+            f"{latency_text} | {ttp_text} | {row['waveform_class']} |"
         )
-        lines[-1] += (
-            f" | {float(ttp):.2f}" if pd.notna(ttp) else " | —"
-        )
-        lines[-1] += f" | {row['waveform_class']} |"
     return "\n".join(lines)
 
 

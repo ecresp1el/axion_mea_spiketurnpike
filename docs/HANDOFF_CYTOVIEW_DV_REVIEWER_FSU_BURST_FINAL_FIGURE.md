@@ -1935,3 +1935,45 @@ Byte-level SHA-256 comparison against job 53260022 confirmed that the B/C
 representative selection, D/E classified-unit firing source, and F network
 activity source CSVs are identical. This is therefore strictly a layout/color
 revision.
+
+### Editorial hierarchy revision: two clearly separated scientific stories
+
+This layout-only pass further separates the figure into an upper
+`Waveform-defined unit classification and validation` section and a lower
+`Regional spontaneous network activity` section. The lower section retains its
+full-width heading and thin neutral divider.
+
+The upper width allocation is now approximately 27% classification, 46%
+representative-unit QC, and 28% regional classified-unit firing. This reduces
+Panel A by 25% relative to job 53262237 and makes the representative FS and RS
+evidence the dominant visual element. Within-pair spacing was tightened for the
+two FS cards, two RS cards, and dorsal/ventral unit comparisons, while spacing
+between the three upper concepts was increased. F1-F6 spacing was compressed
+and typography was standardized so the lower row reads as one analysis strip.
+
+Regional colors are now explicitly derived from the class palette:
+
+```text
+FS       #C87932
+RS       #4F718C
+dorsal   #70877F
+ventral  #C59A52
+neutral  #2B2B2B
+```
+
+Canonical render:
+
+```text
+job_id: 53262409
+state: COMPLETED
+runtime: 00:00:58
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_123303/
+```
+
+SHA-256/cmp checks against job 53262237 confirmed byte-identical B/C
+representative selection, D/E classified-unit firing source, and F regional
+network-activity source CSVs. No unit selection, metric, or biological result
+changed.

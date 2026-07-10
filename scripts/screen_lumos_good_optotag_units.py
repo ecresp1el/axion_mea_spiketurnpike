@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -48,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-root", type=Path, default=DEFAULT_AIND_RESULTS_ROOT)
     parser.add_argument("--date-label", default="20260710")
     parser.add_argument("--max-pulse-trials", type=int, default=DEFAULT_RAPID_REVIEW_PULSE_TRIALS)
+    parser.add_argument("--gui-base-url", default="http://localhost:18765")
     parser.add_argument("--waveform-metrics-csv", type=Path, default=DEFAULT_WAVEFORM_METRICS_CSV)
     parser.add_argument("--waveform-traces-csv", type=Path, default=DEFAULT_WAVEFORM_TRACES_CSV)
     return parser.parse_args()
@@ -121,6 +123,7 @@ def main() -> int:
                         "recording": recording,
                         "well": well,
                         "analyzer_path": str(analyzer_path),
+                        "gui_url": _gui_url(args.gui_base_url, recording, well),
                         "train_trials": len(builder._eligible_events()),
                         "pulse_count_per_train": _uniform_pulse_count(
                             resolution.pulse_structure.pulse_count_per_train
@@ -191,6 +194,13 @@ def main() -> int:
 
 def _uniform_pulse_count(values: tuple[int, ...]) -> float:
     return float(values[0]) if values and len(set(values)) == 1 else np.nan
+
+
+def _gui_url(base_url: str, recording: str, well: str) -> str:
+    return (
+        f"{base_url.rstrip('/')}/gui?"
+        f"recording={quote(recording)}&well={quote(well)}&no_traces=false"
+    )
 
 
 if __name__ == "__main__":

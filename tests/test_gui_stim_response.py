@@ -227,6 +227,38 @@ class TestUnitStimResponseBuilder(unittest.TestCase):
 
         self.assertEqual(labels, ["7"])
 
+    def test_pulse_ranking_cap_ignores_responses_after_first_n_trials(self) -> None:
+        events = pd.DataFrame(
+            {
+                "event_time_s": [1.0, 2.0, 3.0],
+                "sequence_number": [1, 2, 3],
+                "stimulated_wells": ["A1", "A1", "A1"],
+            }
+        )
+        pulses = [PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0)]
+        sorting = FakeSorting(
+            {
+                0: [3001, 3002, 3003, 3004],  # strongest only after the review cap
+                1: [1001, 2001],
+            }
+        )
+        builder = UnitStimResponseBuilder(
+            sorting=sorting,
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=inspect_pulse_structure(events, pulses),
+        )
+
+        labels = _default_opto_unit_labels(
+            builder,
+            {"0": (0,), "1": (1,)},
+            limit=1,
+            max_pulse_trials=2,
+        )
+
+        self.assertEqual(labels, ["1"])
+
     def test_curation_removed_units_and_merge_groups_are_reflected(self) -> None:
         groups = _label_to_unit_groups(
             [0, 4, 5, 9],
