@@ -14,6 +14,15 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+matplotlib.rcParams.update(
+    {
+        "svg.fonttype": "none",
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Nimbus Sans", "Helvetica", "DejaVu Sans"],
+    }
+)
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpecFromSubplotSpec
@@ -76,6 +85,9 @@ def main() -> int:
     parser.add_argument("--amplitude-max-points", type=int, default=1000)
     parser.add_argument("--limit-per-group", type=int, default=0)
     parser.add_argument("--variants-per-well", type=int, default=1)
+    parser.add_argument("--add-noise-comparator", action="store_true")
+    parser.add_argument("--noise-min-spikes", type=int, default=50)
+    parser.add_argument("--export-formats", default="png,pdf,svg")
     args = parser.parse_args()
 
     import spikeinterface.full as si
@@ -119,6 +131,9 @@ def main() -> int:
                     render_row = dict(well_row)
                     render_row["combination_rank_within_well"] = variant_index
                     render_row["combination_label"] = f"combo{variant_index:02d}"
+                    if args.add_noise_comparator:
+                        selected_units, noise_metrics = append_noise_comparator(selected_units, bundle, args)
+                        subset_metrics = {**subset_metrics, **noise_metrics}
                     figure_path = render_panel(render_row, selected_units, subset_metrics, bundle, output_dir, args)
                     hybrid_manifest_path = ""
                     if args.layout == "hybrid_qc":
@@ -179,6 +194,9 @@ def main() -> int:
             "amplitude_max_points": args.amplitude_max_points,
             "limit_per_group": args.limit_per_group,
             "variants_per_well": args.variants_per_well,
+            "add_noise_comparator": args.add_noise_comparator,
+            "noise_min_spikes": args.noise_min_spikes,
+            "export_formats": args.export_formats,
         },
         "selection_logic": (
             "Within each selected Wave C well, choose a subset of good units that balances spike count, "
@@ -325,6 +343,108 @@ def subset_metrics(subset: tuple[dict[str, object], ...]) -> dict[str, object]:
     }
 
 
+def append_noise_comparator(
+    selected_units: list[dict[str, object]],
+    bundle: AnalyzerBundle,
+    args,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    selected_ids = {str(row["sorting_unit_id"]) for row in selected_units}
+    candidates = []
+    ks_labels = sorting_property_map(bundle, "KSLabel")
+    contam_pct = sorting_property_map(bundle, "ContamPct")
+    amplitude = sorting_property_map(bundle, "Amplitude")
+    for unit_id in bundle.unit_ids:
+        unit_text = str(unit_id)
+        if unit_text in selected_ids:
+            continue
+        label = str(ks_labels.get(unit_text, "")).lower()
+        if label in {"", "good"}:
+            continue
+        spike_count = int(bundle.analyzer.sorting.get_unit_spike_train(unit_id).size)
+        if spike_count < int(args.noise_min_spikes):
+            continue
+        unit_idx = bundle.unit_index.get(unit_text)
+        if unit_idx is None:
+            continue
+        row = unit_render_row(
+            unit_id=unit_id,
+            unit_idx=unit_idx,
+            bundle=bundle,
+            unit_label=unit_text,
+            spike_count=spike_count,
+            ks_label=ks_labels.get(unit_text, ""),
+            contam_pct=contam_pct.get(unit_text, np.nan),
+            amplitude=amplitude.get(unit_text, np.nan),
+            noise_comparator=True,
+        )
+        candidates.append(row)
+    if not candidates:
+        return selected_units, {
+            "noise_comparator_added": False,
+            "noise_comparator_reason": "no non-good candidate met saved-property criteria",
+        }
+    candidates.sort(
+        key=lambda row: (
+            float(row.get("contam_pct", np.nan)) if np.isfinite(float(row.get("contam_pct", np.nan))) else -1.0,
+            int(row.get("num_spikes", 0)),
+            float(row.get("template_ptp_max_uV", np.nan)) if np.isfinite(float(row.get("template_ptp_max_uV", np.nan))) else -1.0,
+        ),
+        reverse=True,
+    )
+    comparator = candidates[0]
+    return [*selected_units, comparator], {
+        "noise_comparator_added": True,
+        "noise_comparator_unit_id": comparator["unit_id"],
+        "noise_comparator_ks_label": comparator.get("ks_label", ""),
+        "noise_comparator_contam_pct": comparator.get("contam_pct", np.nan),
+        "noise_comparator_num_spikes": comparator.get("num_spikes", 0),
+        "noise_comparator_selection_rule": "highest saved ContamPct among same-well KSLabel != good units meeting min spike count",
+    }
+
+
+def unit_render_row(
+    *,
+    unit_id: object,
+    unit_idx: int,
+    bundle: AnalyzerBundle,
+    unit_label: object,
+    spike_count: int,
+    ks_label: object = "",
+    contam_pct: object = np.nan,
+    amplitude: object = np.nan,
+    noise_comparator: bool = False,
+) -> dict[str, object]:
+    template = bundle.templates[int(unit_idx)]
+    footprint = np.ptp(template, axis=0).astype(float)
+    norm = footprint / max(float(np.nanmax(footprint)), 1e-9)
+    best_channel = int(np.nanargmax(footprint))
+    return {
+        "unit_id": unit_label,
+        "sorting_unit_id": unit_id,
+        "unit_index": int(unit_idx),
+        "num_spikes": int(spike_count),
+        "template_ptp_max_uV": float(np.nanmax(footprint)),
+        "footprint": footprint,
+        "normalized_footprint": norm,
+        "best_channel_index_rendered": best_channel,
+        "best_channel_xy_rendered": bundle.channel_locations[best_channel, :2],
+        "ks_label": ks_label,
+        "contam_pct": contam_pct,
+        "amplitude": amplitude,
+        "noise_comparator": bool(noise_comparator),
+    }
+
+
+def sorting_property_map(bundle: AnalyzerBundle, property_name: str) -> dict[str, object]:
+    try:
+        values = bundle.analyzer.sorting.get_property(property_name)
+    except Exception:
+        return {}
+    if values is None:
+        return {}
+    return {str(unit_id): values[index] for index, unit_id in enumerate(bundle.unit_ids) if index < len(values)}
+
+
 def render_panel(
     well_row: dict[str, object],
     selected_units: list[dict[str, object]],
@@ -433,12 +553,14 @@ def render_hybrid_qc_panel(
 
     output_stem = panel_dir / f"{stem}_spatial_isolation_hybrid_qc_v2"
     png_path = output_stem.with_suffix(".png")
+    export_formats = parse_export_formats(args.export_formats)
     for suffix, save_kwargs in {
         ".png": {"dpi": 300},
         ".pdf": {},
         ".svg": {},
     }.items():
-        fig.savefig(output_stem.with_suffix(suffix), bbox_inches="tight", **save_kwargs)
+        if suffix[1:] in export_formats:
+            fig.savefig(output_stem.with_suffix(suffix), bbox_inches="tight", **save_kwargs)
     plt.close(fig)
     return png_path
 
@@ -555,11 +677,23 @@ def plot_hybrid_local_footprint(
     ax.set_aspect("equal", adjustable="box")
     ax.set_xticks([])
     ax.set_yticks([])
+    label_bits = [f"{'B  ' if show_ylabel else ''}u{unit_row['unit_id']}"]
+    if bool(unit_row.get("noise_comparator", False)):
+        label_bits.append(str(unit_row.get("ks_label", "non-good")).upper())
+        contam = unit_row.get("contam_pct", np.nan)
+        try:
+            label_bits.append(f"KS contam={float(contam):.1f}%")
+        except Exception:
+            pass
+    label_bits.extend(
+        [
+            f"n_sp={unit_spike_count(unit_row, bundle)}",
+            f"best ch={channel_label(best, bundle)}",
+            f"PTP={unit_display_ptp(unit_row, bundle):.1f} uV",
+        ]
+    )
     ax.set_title(
-        f"{'B  ' if show_ylabel else ''}u{unit_row['unit_id']} | "
-        f"n_sp={unit_spike_count(unit_row, bundle)} | "
-        f"best ch={channel_label(best, bundle)} | "
-        f"PTP={unit_display_ptp(unit_row, bundle):.1f} uV",
+        " | ".join(label_bits),
         fontsize=9,
     )
 
@@ -1096,7 +1230,16 @@ def add_selection_group(df: pd.DataFrame) -> pd.DataFrame:
 def parse_required_unit_ids(text: str) -> list[str]:
     if not text:
         return []
-    return [token.strip() for token in re.split(r"[;,\\s]+", text) if token.strip()]
+    return [token.strip() for token in re.split(r"[;,\s]+", text) if token.strip()]
+
+
+def parse_export_formats(text: str) -> set[str]:
+    requested = {token.strip().lower().lstrip(".") for token in re.split(r"[;,\s]+", str(text)) if token.strip()}
+    allowed = {"png", "pdf", "svg"}
+    unknown = requested - allowed
+    if unknown:
+        raise ValueError(f"unsupported export format(s): {','.join(sorted(unknown))}")
+    return requested or {"png", "pdf", "svg"}
 
 
 def write_hybrid_companion_manifest(
@@ -1136,6 +1279,10 @@ def write_hybrid_companion_manifest(
                 "sorting_unit_id": unit_row["sorting_unit_id"],
                 "unit_index": unit_row["unit_index"],
                 "color": UNIT_COLORS[index % len(UNIT_COLORS)],
+                "noise_comparator": bool(unit_row.get("noise_comparator", False)),
+                "ks_label": unit_row.get("ks_label", ""),
+                "kilosort_contam_pct": unit_row.get("contam_pct", np.nan),
+                "kilosort_amplitude": unit_row.get("amplitude", np.nan),
                 "spike_count": unit_spike_count(unit_row, bundle),
                 "best_channel_index": int(unit_row["best_channel_index_rendered"]),
                 "best_channel_id": channel_label(int(unit_row["best_channel_index_rendered"]), bundle),

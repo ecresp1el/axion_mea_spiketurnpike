@@ -8499,6 +8499,13 @@ Canonical commands:
     line uses only a one-bin-neighbor `[1, 2, 1] / 4` smoothing kernel. Smoothing
     is display-only and does not change the probability normalization manifest.
 
+  SVG export update:
+    the hybrid QC plotting script now preserves SVG text as editable `<text>`
+    elements by setting `svg.fonttype = none`, requests Arial first in the
+    sans-serif font list, and uses Type 42 PDF/PS fonts. SVG-only rerenders for
+    both the good-unit review root and the noise-comparator review root
+    completed with `36` panels and `0` errors each.
+
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.
 

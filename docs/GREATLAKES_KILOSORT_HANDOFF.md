@@ -1399,6 +1399,14 @@ smoothing kernel so it remains close to the raw binned shape. The raw-count ACG
 row remains a bar plot. The probability normalization and manifest values are
 still computed from the unsmoothed displayed-bin probabilities.
 
+SVG export note: `scripts/plot_spatial_isolation_1x2_panels.py` now preserves
+SVG text as editable `<text>` elements by setting `svg.fonttype = none` and
+requests `Arial` first in the sans-serif font list, followed by `Nimbus Sans`,
+`Helvetica`, and `DejaVu Sans`. The current system maps Arial to Nimbus Sans,
+but Illustrator should now see editable text objects and can substitute Arial.
+SVG-only rerenders completed for the good-unit review root and the
+noise-comparator review root with `36` panels and `0` errors in each.
+
 ### Testing MEA Transient Plateing Recording-Series Rerun, 2026-07-09
 
 The `Testing_mea_transient_plateing/134-0150/My Experiment(000..004)` block was

@@ -1313,6 +1313,17 @@ Implementation order:
   validation sums remain based on the unsmoothed displayed-bin probabilities;
   smoothing is display-only.
 
+  SVG export update:
+  the plotting script now sets `svg.fonttype = none`, `pdf.fonttype = 42`, and
+  `ps.fonttype = 42`, with font preference
+  `Arial, Nimbus Sans, Helvetica, DejaVu Sans`. This preserves SVG labels as
+  editable `<text>` objects for Illustrator instead of converting text to path
+  outlines. The local system resolves Arial to Nimbus Sans, but the SVG font
+  family requests Arial first so Illustrator can substitute/use Arial on systems
+  where it is installed. SVG-only rerenders were completed for both the
+  good-unit review root and the noise-comparator review root; both completed
+  with `36` panels and `0` errors.
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.
