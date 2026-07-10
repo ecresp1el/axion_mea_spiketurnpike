@@ -1684,9 +1684,27 @@ Direct trace expansion, 2026-07-09 21:12 EDT:
   aligned persisted `random_spikes` snippet means, not raw template glyphs.
 - The raw metadata inventory is used only for acquisition timing:
   `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/raw_files.csv`.
-- The plotted trace window is `60.0-61.0 s` inside each recording, giving
-  `12,500` samples per repeat at `12.5 kHz`, with common y-axis scaling across
-  trace panels.
+- The short `60.0-61.0 s` trace window was removed. The plotted trace now spans
+  the entire continuous channel recording for each displayed repeat: `900.00 s`
+  for repeat `000`, `653.75 s` for repeat `002`, and `600.00 s` for repeat
+  `004`.
+- The trace display is now three long, full-width panels stacked vertically
+  under the stability metrics, not three small side-by-side panels.
+- Each full recording is represented in the figure as a `3,000`-bin min/max
+  envelope computed from all source samples. This preserves the full time span
+  while keeping PNG/PDF/SVG exports usable.
+- The trace display is not time-locked. The only alignment is acquisition order:
+  repeat `000`, then repeat `002`, then repeat `004`. Each stacked row uses its
+  own x-axis in minutes within that recording. The `+/- X min post plating`
+  values are row-label context only, not a shared aligned time axis.
+- The contextual post-plating reference is `My Experiment(001).raw`
+  `block_vector_start_time = 2026-05-23 10:31:47.752`, because the raw note says
+  organoids were added for `001` through `004`. Row labels are: repeat `000`
+  starts `-22.8 min` post plating, repeat `002` starts `+0.7 min`, and repeat
+  `004` starts `+150.3 min`.
+- All three stacked trace panels share the same voltage y-limits computed from
+  the full min/max envelope across all traces, with padding. The earlier
+  percentile-style display limit was removed so voltage extrema are not clipped.
 
 Elapsed acquisition timing:
 
@@ -1702,6 +1720,8 @@ New sidecar output:
 transient_plateing_B2_best_unit_direct_channel_trace_20260709.csv.gz
 ```
 
-The sidecar has `37,500` rows and records repeat, unit, channel, voltage in uV,
-trace time within recording, raw acquisition start time, elapsed hours, raw file
-path, and filter metadata signature.
+The sidecar has `9,000` envelope rows and records repeat, unit, channel, plotted
+bin time in recording, plotted minutes post plating, bin min/max/mean voltage in
+uV, raw samples represented per bin, full source sample count, raw acquisition
+start time, plating reference time, elapsed hours, raw file path, and filter
+metadata signature.

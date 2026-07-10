@@ -1508,9 +1508,31 @@ Implementation order:
   | `002` | `2026-05-23 10:32:28.627` | `0.392 h` |
   | `004` | `2026-05-23 13:02:08.023` | `2.886 h` |
 
-  Trace window:
-  `60.0-61.0 s` within each recording, `12,500` samples per repeat at
-  `12.5 kHz`, common y-axis scaling across the three trace panels.
+  Trace extent/layout:
+  the short `60.0-61.0 s` window was removed. The figure now stacks three
+  long, full-width continuous channel-trace panels under the stability metrics.
+  Each panel uses the entire channel trace for that displayed recording: repeat
+  `000` uses `11,250,000` samples over `900.00 s`, repeat `002` uses
+  `8,171,875` samples over `653.75 s`, and repeat `004` uses `7,500,000`
+  samples over `600.00 s`. For plotting/export, each full trace is compressed
+  into a `3,000`-bin min/max envelope, preserving the full-recording time span
+  without independently filtering or changing the voltage data.
+
+  Timebase/alignment:
+  this trace display is not time-locked. The only alignment is acquisition
+  order: repeat `000`, then `002`, then `004`. Each stacked row uses its own
+  x-axis in minutes within that recording. The `+/- X min post plating` values
+  are displayed only as contextual row labels for reviewers, not as an aligned
+  shared x-axis. The contextual reference is `My Experiment(001).raw`
+  `block_vector_start_time = 2026-05-23 10:31:47.752`, because the raw note says
+  organoids were added for `001` through `004`. Row labels are: repeat `000`
+  starts `-22.8 min` post plating, repeat `002` starts `+0.7 min`, and repeat
+  `004` starts `+150.3 min`.
+
+  Voltage scale:
+  all three stacked trace panels share the same y-axis limits from the full
+  min/max envelope across all traces, with padding. This replaces the earlier
+  percentile-style display limit and avoids cutting off voltage extrema.
 
   New/updated outputs:
   ```text
@@ -1520,9 +1542,11 @@ Implementation order:
   transient_plateing_B2_best_unit_direct_channel_trace_20260709.csv.gz
   ```
 
-  The sidecar trace table has `37,500` rows total and includes repeat, unit,
-  channel, voltage in uV, trace time in recording, raw start time, elapsed hours,
-  raw file path, and filter metadata signature.
+  The sidecar trace table has `9,000` envelope rows total and includes repeat,
+  unit, channel, plotted bin time in recording, plotted minutes post plating,
+  bin min/max/mean voltage in uV, raw samples represented per bin, full source
+  sample count, raw start time, plating reference time, elapsed hours, raw file
+  path, and filter metadata signature.
 
 ## What To Avoid
 

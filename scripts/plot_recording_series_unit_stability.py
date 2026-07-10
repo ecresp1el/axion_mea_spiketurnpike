@@ -118,8 +118,15 @@ def main() -> int:
     parser.add_argument("--local-channels", type=int, default=16)
     parser.add_argument("--best-unit-only", action="store_true")
     parser.add_argument("--raw-metadata-csv", type=Path, default=DEFAULT_RAW_METADATA_CSV)
-    parser.add_argument("--direct-trace-window-start-s", type=float, default=60.0)
-    parser.add_argument("--direct-trace-window-duration-s", type=float, default=1.0)
+    parser.add_argument("--post-plating-reference-repeat", default="001")
+    parser.add_argument("--direct-trace-window-start-s", type=float, default=0.0)
+    parser.add_argument(
+        "--direct-trace-window-duration-s",
+        type=float,
+        default=0.0,
+        help="Seconds to show from the direct trace row. Use 0, the default, for the full recording.",
+    )
+    parser.add_argument("--direct-trace-plot-max-bins", type=int, default=3000)
     parser.add_argument("--disable-direct-trace-row", action="store_true")
     parser.add_argument("--export-formats", default="png,pdf,svg")
     args = parser.parse_args()
@@ -228,9 +235,11 @@ def main() -> int:
             "best_unit_only": args.best_unit_only,
             "include_repeats": args.include_repeats,
             "raw_metadata_csv": str(args.raw_metadata_csv.expanduser()),
+            "post_plating_reference_repeat": str(args.post_plating_reference_repeat).zfill(3),
             "direct_trace_row": not args.disable_direct_trace_row,
             "direct_trace_window_start_s": args.direct_trace_window_start_s,
             "direct_trace_window_duration_s": args.direct_trace_window_duration_s,
+            "direct_trace_plot_max_bins": args.direct_trace_plot_max_bins,
         },
         "data_source": "Current Step 1 non-LFP th5 SpikeInterface sorting analyzers only.",
         "direct_trace_source": (
@@ -781,8 +790,15 @@ def render_best_unit_figure(
     has_direct_trace_row = bool(direct_trace_infos)
 
     if has_direct_trace_row:
-        fig = plt.figure(figsize=(14.5, 11.1), constrained_layout=False)
-        grid = GridSpec(4, 4, figure=fig, height_ratios=[1.45, 1.9, 1.1, 1.35], hspace=0.58, wspace=0.42)
+        fig = plt.figure(figsize=(14.8, 14.2), constrained_layout=False)
+        grid = GridSpec(
+            6,
+            4,
+            figure=fig,
+            height_ratios=[1.35, 1.75, 1.05, 1.05, 1.05, 1.05],
+            hspace=0.72,
+            wspace=0.42,
+        )
     else:
         fig = plt.figure(figsize=(14.5, 8.6), constrained_layout=False)
         grid = GridSpec(3, 4, figure=fig, height_ratios=[1.55, 2.05, 1.25], hspace=0.52, wspace=0.42)
@@ -808,11 +824,20 @@ def render_best_unit_figure(
 
     if has_direct_trace_row:
         direct_ylim = common_direct_trace_ylim(direct_trace_infos)
-        for col, info in enumerate(direct_trace_infos[:3]):
-            ax = fig.add_subplot(grid[3, col])
-            draw_direct_trace_panel(ax, info, direct_ylim)
-        ax_note = fig.add_subplot(grid[3, 3])
-        draw_direct_trace_note(ax_note, direct_trace_infos, args)
+        trace_axes = []
+        for row, info in enumerate(direct_trace_infos[:3]):
+            ax = fig.add_subplot(grid[3 + row, :])
+            draw_direct_trace_panel(
+                ax,
+                info,
+                direct_ylim,
+                show_xlabel=row == min(2, len(direct_trace_infos[:3]) - 1),
+                show_note=row == 0,
+                args=args,
+            )
+            trace_axes.append(ax)
+        for ax in trace_axes[:-1]:
+            ax.tick_params(labelbottom=False)
 
     channel_label = compact_channel_label(chain)
     fig.suptitle(f"Best putative stable unit, well {target_well}: {channel_label}", fontsize=15, fontweight="bold", y=0.985)
@@ -843,8 +868,14 @@ def direct_trace_table_path(output_dir: Path, target_well: str, date_label: str)
 
 
 def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, Bundle], args) -> list[dict[str, object]]:
-    metadata = raw_recording_metadata_by_repeat(args.raw_metadata_csv.expanduser(), [candidate.repeat for candidate in chain])
+    plating_reference_repeat = str(args.post_plating_reference_repeat).zfill(3)
+    metadata_repeats = sorted({candidate.repeat for candidate in chain} | {plating_reference_repeat})
+    metadata = raw_recording_metadata_by_repeat(args.raw_metadata_csv.expanduser(), metadata_repeats)
     first_start, reference_repeat = earliest_start_time_and_repeat(metadata, [candidate.repeat for candidate in chain])
+    plating_reference_time = metadata.get(plating_reference_repeat, {}).get("block_vector_start_time")
+    if not isinstance(plating_reference_time, pd.Timestamp):
+        plating_reference_time = first_start
+        plating_reference_repeat = reference_repeat
     infos = []
     for candidate in chain:
         bundle = bundles[candidate.repeat]
@@ -855,9 +886,12 @@ def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, B
         fs = float(bundle.sampling_frequency_hz)
         start_frame = int(round(start_s * fs))
         if start_frame >= num_samples:
-            start_frame = max(0, num_samples - int(round(duration_s * fs)))
-            start_s = start_frame / fs if fs > 0 else 0.0
-        end_frame = min(num_samples, start_frame + max(1, int(round(duration_s * fs))))
+            start_frame = 0
+            start_s = 0.0
+        if duration_s > 0:
+            end_frame = min(num_samples, start_frame + max(1, int(round(duration_s * fs))))
+        else:
+            end_frame = num_samples
         trace = bundle.analyzer.recording.get_traces(
             segment_index=0,
             start_frame=start_frame,
@@ -868,10 +902,15 @@ def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, B
         trace = np.asarray(trace, dtype=float)
         voltage = trace[:, 0] if trace.ndim == 2 and trace.shape[1] else np.asarray([], dtype=float)
         time_s = start_s + np.arange(voltage.size, dtype=float) / fs if fs > 0 else np.arange(voltage.size, dtype=float)
+        display = direct_trace_display_envelope(time_s, voltage, max_bins=int(args.direct_trace_plot_max_bins))
         start_time = meta.get("block_vector_start_time")
         elapsed_hours = np.nan
         if isinstance(start_time, pd.Timestamp) and isinstance(first_start, pd.Timestamp):
             elapsed_hours = float((start_time - first_start).total_seconds() / 3600.0)
+        recording_start_min_post_plating = np.nan
+        if isinstance(start_time, pd.Timestamp) and isinstance(plating_reference_time, pd.Timestamp):
+            recording_start_min_post_plating = float((start_time - plating_reference_time).total_seconds() / 60.0)
+        display_time_min_post_plating = display["time_s"] / 60.0 + recording_start_min_post_plating
         infos.append(
             {
                 "candidate": candidate,
@@ -882,6 +921,17 @@ def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, B
                 "trace_duration_s": float((end_frame - start_frame) / fs) if fs > 0 else np.nan,
                 "start_frame": int(start_frame),
                 "end_frame": int(end_frame),
+                "source_sample_count": int(voltage.size),
+                "display_time_s": display["time_s"],
+                "display_min_uV": display["min_uV"],
+                "display_max_uV": display["max_uV"],
+                "display_mean_uV": display["mean_uV"],
+                "display_sample_count": display["sample_count"],
+                "display_mode": display["mode"],
+                "display_time_min_post_plating": display_time_min_post_plating,
+                "recording_start_min_post_plating": recording_start_min_post_plating,
+                "post_plating_reference_repeat": plating_reference_repeat,
+                "post_plating_reference_time": plating_reference_time,
                 "block_vector_start_time": start_time,
                 "experiment_start_time": meta.get("experiment_start_time"),
                 "elapsed_hours_from_first_repeat": elapsed_hours,
@@ -892,6 +942,45 @@ def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, B
             }
         )
     return infos
+
+
+def direct_trace_display_envelope(time_s: np.ndarray, voltage_uV: np.ndarray, max_bins: int) -> dict[str, np.ndarray | str]:
+    time_s = np.asarray(time_s, dtype=float)
+    voltage_uV = np.asarray(voltage_uV, dtype=float)
+    max_bins = max(100, int(max_bins))
+    if voltage_uV.size <= max_bins:
+        sample_count = np.ones(voltage_uV.size, dtype=np.int64)
+        return {
+            "time_s": time_s,
+            "min_uV": voltage_uV,
+            "max_uV": voltage_uV,
+            "mean_uV": voltage_uV,
+            "sample_count": sample_count,
+            "mode": "raw_trace",
+        }
+    edges = np.linspace(0, voltage_uV.size, max_bins + 1, dtype=np.int64)
+    keep = edges[1:] > edges[:-1]
+    starts = edges[:-1][keep]
+    stops = edges[1:][keep]
+    plot_time = np.empty(starts.size, dtype=float)
+    plot_min = np.empty(starts.size, dtype=float)
+    plot_max = np.empty(starts.size, dtype=float)
+    plot_mean = np.empty(starts.size, dtype=float)
+    sample_count = stops - starts
+    for idx, (start, stop) in enumerate(zip(starts, stops, strict=True)):
+        chunk = voltage_uV[start:stop]
+        plot_time[idx] = 0.5 * (time_s[start] + time_s[stop - 1])
+        plot_min[idx] = float(np.nanmin(chunk))
+        plot_max[idx] = float(np.nanmax(chunk))
+        plot_mean[idx] = float(np.nanmean(chunk))
+    return {
+        "time_s": plot_time,
+        "min_uV": plot_min,
+        "max_uV": plot_max,
+        "mean_uV": plot_mean,
+        "sample_count": sample_count.astype(np.int64),
+        "mode": "full_trace_minmax_envelope",
+    }
 
 
 def raw_recording_metadata_by_repeat(raw_metadata_csv: Path, repeats: list[str]) -> dict[str, dict[str, object]]:
@@ -957,9 +1046,15 @@ def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, t
     rows = []
     for info in infos:
         candidate = info["candidate"]
-        time_s = np.asarray(info["time_s"], dtype=float)
-        voltage = np.asarray(info["voltage_uV"], dtype=float)
-        for sample_index, (sample_time_s, sample_voltage_uV) in enumerate(zip(time_s, voltage, strict=True)):
+        time_s = np.asarray(info["display_time_s"], dtype=float)
+        time_min_post_plating = np.asarray(info["display_time_min_post_plating"], dtype=float)
+        min_uV = np.asarray(info["display_min_uV"], dtype=float)
+        max_uV = np.asarray(info["display_max_uV"], dtype=float)
+        mean_uV = np.asarray(info["display_mean_uV"], dtype=float)
+        sample_counts = np.asarray(info["display_sample_count"], dtype=np.int64)
+        for bin_index, (sample_time_s, bin_min_uV, bin_max_uV, bin_mean_uV, sample_count) in enumerate(
+            zip(time_s, min_uV, max_uV, mean_uV, sample_counts, strict=True)
+        ):
             rows.append(
                 {
                     "repeat": candidate.repeat,
@@ -967,9 +1062,15 @@ def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, t
                     "unit_id": candidate.unit_id,
                     "best_channel_id": candidate.best_channel_id,
                     "best_channel_index": candidate.best_channel_index,
-                    "sample_index_in_trace": sample_index,
-                    "trace_time_s_in_recording": sample_time_s,
-                    "voltage_uV": sample_voltage_uV,
+                    "plot_bin_index": bin_index,
+                    "plot_time_s_in_recording": sample_time_s,
+                    "plot_time_min_post_plating": time_min_post_plating[bin_index],
+                    "plot_bin_min_uV": bin_min_uV,
+                    "plot_bin_max_uV": bin_max_uV,
+                    "plot_bin_mean_uV": bin_mean_uV,
+                    "raw_samples_represented": int(sample_count),
+                    "source_sample_count": info["source_sample_count"],
+                    "plot_mode": info["display_mode"],
                     "sampling_frequency_hz": info["sampling_frequency_hz"],
                     "trace_start_s": info["trace_start_s"],
                     "trace_duration_s": info["trace_duration_s"],
@@ -977,6 +1078,9 @@ def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, t
                     "experiment_start_time": info["experiment_start_time"],
                     "elapsed_hours_from_first_repeat": info["elapsed_hours_from_first_repeat"],
                     "elapsed_reference_repeat": info["elapsed_reference_repeat"],
+                    "recording_start_min_post_plating": info["recording_start_min_post_plating"],
+                    "post_plating_reference_repeat": info["post_plating_reference_repeat"],
+                    "post_plating_reference_time": info["post_plating_reference_time"],
                     "raw_file": info["raw_file"],
                     "filter_metadata_signature": info["filter_metadata_signature"],
                     "trace_source": "Step 1 analyzer.recording Neural Spikes stream used for Kilosort",
@@ -988,40 +1092,68 @@ def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, t
 
 
 def common_direct_trace_ylim(infos: list[dict[str, object]]) -> tuple[float, float]:
-    values = [np.asarray(info["voltage_uV"], dtype=float) for info in infos if np.asarray(info["voltage_uV"]).size]
-    if not values:
+    minima = []
+    maxima = []
+    for info in infos:
+        min_uV = np.asarray(info["display_min_uV"], dtype=float)
+        max_uV = np.asarray(info["display_max_uV"], dtype=float)
+        if min_uV.size and np.isfinite(min_uV).any():
+            minima.append(float(np.nanmin(min_uV)))
+        if max_uV.size and np.isfinite(max_uV).any():
+            maxima.append(float(np.nanmax(max_uV)))
+    if not minima or not maxima:
         return (-1.0, 1.0)
-    pooled = np.concatenate(values)
-    pooled = pooled[np.isfinite(pooled)]
-    if pooled.size == 0:
+    low = float(np.nanmin(minima))
+    high = float(np.nanmax(maxima))
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
         return (-1.0, 1.0)
-    center = float(np.nanmedian(pooled))
-    half_range = float(np.nanpercentile(np.abs(pooled - center), 99.5) * 1.15)
-    if not np.isfinite(half_range) or half_range <= 0:
-        half_range = max(float(np.nanmax(np.abs(pooled - center))), 1.0)
-    return (center - half_range, center + half_range)
+    pad = max((high - low) * 0.06, 1.0)
+    return (low - pad, high + pad)
 
 
-def draw_direct_trace_panel(ax, info: dict[str, object], ylim: tuple[float, float]) -> None:
+def draw_direct_trace_panel(
+    ax,
+    info: dict[str, object],
+    ylim: tuple[float, float],
+    *,
+    show_xlabel: bool,
+    show_note: bool,
+    args,
+) -> None:
     candidate = info["candidate"]
-    time_s = np.asarray(info["time_s"], dtype=float)
-    voltage = np.asarray(info["voltage_uV"], dtype=float)
-    ax.plot(time_s, voltage, color="#2b2b2b", lw=0.75)
+    time_min = np.asarray(info["display_time_s"], dtype=float) / 60.0
+    min_uV = np.asarray(info["display_min_uV"], dtype=float)
+    max_uV = np.asarray(info["display_max_uV"], dtype=float)
+    mean_uV = np.asarray(info["display_mean_uV"], dtype=float)
+    if str(info.get("display_mode")) == "full_trace_minmax_envelope":
+        ax.fill_between(time_min, min_uV, max_uV, color="#2b2b2b", alpha=0.38, linewidth=0)
+        ax.plot(time_min, mean_uV, color="#1f1f1f", lw=0.55, alpha=0.92)
+    else:
+        ax.plot(time_min, mean_uV, color="#2b2b2b", lw=0.75)
     ax.axhline(0, color="0.86", lw=0.7)
     ax.set_ylim(*ylim)
-    if time_s.size:
-        ax.set_xlim(float(time_s[0]), float(time_s[-1]))
-    elapsed = info.get("elapsed_hours_from_first_repeat")
-    reference_repeat = info.get("elapsed_reference_repeat", "first")
-    elapsed_text = "elapsed n/a" if not np.isfinite(elapsed) else f"+{elapsed:.2f} h from repeat {reference_repeat}"
+    if time_min.size:
+        ax.set_xlim(float(time_min[0]), float(time_min[-1]))
+    start_min = info.get("recording_start_min_post_plating")
+    start_text = "start n/a" if not np.isfinite(start_min) else f"recording starts {start_min:+.1f} min post plating"
     ax.set_title(
-        f"Repeat {candidate.repeat}: ch {candidate.best_channel_id}\n{elapsed_text}",
+        f"Repeat {candidate.repeat}: ch {candidate.best_channel_id}; {info['trace_duration_s']:.0f} s; {start_text}",
         fontsize=9.5,
+        loc="left",
     )
-    ax.set_xlabel("Time in recording (s)")
+    if show_xlabel:
+        ax.set_xlabel("Minutes within recording")
+    else:
+        ax.set_xlabel("")
     ax.set_ylabel("Voltage (uV)")
     ax.grid(axis="y", color="0.9", lw=0.65)
     ax.spines[["top", "right"]].set_visible(False)
+    if show_note:
+        note = (
+            "Rows are acquisition-order context, not time-locked alignment. "
+            f"Post-plating label reference = repeat {info['post_plating_reference_repeat']} raw start."
+        )
+        ax.text(0.995, 0.93, note, ha="right", va="top", transform=ax.transAxes, fontsize=8.4)
 
 
 def draw_direct_trace_note(ax, infos: list[dict[str, object]], args) -> None:
@@ -1032,7 +1164,8 @@ def draw_direct_trace_note(ax, infos: list[dict[str, object]], args) -> None:
     lines = [
         "Direct channel trace row",
         "Source: Step 1 analyzer.recording, return_in_uV=True.",
-        f"Window: {args.direct_trace_window_start_s:.1f}-{args.direct_trace_window_start_s + args.direct_trace_window_duration_s:.1f} s in each recording.",
+        "Window: full recording from first to last sample.",
+        f"Display: min/max envelope from all samples, up to {args.direct_trace_plot_max_bins:,} bins.",
         "Elapsed time: raw metadata block_vector_start_time, relative to first displayed repeat.",
         *wrapped_signature,
     ]
