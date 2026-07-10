@@ -135,6 +135,17 @@ TRAIN_TRIAL_RESPONSE_END_MS = 50.0
 DEFAULT_TRAIN_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_PULSE_PSTH = PsthConfig(bin_ms=1.0, boxcar_kernel=(1.0, 1.0, 1.0))
 DEFAULT_WAVEFORM_RENDER = WaveformRenderConfig(sample_dt_ms=1.0, smooth_window_ms=2.0)
+DEFAULT_RAPID_REVIEW_PULSE_TRIALS = 250
+DEFAULT_WAVEFORM_AUDIT_DIR = Path(
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/"
+    "step1_nonlfp_th5_v5_ground_truth_latest/waveform_alignment_feature_audit_20260709"
+)
+DEFAULT_WAVEFORM_METRICS_CSV = (
+    DEFAULT_WAVEFORM_AUDIT_DIR / "waveform_alignment_feature_audit_20260709_paired_unit_metrics.csv"
+)
+DEFAULT_WAVEFORM_TRACES_CSV = (
+    DEFAULT_WAVEFORM_AUDIT_DIR / "waveform_alignment_feature_audit_20260709_waveform_traces.csv.gz"
+)
 DEFAULT_STIM_RAW_ROOTS = (
     Path("/nfs/turbo/umms-parent/axion_mea_files_directory/incoming/manny4tbum_20260706"),
     Path("/nfs/turbo/umms-parent/axion_mea_files_directory"),
@@ -225,6 +236,21 @@ class OptoTaggedUnitScore:
     baseline_rate_hz: float
     post_spikes: int
     baseline_spikes: int
+
+
+@dataclass(frozen=True)
+class AlignedWaveformReview:
+    """Cached current-workflow waveform and metrics for one original unit."""
+
+    unit_label: str
+    time_ms: np.ndarray
+    aligned_average_uv: np.ndarray
+    kslabel: str
+    usable_snippets: int
+    trough_to_peak_ms: float
+    half_width_ms: float
+    ptp_uv: float
+    rs_fs_classification: str
 
 
 @dataclass(frozen=True)
@@ -722,7 +748,12 @@ class UnitStimResponseBuilder:
             **kwargs,
         )
 
-    def build(self, unit_ids: Sequence[object]) -> UnitStimResponse:
+    def build(
+        self,
+        unit_ids: Sequence[object],
+        *,
+        max_pulse_trials: int | None = None,
+    ) -> UnitStimResponse:
         """Return all response tables for the selected units."""
 
         selected_unit_ids = tuple(unit_ids)
@@ -736,6 +767,11 @@ class UnitStimResponseBuilder:
         ).build(self.train_window)
 
         pulse_aligned, pulse_trials = self.build_pulse_aligned_spikes(train_aligned, train_trials)
+        pulse_aligned, pulse_trials = _limit_pulse_trials(
+            pulse_aligned,
+            pulse_trials,
+            max_pulse_trials,
+        )
         pulse_trial_ids = (
             pulse_trials["pulse_trial_index"].astype(int).tolist()
             if not pulse_trials.empty
@@ -759,7 +795,12 @@ class UnitStimResponseBuilder:
             pulse_structure=self.pulse_structure,
         )
 
-    def build_many(self, unit_groups: Sequence[Sequence[object]]) -> list[UnitStimResponse]:
+    def build_many(
+        self,
+        unit_groups: Sequence[Sequence[object]],
+        *,
+        max_pulse_trials: int | None = None,
+    ) -> list[UnitStimResponse]:
         """Return response tables for many unit groups with shared alignment work."""
 
         normalized_groups = [tuple(group) for group in unit_groups]
@@ -787,6 +828,11 @@ class UnitStimResponseBuilder:
                 time_column="aligned_time_ms",
             ).build(self.train_window)
             pulse_aligned, pulse_trials = self.build_pulse_aligned_spikes(train_aligned, train_trials)
+            pulse_aligned, pulse_trials = _limit_pulse_trials(
+                pulse_aligned,
+                pulse_trials,
+                max_pulse_trials,
+            )
             pulse_trial_ids = (
                 pulse_trials["pulse_trial_index"].astype(int).tolist()
                 if not pulse_trials.empty
@@ -975,6 +1021,26 @@ class UnitStimResponseBuilder:
         return pd.concat(rows, ignore_index=True).sort_values(["time_s", "unit_id"]).reset_index(drop=True)
 
 
+def _limit_pulse_trials(
+    pulse_aligned: pd.DataFrame,
+    pulse_trials: pd.DataFrame,
+    max_pulse_trials: int | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep the first N pulse pseudo-trials in appearance order."""
+
+    if max_pulse_trials is None or max_pulse_trials <= 0 or pulse_trials.empty:
+        return pulse_aligned, pulse_trials
+    limited_trials = pulse_trials.head(int(max_pulse_trials)).copy()
+    allowed = set(limited_trials["pulse_trial_index"].astype(int).tolist())
+    if pulse_aligned.empty:
+        limited_spikes = pulse_aligned.copy()
+    else:
+        limited_spikes = pulse_aligned.loc[
+            pulse_aligned["pulse_trial_index"].astype(int).isin(allowed)
+        ].copy()
+    return limited_spikes.reset_index(drop=True), limited_trials.reset_index(drop=True)
+
+
 def make_stim_response_panel(
     analyzer,
     *,
@@ -987,6 +1053,9 @@ def make_stim_response_panel(
     plate_family: str = "",
     plate_type_name: str = "",
     curation_state_provider=None,
+    waveform_metrics_csv: Path | None = DEFAULT_WAVEFORM_METRICS_CSV,
+    waveform_traces_csv: Path | None = DEFAULT_WAVEFORM_TRACES_CSV,
+    rapid_review_pulse_trials: int = DEFAULT_RAPID_REVIEW_PULSE_TRIALS,
 ):
     """Create a Panel tab for unit-level train/pulse response review."""
 
@@ -1029,13 +1098,37 @@ def make_stim_response_panel(
         well=well,
         pulse_structure=pulse_structure,
     )
+    waveform_reviews = load_aligned_waveform_reviews(
+        recording_name,
+        well,
+        metrics_csv=waveform_metrics_csv,
+        traces_csv=waveform_traces_csv,
+    )
 
     label_to_units = _label_to_unit_groups(unit_ids, _current_curation_state(curation_state_provider))
     if not label_to_units:
         label_to_units = {_unit_label(unit_id): (unit_id,) for unit_id in unit_ids}
-    default_labels = _default_opto_unit_labels(builder, label_to_units, limit=10)
+    good_label_to_units = kslabel_good_unit_groups(sorting, label_to_units)
+    if good_label_to_units:
+        label_to_units = good_label_to_units
+    review_table = build_rapid_opto_review_table(
+        builder,
+        label_to_units,
+        sorting,
+        max_pulse_trials=rapid_review_pulse_trials,
+        waveform_reviews=waveform_reviews,
+    )
+    ranked_labels = review_table["unit"].astype(str).tolist() if not review_table.empty else []
+    if ranked_labels:
+        label_to_units = {label: label_to_units[label] for label in ranked_labels}
+    default_labels = _default_opto_unit_labels(
+        builder,
+        label_to_units,
+        limit=1,
+        max_pulse_trials=rapid_review_pulse_trials,
+    )
     if not default_labels:
-        default_labels = list(label_to_units)[:10]
+        default_labels = list(label_to_units)[:1]
     default_label = default_labels[0]
     unit_selector = pn.widgets.MultiChoice(
         name="Pick units",
@@ -1051,6 +1144,10 @@ def make_stim_response_panel(
     )
     refresh_button = pn.widgets.Button(name="Refresh", button_type="primary", width=110)
     summary = pn.pane.Markdown("", sizing_mode="stretch_width")
+    rapid_screen = pn.pane.Markdown(
+        _format_rapid_review_table(review_table, rapid_review_pulse_trials),
+        sizing_mode="stretch_width",
+    )
     train_area = pn.Column(sizing_mode="stretch_width")
     pulse_area = pn.Column(sizing_mode="stretch_width")
     selection_status = pn.pane.Markdown("", sizing_mode="stretch_width")
@@ -1060,6 +1157,7 @@ def make_stim_response_panel(
     unit_group_state: dict[str, object] = {
         "label_to_units": label_to_units,
         "default_labels": default_labels,
+        "review_table": review_table,
     }
 
     def refresh_unit_groups(*, preserve_selection: bool = True) -> None:
@@ -1073,6 +1171,9 @@ def make_stim_response_panel(
         )
         if not refreshed:
             refreshed = {_unit_label(unit_id): (unit_id,) for unit_id in current_unit_ids}
+        good_refreshed = kslabel_good_unit_groups(_sorting_from_analyzer(analyzer), refreshed)
+        if good_refreshed:
+            refreshed = good_refreshed
         if not refreshed:
             unit_group_state["label_to_units"] = {}
             unit_group_state["default_labels"] = []
@@ -1081,10 +1182,32 @@ def make_stim_response_panel(
             unit_entry.value = ""
             return
 
+        refreshed_table = build_rapid_opto_review_table(
+            builder,
+            refreshed,
+            _sorting_from_analyzer(analyzer),
+            max_pulse_trials=rapid_review_pulse_trials,
+            waveform_reviews=waveform_reviews,
+        )
+        refreshed_labels = (
+            refreshed_table["unit"].astype(str).tolist() if not refreshed_table.empty else []
+        )
+        if refreshed_labels:
+            refreshed = {label: refreshed[label] for label in refreshed_labels}
         unit_group_state["label_to_units"] = refreshed
-        ranked_defaults = _default_opto_unit_labels(builder, refreshed, limit=10)
+        unit_group_state["review_table"] = refreshed_table
+        rapid_screen.object = _format_rapid_review_table(
+            refreshed_table,
+            rapid_review_pulse_trials,
+        )
+        ranked_defaults = _default_opto_unit_labels(
+            builder,
+            refreshed,
+            limit=1,
+            max_pulse_trials=rapid_review_pulse_trials,
+        )
         if not ranked_defaults:
-            ranked_defaults = list(refreshed)[:10]
+            ranked_defaults = list(refreshed)[:1]
         unit_group_state["default_labels"] = ranked_defaults
         default_label = ranked_defaults[0]
         unit_selector.options = list(refreshed)
@@ -1163,7 +1286,11 @@ def make_stim_response_panel(
             if response.pulse_structure.pulse_tab_enabled and not response.pulse_trials.empty:
                 pulse_items.append(
                     pn.pane.Matplotlib(
-                        plot_pulse_response(response, builder),
+                        plot_pulse_response(
+                            response,
+                            builder,
+                            waveform=waveform_reviews.get(_response_unit_label(response)),
+                        ),
                         sizing_mode="stretch_width",
                         tight=True,
                         margin=0,
@@ -1222,7 +1349,10 @@ def make_stim_response_panel(
         refresh_unit_groups(preserve_selection=True)
         unit_groups, labels, missing = selected_units()
         selection_status.object = _format_unit_selection_status(labels, missing)
-        unit_responses = builder.build_many(unit_groups)
+        unit_responses = builder.build_many(
+            unit_groups,
+            max_pulse_trials=rapid_review_pulse_trials,
+        )
         cached_responses["responses"] = unit_responses
         summary.object = _format_multi_unit_summary(unit_responses, resolution)
         render_active_tab()
@@ -1255,7 +1385,8 @@ def make_stim_response_panel(
     tabs.param.watch(on_tab_change, "active")
     selection_status.object = _format_unit_selection_status(default_labels, [])
     summary.object = (
-        f"**Top pulse-ranked opto units selected:** `{', '.join(default_labels)}`  \n"
+        f"**Top KSLabel=good unit selected:** `{', '.join(default_labels)}`  \n"
+        f"**Rapid-review denominator:** first {rapid_review_pulse_trials} pulse pseudo-trials.  \n"
         "Plots will render automatically after the page loads."
     )
     set_area_loading(train_area, "Loading top pulse-ranked units in the train locked view...")
@@ -1264,12 +1395,15 @@ def make_stim_response_panel(
     return pn.Column(
         pn.pane.Markdown(
             "## Stim raster/PSTH\n"
+            f"- Rapid screen: KSLabel=good units ranked over the first {rapid_review_pulse_trials} pulse pseudo-trials.\n"
             "- Train locked: raster/PSTH aligned to stimulation train onset at x = 0 ms.\n"
             "- Pulse locked: raster/PSTH aligned to each pulse onset at x = 0 ms; window is -25 to +50 ms.\n"
+            "- Pulse plots include the cached trough-aligned mean best-channel waveform used by the current Lumos workflow.\n"
             "- Each selected unit is plotted in its own panel.",
             sizing_mode="stretch_width",
         ),
         status,
+        rapid_screen,
         controls,
         tabs,
         sizing_mode="stretch_width",
@@ -1305,19 +1439,44 @@ def plot_train_response(response: UnitStimResponse, builder: UnitStimResponseBui
     return fig
 
 
-def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBuilder):
+def plot_pulse_response(
+    response: UnitStimResponse,
+    builder: UnitStimResponseBuilder,
+    *,
+    waveform: AlignedWaveformReview | None = None,
+):
     """Render pulse-locked command, raster, and PSTH for one selected unit."""
 
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(
-        3,
-        1,
-        figsize=(7.2, 4.8),
-        sharex=True,
-        gridspec_kw={"height_ratios": [0.55, 1.8, 1.0]},
-        constrained_layout=True,
-    )
+    if waveform is None:
+        fig, axes = plt.subplots(
+            3,
+            1,
+            figsize=(7.2, 4.8),
+            sharex=True,
+            gridspec_kw={"height_ratios": [0.55, 1.8, 1.0]},
+            constrained_layout=True,
+        )
+    else:
+        fig = plt.figure(figsize=(8.8, 4.8), constrained_layout=True)
+        grid = fig.add_gridspec(
+            3,
+            2,
+            width_ratios=[0.9, 2.1],
+            height_ratios=[0.55, 1.8, 1.0],
+        )
+        waveform_axis = fig.add_subplot(grid[:, 0])
+        axes = np.asarray(
+            [
+                fig.add_subplot(grid[0, 1]),
+                fig.add_subplot(grid[1, 1]),
+                fig.add_subplot(grid[2, 1]),
+            ]
+        )
+        axes[1].sharex(axes[0])
+        axes[2].sharex(axes[0])
+        _draw_aligned_waveform_axis(waveform_axis, waveform)
     unit_label = _response_unit_label(response)
     _draw_pulse_waveform_axis(axes[0], response, builder)
     _draw_pulse_raster_axis(axes[1], response, builder)
@@ -1332,6 +1491,28 @@ def plot_pulse_response(response: UnitStimResponse, builder: UnitStimResponseBui
     axes[2].set_xlim(builder.pulse_window.start_ms, builder.pulse_window.end_ms)
     fig.suptitle(f"Unit {unit_label}: pulse locked", fontsize=10)
     return fig
+
+
+def _draw_aligned_waveform_axis(axis, waveform: AlignedWaveformReview) -> None:
+    """Draw the cached aligned mean best-channel waveform and current metrics."""
+
+    values = np.asarray(waveform.aligned_average_uv, dtype=float)
+    times = np.asarray(waveform.time_ms, dtype=float)
+    baseline = float(np.nanmedian(values[: min(5, len(values))])) if len(values) else 0.0
+    centered = values - baseline
+    axis.plot(times, centered, color="#d55e00", linewidth=1.7)
+    axis.axhline(0, color="#c7c7c7", linewidth=0.7)
+    axis.axvline(0, color="#c7c7c7", linewidth=0.7)
+    axis.set_xlabel("ms from aligned trough")
+    axis.set_ylabel("mean waveform (µV)")
+    axis.set_title(
+        "Aligned best-channel waveform\n"
+        f"{waveform.kslabel}; {waveform.rs_fs_classification}; n={waveform.usable_snippets}\n"
+        f"TTP {waveform.trough_to_peak_ms:.2f} ms · HW {waveform.half_width_ms:.2f} ms · "
+        f"PTP {waveform.ptp_uv:.1f} µV",
+        fontsize=8,
+    )
+    axis.spines[["top", "right"]].set_visible(False)
 
 
 def _pulse_signature(pulse_epochs: Sequence[PulseEpoch]) -> tuple[tuple[float, float], ...]:
@@ -1615,12 +1796,20 @@ def rank_opto_tagged_unit_groups(
     label_to_units: Mapping[str, Sequence[object]],
     *,
     limit: int | None = None,
+    max_pulse_trials: int | None = None,
 ) -> list[OptoTaggedUnitScore]:
     """Rank unit groups by pulse-locked post-stim response above baseline."""
 
     scores: list[OptoTaggedUnitScore] = []
     for unit_label, unit_ids in label_to_units.items():
-        scores.append(_score_opto_tagged_unit_group(unit_label, tuple(unit_ids), builder))
+        scores.append(
+            _score_opto_tagged_unit_group(
+                unit_label,
+                tuple(unit_ids),
+                builder,
+                max_pulse_trials=max_pulse_trials,
+            )
+        )
 
     ranked = sorted(
         scores,
@@ -1639,6 +1828,8 @@ def _score_opto_tagged_unit_group(
     unit_label: str,
     unit_ids: tuple[object, ...],
     builder: UnitStimResponseBuilder,
+    *,
+    max_pulse_trials: int | None = None,
 ) -> OptoTaggedUnitScore:
     """Score one unit/group by counting spikes in pulse-locked windows."""
 
@@ -1657,9 +1848,13 @@ def _score_opto_tagged_unit_group(
 
     baseline_intervals: list[tuple[float, float]] = []
     post_intervals: list[tuple[float, float]] = []
+    pulse_trial_count = 0
     for event in events.itertuples(index=False):
         stim_time_s = float(getattr(event, "event_time_s"))
         for pulse_index, pulse in enumerate(pulse_epochs):
+            if max_pulse_trials is not None and pulse_trial_count >= max_pulse_trials:
+                break
+            pulse_trial_count += 1
             next_start_ms = (
                 pulse_epochs[pulse_index + 1].start_ms
                 if pulse_index + 1 < len(pulse_epochs)
@@ -1680,6 +1875,8 @@ def _score_opto_tagged_unit_group(
                         onset_s + post_end_ms / 1000.0,
                     )
                 )
+        if max_pulse_trials is not None and pulse_trial_count >= max_pulse_trials:
+            break
 
     baseline_spikes = 0
     post_spikes = 0
@@ -1771,16 +1968,193 @@ def _default_opto_unit_labels(
     label_to_units: Mapping[str, Sequence[object]],
     *,
     limit: int,
+    max_pulse_trials: int | None = None,
 ) -> list[str]:
     """Return top opto-tagged unit labels, falling back to first units if needed."""
 
     if not label_to_units:
         return []
-    ranked = rank_opto_tagged_unit_groups(builder, label_to_units, limit=None)
+    ranked = rank_opto_tagged_unit_groups(
+        builder,
+        label_to_units,
+        limit=None,
+        max_pulse_trials=max_pulse_trials,
+    )
     positive = [score.unit_label for score in ranked if score.score_hz > 0.0 and score.post_spikes > 0]
     if positive:
         return positive[:limit]
     return [score.unit_label for score in ranked[:limit]]
+
+
+def _sorting_property_by_unit(sorting, property_name: str) -> dict[object, object]:
+    """Return one SpikeInterface sorting property keyed by unit id."""
+
+    unit_ids = _unit_ids_from_sorting(sorting)
+    if not unit_ids or not hasattr(sorting, "get_property"):
+        return {}
+    try:
+        values = list(sorting.get_property(property_name))
+    except Exception:  # noqa: BLE001 - properties vary across analyzer versions
+        return {}
+    if len(values) != len(unit_ids):
+        return {}
+    return dict(zip(unit_ids, values, strict=True))
+
+
+def kslabel_good_unit_groups(
+    sorting,
+    label_to_units: Mapping[str, Sequence[object]],
+) -> dict[str, tuple[object, ...]]:
+    """Keep current singleton/merge groups whose members are all KSLabel=good."""
+
+    labels = _sorting_property_by_unit(sorting, "KSLabel")
+    if not labels:
+        return {}
+    return {
+        label: tuple(unit_ids)
+        for label, unit_ids in label_to_units.items()
+        if unit_ids
+        and all(str(labels.get(unit_id, "")).strip().lower() == "good" for unit_id in unit_ids)
+    }
+
+
+def build_rapid_opto_review_table(
+    builder: UnitStimResponseBuilder,
+    label_to_units: Mapping[str, Sequence[object]],
+    sorting,
+    *,
+    max_pulse_trials: int = DEFAULT_RAPID_REVIEW_PULSE_TRIALS,
+    waveform_reviews: Mapping[str, AlignedWaveformReview] | None = None,
+) -> pd.DataFrame:
+    """Rank KSLabel=good units with response reliability across first pulse trials."""
+
+    good_groups = kslabel_good_unit_groups(sorting, label_to_units)
+    columns = [
+        "unit",
+        "KSLabel",
+        "opto_score_hz",
+        "post_rate_hz",
+        "baseline_rate_hz",
+        "response_spikes",
+        "response_pulse_hits",
+        "pulse_trials_reviewed",
+        "response_reliability",
+        "median_first_spike_latency_ms",
+        "aligned_ttp_ms",
+        "aligned_half_width_ms",
+        "aligned_ptp_uV",
+        "waveform_class",
+    ]
+    if not good_groups:
+        return pd.DataFrame(columns=columns)
+
+    ranked = rank_opto_tagged_unit_groups(
+        builder,
+        good_groups,
+        max_pulse_trials=max_pulse_trials,
+    )
+    responses = builder.build_many(
+        [score.unit_ids for score in ranked],
+        max_pulse_trials=max_pulse_trials,
+    )
+    waveform_reviews = waveform_reviews or {}
+    rows: list[dict[str, object]] = []
+    for score, response in zip(ranked, responses, strict=True):
+        spikes = response.pulse_aligned_spikes
+        in_window = spikes.loc[
+            (spikes["pulse_aligned_time_ms"] >= OPTO_RESPONSE_START_MS)
+            & (spikes["pulse_aligned_time_ms"] <= OPTO_RESPONSE_END_MS)
+        ] if not spikes.empty else spikes
+        pulse_total = len(response.pulse_trials)
+        pulse_hits = int(in_window["pulse_trial_index"].nunique()) if not in_window.empty else 0
+        if in_window.empty:
+            median_latency = np.nan
+        else:
+            first_latencies = in_window.groupby("pulse_trial_index")["pulse_aligned_time_ms"].min()
+            median_latency = float(first_latencies.median())
+        waveform = waveform_reviews.get(score.unit_label)
+        rows.append(
+            {
+                "unit": score.unit_label,
+                "KSLabel": "good",
+                "opto_score_hz": score.score_hz,
+                "post_rate_hz": score.post_rate_hz,
+                "baseline_rate_hz": score.baseline_rate_hz,
+                "response_spikes": len(in_window),
+                "response_pulse_hits": pulse_hits,
+                "pulse_trials_reviewed": pulse_total,
+                "response_reliability": pulse_hits / pulse_total if pulse_total else 0.0,
+                "median_first_spike_latency_ms": median_latency,
+                "aligned_ttp_ms": waveform.trough_to_peak_ms if waveform else np.nan,
+                "aligned_half_width_ms": waveform.half_width_ms if waveform else np.nan,
+                "aligned_ptp_uV": waveform.ptp_uv if waveform else np.nan,
+                "waveform_class": waveform.rs_fs_classification if waveform else "unavailable",
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def load_aligned_waveform_reviews(
+    recording_name: str,
+    well: str,
+    *,
+    metrics_csv: Path | None = DEFAULT_WAVEFORM_METRICS_CSV,
+    traces_csv: Path | None = DEFAULT_WAVEFORM_TRACES_CSV,
+) -> dict[str, AlignedWaveformReview]:
+    """Load the current cached trough-aligned mean waveform for one well."""
+
+    if metrics_csv is None or traces_csv is None:
+        return {}
+    metrics_path = Path(metrics_csv)
+    traces_path = Path(traces_csv)
+    if not metrics_path.exists() or not traces_path.exists():
+        return {}
+
+    metrics = pd.read_csv(metrics_path)
+    metrics = metrics.loc[
+        metrics["recording"].astype(str).eq(str(recording_name))
+        & metrics["well"].astype(str).eq(str(well))
+    ].copy()
+    if metrics.empty:
+        return {}
+    unit_keys = set(metrics["unit_key"].astype(str))
+    traces = pd.read_csv(
+        traces_path,
+        usecols=["unit_key", "unit_id", "time_ms", "after_aligned_average_uV"],
+    )
+    traces = traces.loc[traces["unit_key"].astype(str).isin(unit_keys)].copy()
+
+    reviews: dict[str, AlignedWaveformReview] = {}
+    for _, metric in metrics.iterrows():
+        key = str(metric["unit_key"])
+        unit_traces = traces.loc[traces["unit_key"].astype(str).eq(key)].sort_values("time_ms")
+        if unit_traces.empty:
+            continue
+        label = _artifact_unit_label(metric["unit_id"])
+        reviews[label] = AlignedWaveformReview(
+            unit_label=label,
+            time_ms=unit_traces["time_ms"].to_numpy(float),
+            aligned_average_uv=unit_traces["after_aligned_average_uV"].to_numpy(float),
+            kslabel=str(metric.get("KSLabel", "")),
+            usable_snippets=int(metric.get("usable_snippets", 0)),
+            trough_to_peak_ms=float(metric.get("after_trough_to_peak_duration_ms", np.nan)),
+            half_width_ms=float(metric.get("after_spike_half_width_ms", np.nan)),
+            ptp_uv=float(metric.get("after_template_ptp_best_channel_uV", np.nan)),
+            rs_fs_classification=str(metric.get("after_rs_fs_classification", "unknown")),
+        )
+    return reviews
+
+
+def _artifact_unit_label(value: object) -> str:
+    """Normalize CSV unit ids without turning integer ids into labels like 1.0."""
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if np.isfinite(numeric) and numeric.is_integer():
+        return str(int(numeric))
+    return str(value)
 
 
 def _format_response_summary(response: UnitStimResponse, resolution: StimSidecarResolution) -> str:
@@ -1793,6 +2167,37 @@ def _format_response_summary(response: UnitStimResponse, resolution: StimSidecar
         f"**Pulse-aligned spikes:** {len(response.pulse_aligned_spikes)}  \n"
         f"**Stimulated wells:** `{', '.join(resolution.eligibility.stimulated_wells)}`"
     )
+
+
+def _format_rapid_review_table(table: pd.DataFrame, max_pulse_trials: int) -> str:
+    """Return a compact Markdown leaderboard without optional tabulate dependency."""
+
+    if table.empty:
+        return (
+            "### Rapid optotag screen\n\n"
+            "No `KSLabel=good` units with review data were found for this well."
+        )
+    lines = [
+        f"### Rapid optotag screen — first {max_pulse_trials} pulse pseudo-trials",
+        "",
+        "| rank | unit | Δ rate (Hz) | pulse reliability | median latency (ms) | aligned TTP (ms) | class |",
+        "|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for rank, (_, row) in enumerate(table.head(20).iterrows(), start=1):
+        latency = row["median_first_spike_latency_ms"]
+        ttp = row["aligned_ttp_ms"]
+        lines.append(
+            f"| {rank} | `{row['unit']}` | {float(row['opto_score_hz']):.2f} | "
+            f"{float(row['response_reliability']):.1%} | "
+            f"{float(latency):.2f}" if pd.notna(latency) else
+            f"| {rank} | `{row['unit']}` | {float(row['opto_score_hz']):.2f} | "
+            f"{float(row['response_reliability']):.1%} | —"
+        )
+        lines[-1] += (
+            f" | {float(ttp):.2f}" if pd.notna(ttp) else " | —"
+        )
+        lines[-1] += f" | {row['waveform_class']} |"
+    return "\n".join(lines)
 
 
 def _format_multi_unit_summary(

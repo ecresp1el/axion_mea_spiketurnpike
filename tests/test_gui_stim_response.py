@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -16,6 +18,9 @@ from axion_mea.gui_stim_response import (  # noqa: E402
     StimResponseInputs,
     UnitStimResponseBuilder,
     assess_stim_response_eligibility,
+    build_rapid_opto_review_table,
+    kslabel_good_unit_groups,
+    load_aligned_waveform_reviews,
     load_opto_intervals_from_raw,
     inspect_pulse_structure,
     is_lumos_plate,
@@ -30,15 +35,25 @@ from axion_mea.gui_stim_response import (  # noqa: E402
 
 
 class FakeSorting:
-    def __init__(self, spike_trains: dict[object, list[int]], sampling_frequency: float = 1000.0) -> None:
+    def __init__(
+        self,
+        spike_trains: dict[object, list[int]],
+        sampling_frequency: float = 1000.0,
+        properties: dict[str, list[object]] | None = None,
+    ) -> None:
         self.spike_trains = spike_trains
+        self.unit_ids = list(spike_trains)
         self.sampling_frequency = sampling_frequency
+        self.properties = properties or {}
 
     def get_unit_spike_train(self, unit_id):
         return self.spike_trains.get(unit_id, [])
 
     def get_sampling_frequency(self) -> float:
         return self.sampling_frequency
+
+    def get_property(self, name: str):
+        return self.properties[name]
 
 
 def stim_events() -> pd.DataFrame:
@@ -330,6 +345,101 @@ class TestUnitStimResponseBuilder(unittest.TestCase):
         self.assertEqual(len(batched[0].pulse_aligned_spikes), len(single_101.pulse_aligned_spikes))
         self.assertEqual(len(batched[1].train_aligned_spikes), len(single_202.train_aligned_spikes))
         self.assertEqual(len(batched[1].pulse_aligned_spikes), len(single_202.pulse_aligned_spikes))
+
+    def test_first_n_pulse_trials_caps_raster_and_psth_denominator(self) -> None:
+        events = stim_events()
+        pulses = [
+            PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0),
+            PulseEpoch(pulse_index=2, start_ms=20.0, end_ms=25.0),
+        ]
+        builder = UnitStimResponseBuilder(
+            sorting=FakeSorting({101: [1000, 1020, 2000, 2020]}),
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=inspect_pulse_structure(events, pulses),
+            train_window=AnalysisWindow(pre_ms=5.0, post_ms=50.0),
+            pulse_window=PulseWindow(pre_ms=5.0, post_ms=50.0),
+            pulse_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+        )
+
+        response = builder.build([101], max_pulse_trials=3)
+
+        self.assertEqual(len(response.pulse_trials), 3)
+        self.assertEqual(sorted(response.pulse_aligned_spikes["pulse_trial_index"].unique()), [1, 2, 3])
+        first_bin_rate = response.pulse_psth.loc[
+            response.pulse_psth["bin_center_ms"] == 0.0,
+            "rate_hz",
+        ].iloc[0]
+        self.assertAlmostEqual(first_bin_rate, 100.0)
+
+    def test_rapid_review_keeps_and_ranks_only_good_units(self) -> None:
+        events = stim_events()
+        pulses = [PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0)]
+        sorting = FakeSorting(
+            {0: [1001, 2001], 1: [1002, 2002, 2003], 2: [1003, 2003]},
+            properties={"KSLabel": ["good", "mua", "good"]},
+        )
+        builder = UnitStimResponseBuilder(
+            sorting=sorting,
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=inspect_pulse_structure(events, pulses),
+        )
+        groups = {"0": (0,), "1": (1,), "2": (2,)}
+
+        good = kslabel_good_unit_groups(sorting, groups)
+        table = build_rapid_opto_review_table(
+            builder,
+            groups,
+            sorting,
+            max_pulse_trials=2,
+        )
+
+        self.assertEqual(good, {"0": (0,), "2": (2,)})
+        self.assertEqual(set(table["unit"]), {"0", "2"})
+        self.assertTrue(table["KSLabel"].eq("good").all())
+        self.assertTrue(table["pulse_trials_reviewed"].eq(2).all())
+
+    def test_aligned_waveform_cache_loader_matches_recording_well_and_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metrics_path = root / "metrics.csv"
+            traces_path = root / "traces.csv.gz"
+            pd.DataFrame(
+                {
+                    "unit_key": ["rec|A1|4", "other|A1|4"],
+                    "recording": ["rec", "other"],
+                    "well": ["A1", "A1"],
+                    "unit_id": [4, 4],
+                    "KSLabel": ["good", "good"],
+                    "usable_snippets": [500, 500],
+                    "after_trough_to_peak_duration_ms": [0.4, 1.0],
+                    "after_spike_half_width_ms": [0.16, 0.3],
+                    "after_template_ptp_best_channel_uV": [40.0, 20.0],
+                    "after_rs_fs_classification": ["FS_like", "RS_like"],
+                }
+            ).to_csv(metrics_path, index=False)
+            pd.DataFrame(
+                {
+                    "unit_key": ["rec|A1|4", "rec|A1|4", "other|A1|4"],
+                    "unit_id": [4, 4, 4],
+                    "time_ms": [-0.1, 0.0, 0.0],
+                    "after_aligned_average_uV": [1.0, -10.0, -2.0],
+                }
+            ).to_csv(traces_path, index=False, compression="gzip")
+
+            reviews = load_aligned_waveform_reviews(
+                "rec",
+                "A1",
+                metrics_csv=metrics_path,
+                traces_csv=traces_path,
+            )
+
+        self.assertEqual(list(reviews), ["4"])
+        self.assertEqual(reviews["4"].rs_fs_classification, "FS_like")
+        np.testing.assert_allclose(reviews["4"].aligned_average_uv, [1.0, -10.0])
 
     def test_events_for_other_well_are_ignored(self) -> None:
         events = pd.DataFrame(

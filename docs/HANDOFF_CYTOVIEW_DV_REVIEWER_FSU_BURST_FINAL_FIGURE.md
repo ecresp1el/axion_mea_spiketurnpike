@@ -1892,3 +1892,46 @@ stderr: 0 bytes
 output:
 .../cytoview_unified_rsfs_activity_figure_20260710_20260710_120059/
 ```
+
+### Layout-only Nature/Neuron hierarchy revision
+
+No data or panel content changed. Relative to job 53260022, Panel A's upper
+width allocation decreased by approximately 28%, the representative B/C column
+increased by approximately 31%, and D/E increased modestly. The upper hierarchy
+remains A spanning both rows, B-to-D above C-to-E.
+
+Panels B and C now use pale 6%-opacity rounded background tints with no outline,
+properly aligned internal section headers, generic unit/TTP titles, dominant
+spatial footprints, and secondary raw ACG/PTP strips. Unit-title text and traces
+use the class accent while QC annotations remain neutral.
+
+The exact palette is now:
+
+```text
+FS       #C87932
+RS       #4F718C
+dorsal   #6F8061
+ventral  #C59A52
+neutral  #2B2B2B
+```
+
+The lower row was enlarged and standardized. Its full-width header has a thin
+0.65-pt neutral rule; point size, mean-diamond size, error-bar caps, title
+position, and spacing are uniform across F1-F6. No full lower enclosure is used.
+
+Canonical layout-only render:
+
+```text
+job_id: 53262237
+state: COMPLETED
+elapsed: 00:01:05
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_121758/
+```
+
+Byte-level SHA-256 comparison against job 53260022 confirmed that the B/C
+representative selection, D/E classified-unit firing source, and F network
+activity source CSVs are identical. This is therefore strictly a layout/color
+revision.
