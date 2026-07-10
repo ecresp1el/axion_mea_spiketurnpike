@@ -1477,6 +1477,53 @@ Implementation order:
   contamination, and spatial drift while still requiring high waveform
   similarity.
 
+- [x] 2026-07-09 21:12 EDT - Expanded the current B2 best-unit figure with a
+  direct continuous channel-trace row under the stability panels.
+
+  What changed:
+  the figure still uses the same selected B2 chain (`000/002/004`, units
+  `53;52;12`, best channel `30`) and the same aligned persisted `random_spikes`
+  snippet means for the waveform overlay/local-footprint panels. A new bottom
+  row now plots the direct spike-band voltage trace for best channel `30` from
+  each displayed recording.
+
+  Direct trace source:
+  `analyzer.recording.get_traces(return_in_uV=True)` from the current Step 1
+  analyzer, i.e. the same `Neural Spikes` stream used for Kilosort:
+  `acquisition_hp=200 Hz IIR`, `acquisition_lp=3 kHz Kaiser Window`.
+  This is not recomputed from templates and does not change unit scoring.
+
+  Timestamp source:
+  raw acquisition timing comes from:
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/raw_files.csv
+  ```
+  specifically `block_vector_start_time`; the raw metadata table is used for
+  timing/provenance only.
+
+  Elapsed acquisition timing in the plotted repeats:
+  | Repeat | Raw start time | Elapsed from repeat `000` |
+  |---|---|---:|
+  | `000` | `2026-05-23 10:08:59.034` | `0.000 h` |
+  | `002` | `2026-05-23 10:32:28.627` | `0.392 h` |
+  | `004` | `2026-05-23 13:02:08.023` | `2.886 h` |
+
+  Trace window:
+  `60.0-61.0 s` within each recording, `12,500` samples per repeat at
+  `12.5 kHz`, common y-axis scaling across the three trace panels.
+
+  New/updated outputs:
+  ```text
+  transient_plateing_B2_best_unit_stability_20260709.png
+  transient_plateing_B2_best_unit_stability_20260709.pdf
+  transient_plateing_B2_best_unit_stability_20260709.svg
+  transient_plateing_B2_best_unit_direct_channel_trace_20260709.csv.gz
+  ```
+
+  The sidecar trace table has `37,500` rows total and includes repeat, unit,
+  channel, voltage in uV, trace time in recording, raw start time, elapsed hours,
+  raw file path, and filter metadata signature.
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.

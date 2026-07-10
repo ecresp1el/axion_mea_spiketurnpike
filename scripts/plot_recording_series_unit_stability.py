@@ -8,6 +8,7 @@ import itertools
 import json
 import math
 import re
+import textwrap
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -835,6 +836,207 @@ def draw_best_unit_waveform_overlay(ax, chain: list[UnitCandidate]) -> None:
     ax.set_ylabel("Mean waveform (uV)")
     ax.legend(frameon=False, fontsize=8.5, loc="best")
     ax.spines[["top", "right"]].set_visible(False)
+
+
+def direct_trace_table_path(output_dir: Path, target_well: str, date_label: str) -> Path:
+    return output_dir / f"transient_plateing_{target_well}_best_unit_direct_channel_trace_{date_label}.csv.gz"
+
+
+def direct_trace_info_for_chain(chain: list[UnitCandidate], bundles: dict[str, Bundle], args) -> list[dict[str, object]]:
+    metadata = raw_recording_metadata_by_repeat(args.raw_metadata_csv.expanduser(), [candidate.repeat for candidate in chain])
+    first_start, reference_repeat = earliest_start_time_and_repeat(metadata, [candidate.repeat for candidate in chain])
+    infos = []
+    for candidate in chain:
+        bundle = bundles[candidate.repeat]
+        meta = metadata.get(candidate.repeat, {})
+        start_s = max(0.0, float(args.direct_trace_window_start_s))
+        duration_s = max(0.0, float(args.direct_trace_window_duration_s))
+        num_samples = int(bundle.analyzer.recording.get_num_samples(segment_index=0))
+        fs = float(bundle.sampling_frequency_hz)
+        start_frame = int(round(start_s * fs))
+        if start_frame >= num_samples:
+            start_frame = max(0, num_samples - int(round(duration_s * fs)))
+            start_s = start_frame / fs if fs > 0 else 0.0
+        end_frame = min(num_samples, start_frame + max(1, int(round(duration_s * fs))))
+        trace = bundle.analyzer.recording.get_traces(
+            segment_index=0,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            channel_ids=[candidate.best_channel_id],
+            return_in_uV=True,
+        )
+        trace = np.asarray(trace, dtype=float)
+        voltage = trace[:, 0] if trace.ndim == 2 and trace.shape[1] else np.asarray([], dtype=float)
+        time_s = start_s + np.arange(voltage.size, dtype=float) / fs if fs > 0 else np.arange(voltage.size, dtype=float)
+        start_time = meta.get("block_vector_start_time")
+        elapsed_hours = np.nan
+        if isinstance(start_time, pd.Timestamp) and isinstance(first_start, pd.Timestamp):
+            elapsed_hours = float((start_time - first_start).total_seconds() / 3600.0)
+        infos.append(
+            {
+                "candidate": candidate,
+                "time_s": time_s,
+                "voltage_uV": voltage,
+                "sampling_frequency_hz": fs,
+                "trace_start_s": float(start_s),
+                "trace_duration_s": float((end_frame - start_frame) / fs) if fs > 0 else np.nan,
+                "start_frame": int(start_frame),
+                "end_frame": int(end_frame),
+                "block_vector_start_time": start_time,
+                "experiment_start_time": meta.get("experiment_start_time"),
+                "elapsed_hours_from_first_repeat": elapsed_hours,
+                "elapsed_reference_repeat": reference_repeat,
+                "raw_file": meta.get("raw_file", ""),
+                "raw_name": meta.get("raw_name", ""),
+                "filter_metadata_signature": meta.get("filter_metadata_signature", ""),
+            }
+        )
+    return infos
+
+
+def raw_recording_metadata_by_repeat(raw_metadata_csv: Path, repeats: list[str]) -> dict[str, dict[str, object]]:
+    if not raw_metadata_csv.exists():
+        return {}
+    try:
+        df = pd.read_csv(raw_metadata_csv)
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+    metadata = {}
+    raw_name = df.get("raw_name", pd.Series([""] * len(df))).astype(str)
+    raw_variant = df.get("raw_variant", pd.Series([""] * len(df))).astype(str)
+    raw_file = df.get("raw_file", pd.Series([""] * len(df))).astype(str)
+    logical_folder = df.get("logical_folder", pd.Series([""] * len(df))).astype(str)
+    for repeat in repeats:
+        expected_name = f"My Experiment({str(repeat).zfill(3)}).raw"
+        mask = raw_name.eq(expected_name) & raw_variant.eq("primary_raw")
+        if not mask.any():
+            mask = raw_file.str.endswith(expected_name)
+        rows = df.loc[mask].copy()
+        if rows.empty:
+            continue
+        preferred = rows[
+            logical_folder.loc[rows.index].str.contains("Testing_mea_transient_plateing", regex=False, na=False)
+            & logical_folder.loc[rows.index].str.contains("134-0150", regex=False, na=False)
+        ]
+        row = (preferred if not preferred.empty else rows).iloc[0]
+        metadata[str(repeat).zfill(3)] = {
+            "raw_name": row.get("raw_name", ""),
+            "raw_file": row.get("raw_file", ""),
+            "block_vector_start_time": parse_timestamp_or_none(row.get("block_vector_start_time", "")),
+            "experiment_start_time": parse_timestamp_or_none(row.get("experiment_start_time", "")),
+            "duration_s": safe_float(row.get("duration_s", np.nan)),
+            "filter_metadata_signature": row.get("filter_metadata_signature", ""),
+        }
+    return metadata
+
+
+def parse_timestamp_or_none(value: object) -> pd.Timestamp | None:
+    timestamp = pd.to_datetime(value, errors="coerce")
+    if pd.isna(timestamp):
+        return None
+    return timestamp
+
+
+def earliest_start_time_and_repeat(metadata: dict[str, dict[str, object]], repeats: list[str]) -> tuple[pd.Timestamp | None, str]:
+    starts = []
+    for repeat in repeats:
+        repeat_key = str(repeat).zfill(3)
+        start = metadata.get(repeat_key, {}).get("block_vector_start_time")
+        if isinstance(start, pd.Timestamp):
+            starts.append((start, repeat_key))
+    if not starts:
+        return None, str(repeats[0]).zfill(3) if repeats else ""
+    return min(starts, key=lambda item: item[0])
+
+
+def write_direct_trace_table(infos: list[dict[str, object]], output_dir: Path, target_well: str, date_label: str) -> Path | None:
+    if not infos:
+        return None
+    rows = []
+    for info in infos:
+        candidate = info["candidate"]
+        time_s = np.asarray(info["time_s"], dtype=float)
+        voltage = np.asarray(info["voltage_uV"], dtype=float)
+        for sample_index, (sample_time_s, sample_voltage_uV) in enumerate(zip(time_s, voltage, strict=True)):
+            rows.append(
+                {
+                    "repeat": candidate.repeat,
+                    "well": candidate.well,
+                    "unit_id": candidate.unit_id,
+                    "best_channel_id": candidate.best_channel_id,
+                    "best_channel_index": candidate.best_channel_index,
+                    "sample_index_in_trace": sample_index,
+                    "trace_time_s_in_recording": sample_time_s,
+                    "voltage_uV": sample_voltage_uV,
+                    "sampling_frequency_hz": info["sampling_frequency_hz"],
+                    "trace_start_s": info["trace_start_s"],
+                    "trace_duration_s": info["trace_duration_s"],
+                    "block_vector_start_time": info["block_vector_start_time"],
+                    "experiment_start_time": info["experiment_start_time"],
+                    "elapsed_hours_from_first_repeat": info["elapsed_hours_from_first_repeat"],
+                    "elapsed_reference_repeat": info["elapsed_reference_repeat"],
+                    "raw_file": info["raw_file"],
+                    "filter_metadata_signature": info["filter_metadata_signature"],
+                    "trace_source": "Step 1 analyzer.recording Neural Spikes stream used for Kilosort",
+                }
+            )
+    path = direct_trace_table_path(output_dir, target_well, date_label)
+    pd.DataFrame(rows).to_csv(path, index=False, compression="gzip")
+    return path
+
+
+def common_direct_trace_ylim(infos: list[dict[str, object]]) -> tuple[float, float]:
+    values = [np.asarray(info["voltage_uV"], dtype=float) for info in infos if np.asarray(info["voltage_uV"]).size]
+    if not values:
+        return (-1.0, 1.0)
+    pooled = np.concatenate(values)
+    pooled = pooled[np.isfinite(pooled)]
+    if pooled.size == 0:
+        return (-1.0, 1.0)
+    center = float(np.nanmedian(pooled))
+    half_range = float(np.nanpercentile(np.abs(pooled - center), 99.5) * 1.15)
+    if not np.isfinite(half_range) or half_range <= 0:
+        half_range = max(float(np.nanmax(np.abs(pooled - center))), 1.0)
+    return (center - half_range, center + half_range)
+
+
+def draw_direct_trace_panel(ax, info: dict[str, object], ylim: tuple[float, float]) -> None:
+    candidate = info["candidate"]
+    time_s = np.asarray(info["time_s"], dtype=float)
+    voltage = np.asarray(info["voltage_uV"], dtype=float)
+    ax.plot(time_s, voltage, color="#2b2b2b", lw=0.75)
+    ax.axhline(0, color="0.86", lw=0.7)
+    ax.set_ylim(*ylim)
+    if time_s.size:
+        ax.set_xlim(float(time_s[0]), float(time_s[-1]))
+    elapsed = info.get("elapsed_hours_from_first_repeat")
+    reference_repeat = info.get("elapsed_reference_repeat", "first")
+    elapsed_text = "elapsed n/a" if not np.isfinite(elapsed) else f"+{elapsed:.2f} h from repeat {reference_repeat}"
+    ax.set_title(
+        f"Repeat {candidate.repeat}: ch {candidate.best_channel_id}\n{elapsed_text}",
+        fontsize=9.5,
+    )
+    ax.set_xlabel("Time in recording (s)")
+    ax.set_ylabel("Voltage (uV)")
+    ax.grid(axis="y", color="0.9", lw=0.65)
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def draw_direct_trace_note(ax, infos: list[dict[str, object]], args) -> None:
+    ax.axis("off")
+    signatures = [str(info.get("filter_metadata_signature", "")) for info in infos if str(info.get("filter_metadata_signature", ""))]
+    signature = signatures[0] if signatures else "metadata signature unavailable"
+    wrapped_signature = textwrap.wrap(f"Filter: {signature}", width=62) or [f"Filter: {signature}"]
+    lines = [
+        "Direct channel trace row",
+        "Source: Step 1 analyzer.recording, return_in_uV=True.",
+        f"Window: {args.direct_trace_window_start_s:.1f}-{args.direct_trace_window_start_s + args.direct_trace_window_duration_s:.1f} s in each recording.",
+        "Elapsed time: raw metadata block_vector_start_time, relative to first displayed repeat.",
+        *wrapped_signature,
+    ]
+    ax.text(0.0, 0.98, "\n".join(lines), ha="left", va="top", fontsize=8.6, linespacing=1.26)
 
 
 def draw_best_unit_summary(

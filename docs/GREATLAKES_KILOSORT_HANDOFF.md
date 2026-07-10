@@ -1671,3 +1671,37 @@ python scripts/plot_recording_series_unit_stability.py \
   --max-best-channel-drift-um 500 \
   --export-formats png,pdf,svg
 ```
+
+Direct trace expansion, 2026-07-09 21:12 EDT:
+
+- The same B2 best-unit figure now includes a bottom row with direct continuous
+  channel data from best channel `30` for repeats `000`, `002`, and `004`.
+- The trace is extracted from the current Step 1 analyzer recording with
+  `analyzer.recording.get_traces(return_in_uV=True)`, so it is the same
+  `Neural Spikes` stream used for Kilosort: `200 Hz IIR` high pass and
+  `3 kHz Kaiser Window` low pass.
+- The upper waveform overlay and local-footprint panels are unchanged: they are
+  aligned persisted `random_spikes` snippet means, not raw template glyphs.
+- The raw metadata inventory is used only for acquisition timing:
+  `/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/axion_file_ground_truth_20260708_filter_metadata_patch/raw_files.csv`.
+- The plotted trace window is `60.0-61.0 s` inside each recording, giving
+  `12,500` samples per repeat at `12.5 kHz`, with common y-axis scaling across
+  trace panels.
+
+Elapsed acquisition timing:
+
+| Repeat | Raw start time | Elapsed from repeat `000` |
+|---|---|---:|
+| `000` | `2026-05-23 10:08:59.034` | `0.000 h` |
+| `002` | `2026-05-23 10:32:28.627` | `0.392 h` |
+| `004` | `2026-05-23 13:02:08.023` | `2.886 h` |
+
+New sidecar output:
+
+```text
+transient_plateing_B2_best_unit_direct_channel_trace_20260709.csv.gz
+```
+
+The sidecar has `37,500` rows and records repeat, unit, channel, voltage in uV,
+trace time within recording, raw acquisition start time, elapsed hours, raw file
+path, and filter metadata signature.
