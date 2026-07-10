@@ -1306,10 +1306,12 @@ Implementation order:
   ```
 
   Plotting update:
-  the probability-normalized ACG row is now a smoothed line with a light
-  unit-color area fill underneath. The count ACG row remains raw bars. The
-  probability values and validation sums remain based on the unsmoothed
-  displayed-bin probabilities; smoothing is display-only.
+  the probability-normalized ACG row is now a line with a light unit-color area
+  fill underneath. The displayed line uses only a one-bin-neighbor smoothing
+  kernel, `[1, 2, 1] / 4`, so it remains close to the raw binned probability
+  shape. The count ACG row remains raw bars. The probability values and
+  validation sums remain based on the unsmoothed displayed-bin probabilities;
+  smoothing is display-only.
 
 ## What To Avoid
 

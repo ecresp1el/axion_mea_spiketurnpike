@@ -8494,9 +8494,10 @@ Canonical commands:
     `cytoview_ventral_hybrid_qc_v2_review_contact_sheet.jpg`.
 
   Display update:
-    probability-normalized ACGs are now shown as a lightly smoothed unit-color
-    line with translucent area fill; raw-count ACGs remain bars. Smoothing is
-    display-only and does not change the probability normalization manifest.
+    probability-normalized ACGs are now shown as a unit-color line with
+    translucent area fill; raw-count ACGs remain bars. The displayed probability
+    line uses only a one-bin-neighbor `[1, 2, 1] / 4` smoothing kernel. Smoothing
+    is display-only and does not change the probability normalization manifest.
 
 - [x] 2026-07-09 13:43 EDT - Lumos optotag ranking/firing-rate plots refreshed
   after all standard-route Lumos wells became available.

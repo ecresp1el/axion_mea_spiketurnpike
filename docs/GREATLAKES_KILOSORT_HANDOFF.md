@@ -1393,10 +1393,11 @@ cytoview_dorsal_hybrid_qc_v2_review_contact_sheet.jpg
 cytoview_ventral_hybrid_qc_v2_review_contact_sheet.jpg
 ```
 
-The probability-normalized ACG row now uses a lightly smoothed unit-color line
-with translucent area fill. The raw-count ACG row remains a bar plot. The
-probability normalization and manifest values are still computed from the
-unsmoothed displayed-bin probabilities.
+The probability-normalized ACG row now uses a unit-color line with translucent
+area fill. The displayed line uses only a one-bin-neighbor `[1, 2, 1] / 4`
+smoothing kernel so it remains close to the raw binned shape. The raw-count ACG
+row remains a bar plot. The probability normalization and manifest values are
+still computed from the unsmoothed displayed-bin probabilities.
 
 ### Testing MEA Transient Plateing Recording-Series Rerun, 2026-07-09
 

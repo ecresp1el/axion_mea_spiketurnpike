@@ -623,11 +623,11 @@ def plot_hybrid_probability_autocorrelogram(
 
 
 def smooth_probability_for_display(values: np.ndarray) -> np.ndarray:
-    if values.size < 5:
+    if values.size < 3:
         return values
-    kernel = np.asarray([1.0, 2.0, 3.0, 2.0, 1.0], dtype=float)
+    kernel = np.asarray([1.0, 2.0, 1.0], dtype=float)
     kernel /= kernel.sum()
-    padded = np.pad(values.astype(float), (2, 2), mode="edge")
+    padded = np.pad(values.astype(float), (1, 1), mode="edge")
     return np.convolve(padded, kernel, mode="valid")
 
 
