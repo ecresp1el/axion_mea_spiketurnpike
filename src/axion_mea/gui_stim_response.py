@@ -1041,6 +1041,45 @@ def _limit_pulse_trials(
     return limited_spikes.reset_index(drop=True), limited_trials.reset_index(drop=True)
 
 
+def active_pulse_trial_response(
+    response: UnitStimResponse,
+    builder: UnitStimResponseBuilder,
+) -> UnitStimResponse:
+    """Recalculate the pulse PSTH after removing completely silent pulse trials."""
+
+    if response.pulse_trials.empty or response.pulse_aligned_spikes.empty:
+        active_trials = response.pulse_trials.iloc[0:0].copy()
+        active_spikes = response.pulse_aligned_spikes.iloc[0:0].copy()
+    else:
+        active_ids = set(
+            response.pulse_aligned_spikes["pulse_trial_index"].dropna().astype(int).unique()
+        )
+        active_trials = response.pulse_trials.loc[
+            response.pulse_trials["pulse_trial_index"].astype(int).isin(active_ids)
+        ].copy()
+        active_spikes = response.pulse_aligned_spikes.loc[
+            response.pulse_aligned_spikes["pulse_trial_index"].astype(int).isin(active_ids)
+        ].copy()
+
+    trial_ids = active_trials["pulse_trial_index"].astype(int).tolist()
+    active_psth = PsthBuilder(
+        well_spikes=active_spikes,
+        trials=trial_ids,
+        config=builder.pulse_psth_config,
+        time_column="pulse_aligned_time_ms",
+    ).build(builder.pulse_window)
+    return UnitStimResponse(
+        selected_unit_ids=response.selected_unit_ids,
+        train_aligned_spikes=response.train_aligned_spikes,
+        train_trials=response.train_trials,
+        train_psth=response.train_psth,
+        pulse_aligned_spikes=active_spikes.reset_index(drop=True),
+        pulse_trials=active_trials.reset_index(drop=True),
+        pulse_psth=active_psth,
+        pulse_structure=response.pulse_structure,
+    )
+
+
 def make_stim_response_panel(
     analyzer,
     *,

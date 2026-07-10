@@ -1977,3 +1977,49 @@ SHA-256/cmp checks against job 53262237 confirmed byte-identical B/C
 representative selection, D/E classified-unit firing source, and F regional
 network-activity source CSVs. No unit selection, metric, or biological result
 changed.
+
+### Asymmetric editorial redesign: representative units as the visual anchor
+
+The next design pass responds to the publication-layout review while keeping
+the data and panel content unchanged. The figure is now a deliberately
+asymmetric 16 × 11 inch composition:
+
+- Panel A is a compact 19%-width support column. Its 3D feature space is
+  followed by a micro mean-waveform display labelled only FS/RS and a small
+  RS/FS composition annotation.
+- Panels B/C occupy the remaining 81% of the upper validation section. They
+  share one section title, `Representative extracellular units`, with only the
+  class subtitles `Fast-spiking (FS)` and `Regular-spiking (RS)`. The beige
+  backgrounds and rounded dashboard-style fills were removed; a single thin
+  neutral divider separates the class rows.
+- Panels D/E are now one paired comparison under the shared title `Regional
+  firing properties of classified units`, with FS on the left and RS on the
+  right, common y-limits, and a single y-axis label.
+- The lower six activity plots use a tighter continuous strip with aligned
+  title and y-label baselines. The intentional vertical gap between the upper
+  validation section and regional physiology creates the section hierarchy.
+
+The publication palette is now:
+
+```text
+FS       #B8742A
+RS       #58758E
+dorsal   #6F8477
+ventral  #C8A05A
+neutral  #2B2B2B
+```
+
+Canonical render:
+
+```text
+job_id: 53262736
+state: COMPLETED
+runtime: 00:00:58
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_124710/
+```
+
+The render was visually inspected. The B/C, D/E, and F source CSVs are
+byte-identical to job 53262409, confirming a layout/color-only revision.

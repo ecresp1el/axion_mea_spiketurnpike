@@ -33,9 +33,9 @@ LUMOS_FIRING_PATH = JOB_ROOT / "lumos_gui_ready_unsorted_unit_firing_rates_20260
 STEM = "cytoview_unified_rsfs_activity_figure_20260710"
 
 CLASS_ORDER = ["FS", "RS"]
-CLASS_COLORS = {"FS": "#C87932", "RS": "#4F718C"}
+CLASS_COLORS = {"FS": "#B8742A", "RS": "#58758E"}
 REGION_ORDER = ["dorsal", "ventral"]
-REGION_COLORS = {"dorsal": "#70877F", "ventral": "#C59A52"}
+REGION_COLORS = {"dorsal": "#6F8477", "ventral": "#C8A05A"}
 VARIANT_MARKERS = {
     "primary_raw": "o",
     "filter_200Hz-3kHz": "s",
@@ -976,10 +976,6 @@ def _plot_unified_figure(
     export_formats: str,
     fs_cutoff_ms: float,
 ) -> list[Path]:
-    from matplotlib.colors import to_rgba
-    from matplotlib.patches import FancyBboxPatch
-    from matplotlib.transforms import Bbox
-
     neutral = "#2B2B2B"
     plt.rcParams.update(
         {
@@ -1002,35 +998,90 @@ def _plot_unified_figure(
             "ps.fonttype": 42,
         }
     )
-    fig = plt.figure(figsize=(16.0, 9.8), facecolor="white")
-    outer = fig.add_gridspec(2, 1, height_ratios=[1.72, 1.00], hspace=0.27)
-    upper_block = outer[0].subgridspec(2, 1, height_ratios=[0.10, 1.0], hspace=0.02)
-    ax_upper_title = fig.add_subplot(upper_block[0, 0])
+    fig = plt.figure(figsize=(16.0, 11.0), facecolor="white")
+    outer = fig.add_gridspec(
+        6,
+        1,
+        height_ratios=[0.045, 0.420, 0.075, 0.180, 0.050, 0.230],
+        hspace=0.0,
+    )
+    ax_upper_title = fig.add_subplot(outer[0, 0])
     ax_upper_title.set_axis_off()
     ax_upper_title.text(
         0.0,
-        0.56,
+        0.58,
         "Waveform-defined unit classification and validation",
         transform=ax_upper_title.transAxes,
         fontsize=10.0,
         fontweight="bold",
         va="center",
     )
-    top = upper_block[1, 0].subgridspec(
-        2, 3, width_ratios=[1.05, 1.80, 1.10], hspace=0.20, wspace=0.25
+    upper = outer[1, 0].subgridspec(1, 2, width_ratios=[0.19, 0.81], wspace=0.10)
+    panel_a_grid = upper[0, 0].subgridspec(
+        3, 1, height_ratios=[0.78, 0.14, 0.08], hspace=0.045
     )
-    panel_a_grid = top[:, 0].subgridspec(
-        2, 2, width_ratios=[2.35, 0.86], height_ratios=[1.35, 0.65], hspace=0.28, wspace=0.34
+    ax_a_features = fig.add_subplot(panel_a_grid[0, 0], projection="3d")
+    ax_a_waveform = fig.add_subplot(panel_a_grid[1, 0])
+    ax_a_composition = fig.add_subplot(panel_a_grid[2, 0])
+
+    representative_grid = upper[0, 1].subgridspec(
+        3, 1, height_ratios=[0.070, 0.465, 0.465], hspace=0.025
     )
-    ax_a_features = fig.add_subplot(panel_a_grid[:, 0], projection="3d")
-    ax_a_waveform = fig.add_subplot(panel_a_grid[0, 1])
-    ax_a_composition = fig.add_subplot(panel_a_grid[1, 1])
+    ax_representative_title = fig.add_subplot(representative_grid[0, 0])
+    ax_representative_title.set_axis_off()
+    ax_representative_title.text(
+        0.0,
+        0.62,
+        "Representative extracellular units",
+        transform=ax_representative_title.transAxes,
+        fontsize=9.2,
+        fontweight="bold",
+        va="center",
+    )
     representative_axes: dict[str, list[tuple[object, object, object]]] = {"FS": [], "RS": []}
+    representative_class_headers: dict[str, object] = {}
     for row_index, class_label in enumerate(CLASS_ORDER):
-        class_grid = top[row_index, 1].subgridspec(1, 2, wspace=0.035)
+        class_block = representative_grid[row_index + 1, 0].subgridspec(
+            2, 1, height_ratios=[0.090, 0.910], hspace=0.005
+        )
+        class_header = fig.add_subplot(class_block[0, 0])
+        class_header.set_axis_off()
+        representative_class_headers[class_label] = class_header
+        panel_letter = "B" if class_label == "FS" else "C"
+        class_title = "Fast-spiking (FS)" if class_label == "FS" else "Regular-spiking (RS)"
+        class_header.text(
+            0.0,
+            0.48,
+            panel_letter,
+            transform=class_header.transAxes,
+            fontsize=12,
+            fontweight="bold",
+            va="center",
+            color=neutral,
+        )
+        class_header.text(
+            0.043,
+            0.48,
+            class_title,
+            transform=class_header.transAxes,
+            fontsize=7.8,
+            fontweight="normal",
+            va="center",
+            color=CLASS_COLORS[class_label],
+        )
+        if class_label == "RS":
+            class_header.plot(
+                [0.0, 1.0],
+                [1.02, 1.02],
+                transform=class_header.transAxes,
+                color="#D5D5D5",
+                lw=0.55,
+                clip_on=False,
+            )
+        class_grid = class_block[1, 0].subgridspec(1, 2, wspace=0.025)
         for unit_index in range(2):
             card = class_grid[0, unit_index].subgridspec(
-                3, 1, height_ratios=[2.95, 0.30, 0.17], hspace=0.055
+                3, 1, height_ratios=[3.25, 0.42, 0.25], hspace=0.030
             )
             representative_axes[class_label].append(
                 (
@@ -1039,14 +1090,48 @@ def _plot_unified_figure(
                     fig.add_subplot(card[2]),
                 )
             )
-    ax_d_fs_firing = fig.add_subplot(top[0, 2])
-    ax_e_rs_firing = fig.add_subplot(top[1, 2])
-    bottom_block = outer[1].subgridspec(2, 1, height_ratios=[0.12, 1.0], hspace=0.02)
-    ax_f_title = fig.add_subplot(bottom_block[0, 0])
+    ax_regional_firing_title = fig.add_subplot(outer[2, 0])
+    ax_regional_firing_title.set_axis_off()
+    ax_regional_firing_title.text(
+        0.19,
+        0.58,
+        "Regional firing properties of classified units",
+        transform=ax_regional_firing_title.transAxes,
+        fontsize=9.2,
+        fontweight="bold",
+        va="center",
+    )
+    ax_regional_firing_title.text(
+        1.0,
+        0.58,
+        "One point per classified unit · mean ± SEM",
+        transform=ax_regional_firing_title.transAxes,
+        fontsize=5.8,
+        color="#555555",
+        ha="right",
+        va="center",
+    )
+    ax_regional_firing_title.plot(
+        [0.0, 1.0],
+        [0.10, 0.10],
+        transform=ax_regional_firing_title.transAxes,
+        color="#CFCFCF",
+        lw=0.60,
+        clip_on=False,
+    )
+    regional_units = outer[3, 0].subgridspec(
+        1, 3, width_ratios=[0.19, 0.405, 0.405], wspace=0.08
+    )
+    ax_regional_blank = fig.add_subplot(regional_units[0, 0])
+    ax_regional_blank.set_axis_off()
+    ax_d_fs_firing = fig.add_subplot(regional_units[0, 1])
+    ax_e_rs_firing = fig.add_subplot(regional_units[0, 2], sharey=ax_d_fs_firing)
+
+    ax_f_title = fig.add_subplot(outer[4, 0])
     ax_f_title.set_axis_off()
     ax_f_title.text(
         0.0,
-        0.55,
+        0.58,
         "F",
         transform=ax_f_title.transAxes,
         fontsize=12,
@@ -1055,7 +1140,7 @@ def _plot_unified_figure(
     )
     ax_f_title.text(
         0.025,
-        0.55,
+        0.58,
         "Regional spontaneous network activity",
         transform=ax_f_title.transAxes,
         fontsize=9.2,
@@ -1064,15 +1149,15 @@ def _plot_unified_figure(
     )
     ax_f_title.plot(
         [0.0, 1.0],
-        [0.08, 0.08],
+        [0.10, 0.10],
         transform=ax_f_title.transAxes,
         color="#B8B8B8",
         lw=0.65,
         clip_on=False,
     )
-    bottom = bottom_block[1, 0].subgridspec(1, 6, wspace=0.30)
+    bottom = outer[5, 0].subgridspec(1, 6, wspace=0.20)
     axes_f = [fig.add_subplot(bottom[index]) for index in range(6)]
-    fig.subplots_adjust(left=0.045, right=0.992, top=0.982, bottom=0.060)
+    fig.subplots_adjust(left=0.045, right=0.992, top=0.988, bottom=0.055)
 
     _plot_feature_space_3d(ax_a_features, units, fs_cutoff_ms)
     _plot_panel_a_mean_waveforms(ax_a_waveform, waveform_summary)
@@ -1081,51 +1166,15 @@ def _plot_unified_figure(
     shared_unit_rate_ylim = (0.0, 13.0)
     _plot_regional_class_unit_firing(ax_d_fs_firing, units, "FS", shared_unit_rate_ylim)
     _plot_regional_class_unit_firing(ax_e_rs_firing, units, "RS", shared_unit_rate_ylim)
+    ax_e_rs_firing.set_ylabel("")
+    ax_e_rs_firing.tick_params(axis="y", left=False, labelleft=False)
+    ax_e_rs_firing.spines["left"].set_visible(False)
     _plot_activity_strip(axes_f, wells, panel_f_specs)
+    fig.align_ylabels(axes_f)
 
     _panel_letter(ax_a_features, "A", x=-0.08)
-    for class_label, panel_letter, section_title in [
-        ("FS", "B", "Representative FS units"),
-        ("RS", "C", "Representative RS units"),
-    ]:
-        group_axes = [axis for card_axes in representative_axes[class_label] for axis in card_axes]
-        for axis in group_axes:
-            axis.set_facecolor("none")
-        bounds = Bbox.union([axis.get_position() for axis in group_axes])
-        pad_x, pad_bottom, pad_top = 0.006, 0.009, 0.034
-        tint = FancyBboxPatch(
-            (bounds.x0 - pad_x, bounds.y0 - pad_bottom),
-            bounds.width + 2 * pad_x,
-            bounds.height + pad_bottom + pad_top,
-            boxstyle="round,pad=0.003,rounding_size=0.006",
-            transform=fig.transFigure,
-            facecolor=to_rgba(CLASS_COLORS[class_label], 0.06),
-            edgecolor="none",
-            linewidth=0,
-            zorder=-0.5,
-        )
-        fig.add_artist(tint)
-        header_y = bounds.y1 + 0.017
-        fig.text(
-            bounds.x0 - pad_x,
-            header_y,
-            panel_letter,
-            fontsize=12,
-            fontweight="bold",
-            va="center",
-            color=neutral,
-        )
-        fig.text(
-            bounds.x0 + 0.020,
-            header_y,
-            section_title,
-            fontsize=8.2,
-            fontweight="bold",
-            va="center",
-            color=CLASS_COLORS[class_label],
-        )
-    _panel_letter(ax_d_fs_firing, "D", x=-0.28)
-    _panel_letter(ax_e_rs_firing, "E", x=-0.20)
+    _panel_letter(ax_d_fs_firing, "D", x=-0.07)
+    _panel_letter(ax_e_rs_firing, "E", x=-0.05)
 
     class_handles = [
         Line2D(
@@ -1136,11 +1185,7 @@ def _plot_unified_figure(
             markerfacecolor=CLASS_COLORS[label],
             markeredgecolor="none",
             markersize=5,
-            label=(
-                f"FS (TTP ≤0.50 ms; n={int(units['rs_fs_class'].eq(label).sum())})"
-                if label == "FS"
-                else f"RS (TTP >0.50 ms; n={int(units['rs_fs_class'].eq(label).sum())})"
-            ),
+            label=f"{label} (n={int(units['rs_fs_class'].eq(label).sum())})",
         )
         for label in CLASS_ORDER
     ]
@@ -1184,15 +1229,27 @@ def _plot_unified_figure(
         )
         for value in [10.0, 20.0, 30.0]
     ]
+    class_legend = ax_a_features.legend(
+        handles=class_handles,
+        loc="upper right",
+        bbox_to_anchor=(1.00, 0.98),
+        ncol=1,
+        frameon=False,
+        fontsize=4.8,
+        handletextpad=0.30,
+        borderaxespad=0.0,
+    )
+    ax_a_features.add_artist(class_legend)
     ax_a_features.legend(
-        handles=class_handles + size_handles,
+        handles=size_handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, -0.16),
+        bbox_to_anchor=(0.50, -0.04),
         ncol=3,
         frameon=False,
-        fontsize=5.6,
-        handletextpad=0.35,
-        columnspacing=0.8,
+        fontsize=4.2,
+        handletextpad=0.15,
+        columnspacing=0.40,
+        borderaxespad=0.0,
     )
     region_handles = [
         Line2D(
@@ -1465,7 +1522,7 @@ def _plot_panel_a_composition_bar(ax, units: pd.DataFrame) -> None:
             y,
             percentages,
             left=left,
-            height=0.48,
+            height=0.34,
             color=CLASS_COLORS[class_label],
             edgecolor="white",
             linewidth=0.6,
@@ -1475,24 +1532,23 @@ def _plot_panel_a_composition_bar(ax, units: pd.DataFrame) -> None:
                 ax.text(
                     base + percentage / 2,
                     bar.get_y() + bar.get_height() / 2,
-                    f"{count}\n{percentage:.0f}%",
+                    f"{count} · {percentage:.0f}%",
                     ha="center",
                     va="center",
-                    fontsize=4.7,
+                    fontsize=4.1,
                     color="white",
-                    fontweight="bold",
+                    fontweight="normal",
                 )
         left += percentages
     totals = summary.groupby("region_call")["region_total_units"].first()
     ax.set_yticks(
         y,
-        [f"{region.title()}  n={int(totals.loc[region])}" for region in REGION_ORDER],
+        [f"{region.title()} (n={int(totals.loc[region])})" for region in REGION_ORDER],
     )
     ax.invert_yaxis()
     ax.set_xlim(0, 100)
     ax.set_xticks([])
-    ax.set_title("RS/FS composition", loc="left", fontsize=6.2, fontweight="normal", pad=2)
-    ax.tick_params(axis="y", labelsize=5.2, length=0, pad=2)
+    ax.tick_params(axis="y", labelsize=4.4, length=0, pad=1)
     for spine in ax.spines.values():
         spine.set_visible(False)
 
@@ -1508,9 +1564,10 @@ def _plot_panel_a_mean_waveforms(ax, waveform_summary: pd.DataFrame) -> None:
         time = summary["time_ms"].to_numpy(float)
         mean = summary["mean"].to_numpy(float)
         all_means.append(mean)
-        ax.plot(time, mean, color=CLASS_COLORS[class_label], lw=1.25, label=class_label)
+        ax.plot(time, mean, color=CLASS_COLORS[class_label], lw=1.15, label=class_label)
     ax.set_xlim(-0.55, 1.15)
-    ax.set_title("Mean aligned waveforms", loc="left", fontweight="normal")
+    ax.text(0.01, 0.90, "FS", transform=ax.transAxes, fontsize=5.2, color=CLASS_COLORS["FS"], va="top")
+    ax.text(0.13, 0.90, "RS", transform=ax.transAxes, fontsize=5.2, color=CLASS_COLORS["RS"], va="top")
     combined = np.concatenate(all_means)
     y_min, y_max = float(np.nanmin(combined)), float(np.nanmax(combined))
     margin = 0.12 * max(y_max - y_min, 1.0)
@@ -1521,8 +1578,8 @@ def _plot_panel_a_mean_waveforms(ax, waveform_summary: pd.DataFrame) -> None:
     y0 = y_min - 0.02 * max(y_max - y_min, 1.0)
     ax.plot([x0, x0 + scale_x], [y0, y0], color="#333333", lw=0.85, clip_on=False)
     ax.plot([x0 + scale_x, x0 + scale_x], [y0, y0 + scale_y], color="#333333", lw=0.85, clip_on=False)
-    ax.text(x0 + scale_x / 2, y0 - 0.06 * (y_max - y_min), "0.5 ms", ha="center", va="top", fontsize=5.2)
-    ax.text(x0 + scale_x + 0.035, y0 + scale_y / 2, "5 µV", ha="left", va="center", fontsize=5.2, rotation=90)
+    ax.text(x0 + scale_x / 2, y0 - 0.06 * (y_max - y_min), "0.5 ms", ha="center", va="top", fontsize=4.5)
+    ax.text(x0 + scale_x + 0.035, y0 + scale_y / 2, "5 µV", ha="left", va="center", fontsize=4.5, rotation=90)
     ax.set_axis_off()
 
 
@@ -1536,12 +1593,12 @@ def _plot_regional_class_unit_firing(
     source = _regional_classified_unit_firing_source(units)
     source = source.loc[source["rs_fs_class"].eq(class_label)].copy()
     rng = np.random.default_rng(20260710)
-    positions = {"dorsal": 0.0, "ventral": 0.58}
+    positions = {"dorsal": 0.0, "ventral": 0.36}
     for region in REGION_ORDER:
         position = positions[region]
         group = source.loc[source["region_call"].eq(region)].copy()
         values = group["classified_unit_firing_rate_hz"].to_numpy(float)
-        jitter = rng.uniform(-0.070, 0.070, size=len(group))
+        jitter = rng.uniform(-0.055, 0.055, size=len(group))
         ax.scatter(
             np.full(len(group), position, dtype=float) + jitter,
             values,
@@ -1576,20 +1633,11 @@ def _plot_regional_class_unit_firing(
             f"{group['recording_well_id'].nunique()} wells"
         )
     ax.set_xticks([positions[region] for region in REGION_ORDER], labels)
-    ax.set_xlim(-0.22, 0.80)
+    ax.set_xlim(-0.42, 0.78)
     ax.set_ylim(shared_ylim)
-    ax.set_ylabel(f"{class_label}-unit firing rate (Hz)")
-    ax.set_title(f"Regional {class_label}-unit firing", loc="left", fontweight="normal")
-    ax.text(
-        0.02,
-        0.99,
-        f"One point per {class_label} unit · mean ± SEM",
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=5.8,
-        color="#555555",
-    )
+    ax.set_ylabel("Classified-unit firing rate (Hz)")
+    title = "Fast-spiking (FS)" if class_label == "FS" else "Regular-spiking (RS)"
+    ax.set_title(title, loc="left", fontweight="normal", y=1.01, pad=0)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.75)
     ax.set_axisbelow(True)
@@ -1640,7 +1688,7 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
         fontweight="normal",
         pad=4,
     )
-    ax.set_xlabel("Trough-to-peak (ms)", labelpad=5)
+    ax.set_xlabel(f"Trough-to-peak (ms)\nFS ≤ {fs_cutoff_ms:.2f} ms", labelpad=4)
     ax.set_ylabel("Repolarization time (ms)", labelpad=3)
     ax.set_zlabel("Spike half-width (ms)", labelpad=1)
     ax.set_xlim(x_limits)
@@ -2048,8 +2096,15 @@ def _plot_activity_strip(axes, wells, specs) -> None:
             [f"Dorsal\nn={counts[0]}", f"Ventral\nn={counts[1]}"],
         )
         ax.set_xlim(-0.18, 0.48)
-        ax.set_title(f"{panel}  {title}", loc="left", fontweight="normal", pad=4)
+        ax.set_title(
+            f"{panel}  {title}",
+            loc="left",
+            fontweight="normal",
+            y=1.015,
+            pad=0,
+        )
         ax.set_ylabel(ylabel)
+        ax.yaxis.set_label_coords(-0.17, 0.5)
         ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.72)
         _clean_axis(ax)
 

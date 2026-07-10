@@ -17,6 +17,7 @@ from axion_mea.gui_stim_response import (  # noqa: E402
     PulseWindow,
     StimResponseInputs,
     UnitStimResponseBuilder,
+    active_pulse_trial_response,
     assess_stim_response_eligibility,
     build_rapid_opto_review_table,
     kslabel_good_unit_groups,
@@ -404,6 +405,39 @@ class TestUnitStimResponseBuilder(unittest.TestCase):
             "rate_hz",
         ].iloc[0]
         self.assertAlmostEqual(first_bin_rate, 100.0)
+
+    def test_active_pulse_view_removes_silent_trials_and_recalculates_psth(self) -> None:
+        events = stim_events()
+        pulses = [
+            PulseEpoch(pulse_index=1, start_ms=0.0, end_ms=5.0),
+            PulseEpoch(pulse_index=2, start_ms=20.0, end_ms=25.0),
+        ]
+        builder = UnitStimResponseBuilder(
+            sorting=FakeSorting({101: [1000, 2020]}),
+            sampling_frequency_hz=1000.0,
+            stim_events=events,
+            well="A1",
+            pulse_structure=inspect_pulse_structure(events, pulses),
+            train_window=AnalysisWindow(pre_ms=5.0, post_ms=50.0),
+            pulse_window=PulseWindow(pre_ms=5.0, post_ms=50.0),
+            pulse_psth_config=PsthConfig(bin_ms=10.0, boxcar_kernel=(1.0,)),
+        )
+        response = builder.build([101])
+
+        active = active_pulse_trial_response(response, builder)
+
+        self.assertEqual(len(response.pulse_trials), 4)
+        self.assertEqual(active.pulse_trials["pulse_trial_index"].tolist(), [1, 4])
+        all_rate = response.pulse_psth.loc[
+            response.pulse_psth["bin_center_ms"] == 0.0,
+            "rate_hz",
+        ].iloc[0]
+        active_rate = active.pulse_psth.loc[
+            active.pulse_psth["bin_center_ms"] == 0.0,
+            "rate_hz",
+        ].iloc[0]
+        self.assertEqual(all_rate, 50.0)
+        self.assertEqual(active_rate, 100.0)
 
     def test_rapid_review_keeps_and_ranks_only_good_units(self) -> None:
         events = stim_events()
