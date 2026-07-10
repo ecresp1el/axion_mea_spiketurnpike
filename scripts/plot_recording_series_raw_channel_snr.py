@@ -9,6 +9,7 @@ import math
 import re
 import shlex
 import subprocess
+import textwrap
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -164,12 +165,17 @@ def main() -> int:
     if channel_stats_df.empty:
         raise RuntimeError("No channel statistics were produced.")
     ranked_df = rank_channels(channel_stats_df, min_repeats=args.min_repeats)
-    selected_df = ranked_df.loc[
+    ranked_df["passes_strict_display_threshold"] = (
         (ranked_df["min_snr"] >= float(args.min_snr))
         & (ranked_df["min_abs_envelope_uV"] >= float(args.min_abs_envelope_uV))
-    ].head(int(args.top_n))
-    if selected_df.empty:
-        selected_df = ranked_df.head(int(args.top_n))
+    )
+    strict_df = ranked_df.loc[ranked_df["passes_strict_display_threshold"]].head(int(args.top_n))
+    if len(strict_df) < int(args.top_n):
+        filler_df = ranked_df.loc[~ranked_df.index.isin(strict_df.index)].head(int(args.top_n) - len(strict_df))
+        selected_df = pd.concat([strict_df, filler_df], ignore_index=True)
+    else:
+        selected_df = strict_df.copy()
+    selected_df = selected_df.sort_values("rank").reset_index(drop=True)
 
     availability_path = output_dir / f"transient_plateing_raw_channel_availability_{args.date_label}.csv"
     stats_path = output_dir / f"transient_plateing_raw_channel_repeat_stats_{args.date_label}.csv"
@@ -534,9 +540,10 @@ def render_summary_figure(
 ) -> list[Path]:
     selected = selected_df.head(int(args.top_n)).copy()
     rows = max(1, len(selected))
-    fig_height = max(8.5, 2.0 + 1.55 * rows)
-    fig = plt.figure(figsize=(15.8, fig_height), constrained_layout=False)
-    grid = GridSpec(rows + 1, 4, figure=fig, height_ratios=[1.05] + [1.0] * rows, width_ratios=[1.05, 1.15, 4.0, 0.9], hspace=0.56, wspace=0.32)
+    fig_height = max(9.0, 2.1 + 1.55 * rows)
+    fig = plt.figure(figsize=(13.8, fig_height), constrained_layout=False)
+    grid = GridSpec(rows + 1, 4, figure=fig, height_ratios=[0.45] + [1.0] * rows, width_ratios=[1.05, 1.15, 4.0, 0.9], hspace=0.56, wspace=0.32)
+    fig.subplots_adjust(left=0.045, right=0.985, top=0.925, bottom=0.045)
     ax_note = fig.add_subplot(grid[0, :])
     draw_summary_note(ax_note, selected, availability_df, args)
     for row_index, row in enumerate(selected.to_dict("records"), start=1):
@@ -551,7 +558,7 @@ def render_summary_figure(
         draw_trace_stack_panel(ax_trace, group, envelope_cache)
         ax_text = fig.add_subplot(grid[row_index, 3])
         draw_channel_text(ax_text, row)
-    fig.suptitle("Raw channel SNR stability across repeated recordings", fontsize=15, fontweight="bold", y=0.996)
+    fig.suptitle("Raw channel SNR stability across repeated recordings", fontsize=15, fontweight="bold", y=0.975)
     stem = f"transient_plateing_raw_channel_top{int(args.top_n)}_snr_stability_{args.date_label}"
     paths = []
     for fmt in [item.strip().lower() for item in str(args.export_formats).split(",") if item.strip()]:
@@ -573,9 +580,10 @@ def draw_summary_note(ax, selected: pd.DataFrame, availability_df: pd.DataFrame,
         "Rank score prioritizes large minimum SNR and large amplitude envelope across repeats, with penalties for across-repeat instability. "
         f"Usable repeats: {repeats or 'none'}; wells: {wells or 'none'}. "
         f"Unavailable analyzer rows: {len(missing)}. "
-        "Each trace row shows a full-recording min/max envelope for the same physical channel across repeats."
+        "Each trace row shows a full-recording min/max envelope for the same physical channel across repeats; strict-pass channels are marked in the summary."
     )
-    ax.text(0.0, 0.78, text, ha="left", va="center", fontsize=10.5, linespacing=1.3)
+    wrapped = "\n".join(textwrap.wrap(text, width=190))
+    ax.text(0.0, 0.5, wrapped, ha="left", va="center", fontsize=10.2, linespacing=1.25)
 
 
 def draw_metric_panel(ax, group: pd.DataFrame, row: dict[str, object]) -> None:
@@ -632,6 +640,13 @@ def draw_trace_stack_panel(ax, group: pd.DataFrame, envelope_cache: dict[tuple[s
         ax.plot(time_min, mean_uV, color=color, lw=0.55, alpha=0.95)
         y_ticks.append(offset)
         y_labels.append(str(record["repeat"]))
+    if group.shape[0] > 0:
+        scale = nice_scale_value((high - low) * 0.35)
+        x0 = ax.get_xlim()[1] if ax.get_xlim()[1] > ax.get_xlim()[0] else 1.0
+        x_scale = x0 - 0.02 * max(x0, 1.0)
+        y_scale = y_ticks[0] + low + 0.08 * (high - low)
+        ax.plot([x_scale, x_scale], [y_scale, y_scale + scale], color="0.15", lw=1.1)
+        ax.text(x_scale, y_scale + scale, f"{scale:g} uV", ha="right", va="bottom", fontsize=7.2)
     ax.set_xlabel("Minutes within recording")
     ax.set_ylabel("Repeat")
     ax.set_yticks(y_ticks)
@@ -647,9 +662,21 @@ def draw_channel_text(ax, row: dict[str, object]) -> None:
         f"median SNR {float(row['median_snr']):.2f}\n"
         f"min signal {float(row['min_abs_envelope_uV']):.1f} uV\n"
         f"SNR CV {float(row['snr_cv']):.2f}\n"
-        f"score {float(row['raw_channel_stability_score']):.2f}"
+        f"score {float(row['raw_channel_stability_score']):.2f}\n"
+        f"strict pass {'yes' if bool(row.get('passes_strict_display_threshold', False)) else 'no'}"
     )
     ax.text(0.0, 0.5, text, ha="left", va="center", fontsize=8.6, linespacing=1.25)
+
+
+def nice_scale_value(value: float) -> float:
+    if not np.isfinite(value) or value <= 0:
+        return 10.0
+    magnitude = 10 ** math.floor(math.log10(value))
+    for multiplier in (1, 2, 5, 10):
+        candidate = multiplier * magnitude
+        if candidate >= value:
+            return float(candidate)
+    return float(10 * magnitude)
 
 
 def raw_recording_metadata_by_repeat(raw_metadata_csv: Path, repeats: list[str]) -> dict[str, dict[str, object]]:

@@ -1625,6 +1625,81 @@ Implementation order:
   10 candidates at once; the per-rank SVG/PDF/PNG files are the detailed review
   targets.
 
+- [x] 2026-07-09 23:12 EDT - Added and rendered the raw-channel SNR fallback
+  lane for the same repeated-recording cohort.
+
+  Purpose:
+  if the putative same-unit plots remain visually unconvincing, use the raw
+  voltage evidence instead. This lane does not claim stable sorted-unit identity.
+  It identifies matched physical channels with large, stable voltage SNR across
+  repeated recordings.
+
+  Script:
+  ```text
+  scripts/plot_recording_series_raw_channel_snr.py
+  ```
+
+  Output root:
+  ```text
+  /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_raw_channel_snr_20260709/
+  ```
+
+  Slurm runs:
+  | Job | State | Elapsed | Note |
+  |---:|---|---:|---|
+  | `53227262` | completed | `00:07:14` | First all-well scan; strict gate selected only one channel. |
+  | `53227350` | completed | `00:06:26` | Filled the top-10 figure from rank order and kept strict-pass as an annotation. |
+  | `53227489` | completed | `00:06:27` | Final display cleanup with wrapped note text and tighter canvas. |
+
+  Final files:
+  ```text
+  transient_plateing_raw_channel_availability_20260709_raw_snr.csv
+  transient_plateing_raw_channel_repeat_stats_20260709_raw_snr.csv
+  transient_plateing_raw_channel_ranked_summary_20260709_raw_snr.csv
+  transient_plateing_raw_channel_top10_20260709_raw_snr.csv
+  transient_plateing_raw_channel_top10_snr_stability_20260709_raw_snr.png
+  transient_plateing_raw_channel_top10_snr_stability_20260709_raw_snr.pdf
+  transient_plateing_raw_channel_top10_snr_stability_20260709_raw_snr.svg
+  transient_plateing_raw_channel_snr_provenance_20260709_raw_snr.json
+  repro/python_command.sh
+  repro/raw_channel_snr.sbatch
+  logs/
+  ```
+
+  Ranking/scoring:
+  full traces are read from `analyzer.recording.get_traces(return_in_uV=True)`.
+  No unit labels, spike trains, templates, spike sorting metrics, or Kilosort
+  good/noise labels are used for the ranking. Robust noise is
+  `MAD(sampled voltage) / 0.67448975`; signal envelope is
+  `max(abs(p0.1), abs(p99.9))`; SNR is signal envelope divided by robust noise.
+  The rank prioritizes high minimum SNR and median SNR across repeats, then high
+  minimum signal envelope, while penalizing across-repeat instability.
+
+  Final top-10 raw-channel candidates:
+  | Rank | Well | Channel | Repeats | Min SNR | Median SNR | Min signal envelope (uV) | Strict display pass |
+  |---:|---|---:|---|---:|---:|---:|---|
+  | 1 | `B2` | `30` | `000;002;003;004` | `5.02` | `7.11` | `14.7` | yes |
+  | 2 | `A3` | `45` | `002;003;004` | `5.11` | `7.36` | `11.6` | no |
+  | 3 | `A2` | `6` | `000;002;003;004` | `5.01` | `7.58` | `11.2` | no |
+  | 4 | `B2` | `29` | `000;002;003;004` | `4.40` | `7.71` | `11.1` | no |
+  | 5 | `B1` | `50` | `002;003;004` | `3.01` | `12.57` | `3.2` | no |
+  | 6 | `A2` | `14` | `000;002;003;004` | `4.03` | `6.40` | `10.0` | no |
+  | 7 | `B2` | `38` | `000;002;003;004` | `3.65` | `8.18` | `5.0` | no |
+  | 8 | `B2` | `37` | `000;002;003;004` | `3.69` | `7.94` | `5.1` | no |
+  | 9 | `A2` | `29` | `000;002;003;004` | `3.26` | `8.90` | `3.2` | no |
+  | 10 | `A2` | `22` | `000;002;003;004` | `3.37` | `7.10` | `4.4` | no |
+
+  Current best fallback:
+  `B2` channel `30` is the strongest matched-channel raw-voltage candidate. It
+  is also the same channel that kept emerging in the sorted-unit stability
+  attempts, so it is the cleanest bridge between the unit-tracking and raw-SNR
+  views.
+
+  Availability note:
+  repeats `002`, `003`, and `004` are usable for all six wells; repeat `000` is
+  usable for `A2` and `B2`; repeat `001` has no usable current Step 1 analyzer
+  rows.
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.

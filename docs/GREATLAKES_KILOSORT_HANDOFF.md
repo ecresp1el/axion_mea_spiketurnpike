@@ -1819,3 +1819,97 @@ transient_plateing_<WELL>_recording_series_provenance_rank##_..._20260709_top_ac
 
 Use `top10_acg_examples_contact_sheet.png` for a quick screen of all 10, then
 open the per-rank PNG/PDF/SVG for detailed inspection.
+
+### Testing MEA Transient Plateing Raw-Channel SNR Fallback, 2026-07-09
+
+Because the putative same-unit examples can look visually messy, a separate
+raw-voltage/channel-stability fallback lane was implemented. This lane does not
+use sorted-unit identity, Kilosort labels, templates, spike trains, or ACGs for
+ranking. It asks a simpler question: which matched physical MEA channels have a
+large, stable voltage envelope and robust SNR across repeated recordings?
+
+Script:
+
+```text
+scripts/plot_recording_series_raw_channel_snr.py
+```
+
+Output root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_raw_channel_snr_20260709/
+```
+
+Current data source:
+
+- Current Step 1 `SortingAnalyzer.recording` traces exported from the Axion raw
+  files.
+- This is the same `Neural Spikes` voltage stream used for Kilosort.
+- No sorted unit data are used for scoring or ranking.
+- A future stricter `.raw`-only implementation can swap in the direct Axion raw
+  loader, but this pass already avoids unit-tracking logic.
+
+Slurm history:
+
+| Job | State | Runtime | Note |
+|---:|---|---:|---|
+| `53227262` | completed | `00:07:14` | First raw-channel scan completed but the strict threshold selected only 1 channel. |
+| `53227350` | completed | `00:06:26` | Script updated to always fill the target display to the top 10 ranked channels while preserving strict-pass flags. |
+| `53227489` | completed | `00:06:27` | Final display-clean rerun with tightened figure layout. |
+
+Scoring definition:
+
+- `robust_noise_uV = MAD(sampled voltage) / 0.67448975`.
+- `abs_envelope_uV = max(abs(p0.1), abs(p99.9))` from a uniformly sampled
+  full-recording trace.
+- `snr = abs_envelope_uV / robust_noise_uV`.
+- Full-trace min/max extrema are tracked chunkwise for context, but not used as
+  the primary SNR numerator.
+- The rank score prioritizes high minimum SNR, high median SNR, high minimum
+  signal envelope, and low across-repeat CV.
+
+Outputs:
+
+```text
+transient_plateing_raw_channel_availability_20260709_raw_snr.csv
+transient_plateing_raw_channel_repeat_stats_20260709_raw_snr.csv
+transient_plateing_raw_channel_ranked_summary_20260709_raw_snr.csv
+transient_plateing_raw_channel_top10_20260709_raw_snr.csv
+transient_plateing_raw_channel_top10_snr_stability_20260709_raw_snr.png
+transient_plateing_raw_channel_top10_snr_stability_20260709_raw_snr.pdf
+transient_plateing_raw_channel_top10_snr_stability_20260709_raw_snr.svg
+transient_plateing_raw_channel_snr_provenance_20260709_raw_snr.json
+submission.json
+repro/
+logs/
+```
+
+Availability summary:
+
+- Repeats `002`, `003`, and `004` have usable analyzers for all six wells.
+- Repeat `000` has usable analyzers for `A2` and `B2` only.
+- Repeat `001` has no usable current Step 1 analyzer rows.
+
+Top raw-channel candidates:
+
+| Rank | Well | Channel | Repeats | Median SNR | Min SNR | Min signal envelope (uV) | SNR CV | Strict pass |
+|---:|---|---:|---|---:|---:|---:|---:|---|
+| 1 | `B2` | `30` | `000;002;003;004` | `7.11` | `5.02` | `14.70` | `0.16` | yes |
+| 2 | `A3` | `45` | `002;003;004` | `7.36` | `5.11` | `11.63` | `0.22` | no |
+| 3 | `A2` | `6` | `000;002;003;004` | `7.58` | `5.01` | `11.19` | `0.19` | no |
+| 4 | `B2` | `29` | `000;002;003;004` | `7.71` | `4.40` | `11.08` | `0.23` | no |
+| 5 | `B1` | `50` | `002;003;004` | `12.57` | `3.01` | `3.18` | `0.51` | no |
+| 6 | `A2` | `14` | `000;002;003;004` | `6.40` | `4.03` | `10.04` | `0.19` | no |
+| 7 | `B2` | `38` | `000;002;003;004` | `8.18` | `3.65` | `5.05` | `0.29` | no |
+| 8 | `B2` | `37` | `000;002;003;004` | `7.94` | `3.69` | `5.10` | `0.29` | no |
+| 9 | `A2` | `29` | `000;002;003;004` | `8.90` | `3.26` | `3.18` | `0.33` | no |
+| 10 | `A2` | `22` | `000;002;003;004` | `7.10` | `3.37` | `4.39` | `0.27` | no |
+
+Interpretation:
+
+- `B2` channel `30` is the strongest conservative raw-channel stability
+  example because it is the only top-10 channel passing both strict thresholds:
+  minimum SNR `>= 4` and minimum signal envelope `>= 12 uV`.
+- The remaining nine rows are backup candidates by rank. They are useful for
+  inspection but should not be described as strict large-SNR examples without
+  either relaxing the amplitude threshold or explaining the weaker repeat.
