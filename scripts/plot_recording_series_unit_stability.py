@@ -101,6 +101,7 @@ def main() -> int:
     parser.add_argument("--max-chain-contam-pct", type=float, default=20.0)
     parser.add_argument("--max-chain-combinations-per-channel", type=int, default=25000)
     parser.add_argument("--local-channels", type=int, default=16)
+    parser.add_argument("--best-unit-only", action="store_true")
     parser.add_argument("--export-formats", default="png,pdf,svg")
     args = parser.parse_args()
 
@@ -173,14 +174,10 @@ def main() -> int:
 
     figure_paths = []
     if selected_chains:
-        figure_paths = render_stability_figure(
-            selected_chains,
-            bundles,
-            availability_df,
-            output_dir,
-            target_well,
-            args,
-        )
+        if args.best_unit_only:
+            figure_paths.extend(render_best_unit_figure(selected_chains[0], bundles, availability_df, output_dir, target_well, args))
+        else:
+            figure_paths = render_stability_figure(selected_chains, bundles, availability_df, output_dir, target_well, args)
 
     provenance = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -204,6 +201,7 @@ def main() -> int:
             "max_chain_fr_cv": args.max_chain_fr_cv,
             "max_chain_ptp_cv": args.max_chain_ptp_cv,
             "max_chain_contam_pct": args.max_chain_contam_pct,
+            "best_unit_only": args.best_unit_only,
         },
         "data_source": "Current Step 1 non-LFP th5 SpikeInterface sorting analyzers only.",
         "missing_repeat_policy": "Repeats without a current analyzer are listed as unavailable and are not backfilled from historical sixwell_manual_primary outputs.",
@@ -540,12 +538,98 @@ def render_stability_figure(
     return paths
 
 
+def render_best_unit_figure(
+    chain: list[UnitCandidate],
+    bundles: dict[str, Bundle],
+    availability_df: pd.DataFrame,
+    output_dir: Path,
+    target_well: str,
+    args,
+) -> list[Path]:
+    fig = plt.figure(figsize=(14.5, 8.6), constrained_layout=False)
+    grid = GridSpec(3, 4, figure=fig, height_ratios=[1.55, 2.05, 1.25], hspace=0.52, wspace=0.42)
+
+    ax_overlay = fig.add_subplot(grid[0, 0:2])
+    draw_best_unit_waveform_overlay(ax_overlay, chain)
+
+    ax_summary = fig.add_subplot(grid[0, 2:4])
+    draw_best_unit_summary(ax_summary, chain, availability_df, target_well, args)
+
+    for col, candidate in enumerate(chain):
+        ax = fig.add_subplot(grid[1, col])
+        draw_local_footprint(ax, candidate, bundles[candidate.repeat], args.local_channels)
+
+    ax_fr = fig.add_subplot(grid[2, 0])
+    ax_ptp = fig.add_subplot(grid[2, 1])
+    ax_amp = fig.add_subplot(grid[2, 2])
+    ax_spikes = fig.add_subplot(grid[2, 3])
+    draw_single_chain_metric(ax_fr, chain, "firing_rate_hz", "Firing rate (Hz)")
+    draw_single_chain_metric(ax_ptp, chain, "best_channel_ptp_uV", "Best-channel PTP (uV)")
+    draw_single_chain_metric(ax_amp, chain, "amplitude_median_uV", "Spike amplitude median (uV)")
+    draw_single_chain_metric(ax_spikes, chain, "num_spikes", "Spike count")
+
+    fig.suptitle(f"Best putative stable unit, well {target_well}: channel {chain[0].best_channel_id}", fontsize=15, fontweight="bold", y=0.98)
+    stem = f"transient_plateing_{target_well}_best_unit_stability_{args.date_label}"
+    paths = []
+    for fmt in [item.strip().lower() for item in args.export_formats.split(",") if item.strip()]:
+        path = output_dir / f"{stem}.{fmt}"
+        fig.savefig(path, dpi=240, bbox_inches="tight")
+        paths.append(path)
+    plt.close(fig)
+    return paths
+
+
+def draw_best_unit_waveform_overlay(ax, chain: list[UnitCandidate]) -> None:
+    colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(chain)))
+    for color, candidate in zip(colors, chain, strict=True):
+        ax.plot(waveform_time_ms(candidate), candidate.waveform, lw=2.2, alpha=0.95, color=color, label=f"{candidate.repeat}: unit {candidate.unit_id}")
+    ax.axhline(0, color="0.82", lw=0.8)
+    ax.set_title("Best-channel template overlay", fontsize=11)
+    ax.set_xlabel("Time from trough (ms)")
+    ax.set_ylabel("Template waveform (uV)")
+    ax.legend(frameon=False, fontsize=8.5, loc="best")
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def draw_best_unit_summary(ax, chain: list[UnitCandidate], availability_df: pd.DataFrame, target_well: str, args) -> None:
+    ax.axis("off")
+    usable = availability_df.loc[availability_df["status"].eq("usable"), "repeat"].astype(str).tolist()
+    missing = availability_df.loc[~availability_df["status"].eq("usable"), "repeat"].astype(str).tolist()
+    similarities = pairwise_similarities(chain)
+    fr = np.asarray([candidate.firing_rate_hz for candidate in chain], dtype=float)
+    ptp = np.asarray([candidate.best_channel_ptp_uV for candidate in chain], dtype=float)
+    units = ";".join(str(candidate.unit_id) for candidate in chain)
+    lines = [
+        f"Well {target_well}; repeats shown: {';'.join(candidate.repeat for candidate in chain)}",
+        f"Unavailable current repeats: {', '.join(missing) if missing else 'none'}",
+        f"KSLabel=good chain: units {units} on best channel {chain[0].best_channel_id}",
+        f"Mean/min waveform similarity: {np.nanmean(similarities):.3f} / {np.nanmin(similarities):.3f}",
+        f"Firing-rate CV: {coeff_var(fr):.3f}; PTP CV: {coeff_var(ptp):.3f}",
+        "Source: current Step 1 analyzer templates and sorting spike vector only.",
+    ]
+    ax.text(0.0, 0.96, "\n".join(lines), va="top", ha="left", fontsize=10.5, linespacing=1.35)
+
+
+def draw_single_chain_metric(ax, chain: list[UnitCandidate], attr: str, ylabel: str) -> None:
+    repeats = [candidate.repeat for candidate in chain]
+    values = [getattr(candidate, attr) for candidate in chain]
+    ax.plot(repeats, values, marker="o", lw=2.0, ms=5.5, color="#1f77b4")
+    ax.set_xlabel("Repeat")
+    ax.set_ylabel(ylabel)
+    ax.grid(axis="y", color="0.88", lw=0.75)
+    ax.spines[["top", "right"]].set_visible(False)
+
+
 def draw_note_panel(ax, availability_df: pd.DataFrame, target_well: str, args) -> None:
     ax.axis("off")
     usable = availability_df.loc[availability_df["status"].eq("usable"), "repeat"].astype(str).tolist()
     missing = availability_df.loc[~availability_df["status"].eq("usable"), "repeat"].astype(str).tolist()
+    if args.well.strip():
+        request_line = f"Requested explicit well {args.well.strip()}."
+    else:
+        request_line = f"Requested numeric well {args.well_number} -> {target_well} using 1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3."
     lines = [
-        f"Requested numeric well {args.well_number} -> {target_well} using 1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3.",
+        request_line,
         f"Current Step 1 analyzers usable: {', '.join(usable) if usable else 'none'}; unavailable in current analyzers: {', '.join(missing) if missing else 'none'}.",
         "Chains use KSLabel=good units only, exact same best electrode across usable repeats, ranked by absolute normalized waveform similarity.",
         "Identity is putative; firing rate, PTP, saved spike-amplitude median, and local footprint are shown to decide whether the candidate is convincing.",

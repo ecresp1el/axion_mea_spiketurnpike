@@ -1571,3 +1571,78 @@ First-pass A3 figure selection:
 
 The SVG output was verified to contain editable `<text>` elements and requests
 Arial first in the font family, matching the final hybrid QC export behavior.
+
+### Testing MEA Transient Plateing Priority-Well Scan, 2026-07-09
+
+Follow-up question:
+
+1. Is there a well with more usable repeated recordings than A3?
+2. Is there a `KSLabel=good` unit candidate that can be tracked across all of
+   those usable repeats?
+3. Avoid relying on the downstream transformed spike-metric manifest because
+   those metrics are not yet unified with this repeated-recording manifest.
+
+Answer:
+
+- No well has all five repeats `000..004` in current Step 1 analyzer form.
+  Repeat `001` has no usable current analyzer for any well.
+- `B2` and `A2` are the highest-priority wells because both have four current
+  Kilosort/Step 1 repeats: `000`, `002`, `003`, and `004`.
+- `B2` is priority one because it has the larger good-unit pool and the cleaner
+  four-repeat selected chain.
+- `A2` is priority two because it also has a four-repeat `KSLabel=good` chain,
+  but the selected chain has a large PTP increase in repeat `004`.
+
+All-well audit outputs:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_1340150_recording_series_stability_20260709/transient_plateing_all_wells_current_step1_availability_20260709.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/transient_plateing_1340150_recording_series_stability_20260709/transient_plateing_all_wells_priority_summary_20260709.csv
+```
+
+Priority summary:
+
+| Rank | Well | Usable repeats | Missing repeats | Good units across usable repeats | Selected units | Best channel | Mean similarity | Min similarity | FR values (Hz) | PTP values (uV) | Comment |
+|---:|---|---|---|---:|---|---:|---:|---:|---|---|---|
+| 1 | `B2` | `000;002;003;004` | `001` | `71` | `34;31;36;22` | `21` | `0.947` | `0.888` | `0.422;0.564;1.336;0.978` | `4.893;5.051;5.179;5.167` | cleanest four-repeat candidate; PTP CV `0.023` |
+| 2 | `A2` | `000;002;003;004` | `001` | `61` | `41;40;41;25` | `15` | `0.987` | `0.975` | `0.687;0.904;1.385;2.110` | `4.784;5.235;5.948;18.687` | waveform similarity is high, but repeat `004` PTP jumps; inspect cautiously |
+| 3 | `A3` | `002;003;004` | `000;001` | `41` | `1;32;34` | `45` | `0.709` | `0.595` | `0.405;0.425;0.237` | `0.520;1.396;0.871` | three-repeat candidate only |
+
+Figures added:
+
+```text
+transient_plateing_B2_putative_same_unit_stability_20260709.png/pdf/svg
+transient_plateing_A2_putative_same_unit_stability_20260709.png/pdf/svg
+```
+
+Spike-source guardrail:
+
+- This audit does not consume the downstream transformed spike-metric manifest.
+- Firing rates are computed directly from each current analyzer's
+  `sorting.to_spike_vector()` and recording duration.
+- Candidate matching uses saved analyzer templates and `KSLabel=good` sorting
+  properties.
+- Saved `spike_amplitudes` are displayed only as analyzer-backed stability
+  summaries. They are not mixed with transformed downstream spike metrics.
+
+Best-unit-only figure:
+
+The broad screening layout was too cluttered for presentation. The current
+clean figure uses only the best B2 chain, units `34;31;36;22` across
+`000;002;003;004` on best channel `21`.
+
+```text
+transient_plateing_B2_best_unit_stability_20260709.png
+transient_plateing_B2_best_unit_stability_20260709.pdf
+transient_plateing_B2_best_unit_stability_20260709.svg
+```
+
+Render command:
+
+```bash
+python scripts/plot_recording_series_unit_stability.py \
+  --well B2 \
+  --top-chains 1 \
+  --best-unit-only \
+  --export-formats png,pdf,svg
+```

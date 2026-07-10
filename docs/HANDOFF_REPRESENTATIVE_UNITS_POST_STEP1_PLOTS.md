@@ -1389,6 +1389,72 @@ Implementation order:
   visual selection and stability screening, but by itself does not prove the
   biological identity of a neuron across repeated files.
 
+- [x] 2026-07-09 20:45 EDT - Re-scanned the full
+  `Testing_mea_transient_plateing/134-0150/My Experiment(000..004)` cohort to
+  answer which well has the most current Kilosort repeats.
+
+  Result:
+  no well has all five repeats because `001` has no usable current analyzer for
+  any well. `B2` and `A2` are the highest-priority wells, each with current
+  analyzers for `000`, `002`, `003`, and `004`.
+
+  New all-well summary tables:
+  ```text
+  transient_plateing_all_wells_current_step1_availability_20260709.csv
+  transient_plateing_all_wells_priority_summary_20260709.csv
+  ```
+
+  Priority one:
+  `B2`, selected four-repeat chain units `34;31;36;22` across
+  `000;002;003;004`, best channel `21`, mean waveform similarity `0.947`, min
+  similarity `0.888`, FR `0.422;0.564;1.336;0.978 Hz`, PTP
+  `4.893;5.051;5.179;5.167 uV`, PTP CV `0.023`.
+
+  Priority two:
+  `A2`, selected four-repeat chain units `41;40;41;25`, best channel `15`,
+  mean waveform similarity `0.987`, min similarity `0.975`, FR
+  `0.687;0.904;1.385;2.110 Hz`, PTP `4.784;5.235;5.948;18.687 uV`. This has
+  excellent waveform similarity but a large repeat-`004` PTP increase, so it is
+  weaker visually than B2.
+
+  Figure files:
+  ```text
+  transient_plateing_B2_putative_same_unit_stability_20260709.png/pdf/svg
+  transient_plateing_A2_putative_same_unit_stability_20260709.png/pdf/svg
+  ```
+
+  Spike-source guardrail:
+  this audit intentionally does not use the downstream transformed spike-metric
+  manifest. Firing rates are derived from each current analyzer's
+  `sorting.to_spike_vector()` and recording duration. Candidate matching uses
+  analyzer templates plus analyzer `KSLabel=good`; saved `spike_amplitudes` are
+  shown only as analyzer-backed stability summaries.
+
+- [x] 2026-07-09 20:50 EDT - Replaced the broad repeated-recording screening
+  visual with a clean best-unit-only figure.
+
+  Use this as the current best example:
+  ```text
+  transient_plateing_B2_best_unit_stability_20260709.png
+  transient_plateing_B2_best_unit_stability_20260709.pdf
+  transient_plateing_B2_best_unit_stability_20260709.svg
+  ```
+
+  Command:
+  ```bash
+  python scripts/plot_recording_series_unit_stability.py \
+    --well B2 \
+    --top-chains 1 \
+    --best-unit-only \
+    --export-formats png,pdf,svg
+  ```
+
+  Content:
+  only the best B2 chain is plotted: units `34;31;36;22` across
+  `000;002;003;004` on best channel `21`. The figure shows the best-channel
+  waveform overlay, local multichannel footprints for each repeat, and compact
+  firing-rate/PTP/spike-amplitude/spike-count trends.
+
 ## What To Avoid
 
 - Do not use Step 2 classifier labels as ground truth.
