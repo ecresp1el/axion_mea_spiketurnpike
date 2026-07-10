@@ -40,13 +40,19 @@ STEM = "lumos_opsin_vs_no_opsin_per_unit_pre_post_firing_rate_20260710"
 GROUP_ORDER = ["opsin", "no_opsin"]
 GROUP_LABELS = {"opsin": "+ opsin", "no_opsin": "− opsin"}
 WELL_COLORS = {
+    "B2": "#394150",
     "D6": "#245EA8",
+    "C6": "#4B86C5",
+    "B5": "#6FA4D2",
+    "C5": "#80B5D8",
+    "E5": "#A2C7E1",
     "B4": "#59636F",
-    "B5": "#7A8490",
     "C3": "#9A6E55",
     "D2": "#525866",
-    "E5": "#969DA6",
+    "E2": "#969DA6",
+    "A3": "#B0B5BC",
 }
+VARIANT_MARKERS = {"primary_raw": "o", "filter_200Hz-3kHz": "s"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,14 +75,17 @@ def main() -> int:
 
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    condition_map = _load_condition_map(args.source_dir.expanduser().resolve())
-    source = pd.read_csv(args.unit_metrics_csv.expanduser().resolve())
+    condition_map = _load_condition_map()
+    all_unit_metrics = pd.read_csv(args.unit_metrics_csv.expanduser().resolve())
+    inventory = _recording_variant_inventory(all_unit_metrics)
+    source = all_unit_metrics
     source = source.loc[
         source["recording"].astype(str).str.contains(
-            "6_22_2026_129-8445_ventral_sosrs_opsin_day3", regex=False
+            "6_22_2026_129-8445_ventral_sosrs_opsin_day3|6_18_2026_plate2",
+            regex=True,
         )
-        & source["raw_variant"].eq("primary_raw")
-        & source["KSLabel"].eq("good")
+        & source["raw_variant"].isin(VARIANT_MARKERS)
+        & source["KSLabel"].isin(["good", "mua"])
     ].copy()
     source["condition"] = source["well"].map(condition_map)
     source = source.loc[source["condition"].notna()].copy()
@@ -143,7 +152,8 @@ def main() -> int:
                         "condition": condition_map[well],
                         "condition_label": GROUP_LABELS[condition_map[well]],
                         "unit_id": _unit_label(unit_id),
-                        "KSLabel": "good",
+                        "KSLabel": str(unit_row["KSLabel"]),
+                        "raw_variant": str(unit_row["raw_variant"]),
                         "pulse_trials": len(pulse_onsets),
                         "window_ms": args.window_ms,
                         "pre_spikes": pre_count,
@@ -157,7 +167,7 @@ def main() -> int:
                         "analyzer_path": str(analyzer_path),
                     }
                 )
-            status = f"{len(group)} good units"
+            status = f"{len(group)} good/MUA units"
         except Exception as exc:  # noqa: BLE001
             status = "error"
             errors.append(
@@ -175,7 +185,7 @@ def main() -> int:
         )
 
     units = pd.DataFrame(rows).sort_values(
-        ["condition", "well", "recording_index", "unit_id"]
+        ["KSLabel", "condition", "well", "raw_variant", "recording_index", "unit_id"]
     ).reset_index(drop=True)
     if units.empty:
         raise SystemExit("No per-unit rates could be calculated.")
@@ -183,9 +193,16 @@ def main() -> int:
     summary = _summary_table(units)
     unit_path = output_dir / f"{STEM}_unit_level.csv"
     summary_path = output_dir / f"{STEM}_descriptive_summary.csv"
+    inventory_path = output_dir / f"{STEM}_recording_variant_inventory.csv"
+    condition_audit_path = output_dir / f"{STEM}_condition_assignment_audit.csv"
     errors_path = output_dir / f"{STEM}_errors.csv"
     units.to_csv(unit_path, index=False)
     summary.to_csv(summary_path, index=False)
+    inventory.to_csv(inventory_path, index=False)
+    _condition_assignment_audit(
+        args.source_dir.expanduser().resolve(),
+        sorted(set(units["well"])),
+    ).to_csv(condition_audit_path, index=False)
     pd.DataFrame(
         errors, columns=["recording", "well", "analyzer_path", "error"]
     ).to_csv(errors_path, index=False)
@@ -196,21 +213,28 @@ def main() -> int:
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "script": str(Path(__file__).resolve()),
         "question": "per-unit opsin versus no-opsin firing rates before and after stimulation",
-        "unit_selection": "KSLabel=good; primary_raw analyzer variant only",
+        "unit_selection": "KSLabel=good and KSLabel=mua; all available non-LFP analyzer variants",
+        "included_variants": list(VARIANT_MARKERS),
+        "excluded_variants": "filter_1Hz-200Hz and any other LFP-derived representation",
         "unit_observation": "one Kilosort unit within one recording and well; units are not tracked across recordings",
-        "condition_source": "Treatment metadata embedded in Axion spike-list export",
+        "condition_source": (
+            "user-confirmed plate layout: columns 1-4 (left) are no_opsin; "
+            "columns 5-8 (right) are opsin"
+        ),
         "condition_map": condition_map,
         "windows_ms": {"before": [-args.window_ms, 0.0], "after": [0.0, args.window_ms]},
         "pulse_trials": args.expected_pulse_trials,
         "silent_trials": "retained",
         "important_limitation": (
-            "all available opsin units are from well D6; C6 has no KSLabel=good units "
-            "in the primary-variant unit table. Unit counts are not independent organoid n."
+            "Raw-version and repeated-recording unit observations are not independent organoid n. "
+            "The condition-assignment audit preserves disagreements with embedded Treatment text."
         ),
         "outputs": {
             "figures": [str(path) for path in figure_paths],
             "unit_table": str(unit_path),
             "summary": str(summary_path),
+            "recording_variant_inventory": str(inventory_path),
+            "condition_assignment_audit": str(condition_audit_path),
             "errors": str(errors_path),
         },
     }
@@ -218,23 +242,81 @@ def main() -> int:
     provenance_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
 
     print(f"\nPer-unit observations: {len(units)}")
-    print(f"Condition counts: {units['condition'].value_counts().to_dict()}")
-    print(f"Wells: {units.groupby(['condition', 'well']).size().to_dict()}")
+    print(f"KSLabel/condition counts: {units.groupby(['KSLabel', 'condition']).size().to_dict()}")
+    print(f"Variant counts: {units.groupby(['raw_variant', 'KSLabel']).size().to_dict()}")
+    print(f"Wells: {units.groupby(['KSLabel', 'condition', 'well']).size().to_dict()}")
     print(f"Figure: {figure_paths[0]}")
     print(f"Unit table: {unit_path}")
+    print(f"Recording/variant inventory: {inventory_path}")
+    print(f"Condition assignment audit: {condition_audit_path}")
     print("\nDescriptive summary:")
     print(summary.to_string(index=False))
     return 0
 
 
-def _load_condition_map(source_dir: Path) -> dict[str, str]:
+def _load_condition_map() -> dict[str, str]:
+    return {
+        f"{row}{column}": "no_opsin" if column <= 4 else "opsin"
+        for row in "ABCDEF"
+        for column in range(1, 9)
+    }
+
+
+def _condition_assignment_audit(source_dir: Path, wells: list[str]) -> pd.DataFrame:
     spike_file = source_dir / "ventral_sosrs_opsin_day3(000)_spike_list.csv"
     _, treatment_map = _read_spike_list(spike_file)
-    return {
-        well: condition
-        for well, treatment in treatment_map.items()
-        if (condition := _condition_from_treatment(treatment)) is not None
-    }
+    rule_map = _load_condition_map()
+    rows = []
+    for well in wells:
+        embedded_treatment = treatment_map.get(well, "")
+        embedded_condition = _condition_from_treatment(embedded_treatment)
+        rows.append(
+            {
+                "well": well,
+                "plate_column": int(re.search(r"(\d+)$", well).group(1)),
+                "user_confirmed_column_rule": rule_map[well],
+                "embedded_treatment_text_6_22": embedded_treatment,
+                "embedded_treatment_condition_6_22": embedded_condition or "unavailable",
+                "assignment_agrees_with_embedded_text": (
+                    rule_map[well] == embedded_condition if embedded_condition is not None else np.nan
+                ),
+                "condition_used": rule_map[well],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _recording_variant_inventory(source: pd.DataFrame) -> pd.DataFrame:
+    inventory = source.loc[
+        source["recording"].astype(str).str.contains(
+            "6_18_2026_plate2|6_22_2026_129-8445_ventral_sosrs_opsin_day3",
+            regex=True,
+        )
+        & source["raw_variant"].isin(VARIANT_MARKERS)
+        & source["KSLabel"].isin(["good", "mua"])
+    ].copy()
+    inventory["cohort"] = np.where(
+        inventory["recording"].astype(str).str.contains("6_22_2026", regex=False),
+        "6_22_day3_column_mapped",
+        "6_18_additional_column_mapped",
+    )
+    inventory["well_level_opsin_assignment"] = "assigned_by_user_confirmed_plate_column_rule"
+    return (
+        inventory.groupby(
+            [
+                "cohort",
+                "recording",
+                "raw_variant",
+                "KSLabel",
+                "well_level_opsin_assignment",
+            ],
+            dropna=False,
+        )
+        .size()
+        .reset_index(name="unit_observations")
+        .sort_values(["cohort", "recording", "raw_variant", "KSLabel"])
+        .reset_index(drop=True)
+    )
 
 
 def _match_unit_id(unit_ids: list[object], requested: object) -> object:
@@ -255,35 +337,62 @@ def _unit_label(value: object) -> str:
 
 def _recording_index_from_long_name(recording: str) -> str:
     match = re.search(r"opsin_day3\((\d{3})\)", recording)
-    return match.group(1) if match else _recording_index(recording)
+    if match:
+        return f"6_22_day3_{match.group(1)}"
+    match = re.search(r"ventral_sosrs_2_opsin\((\d{3})\)", recording)
+    if match:
+        return f"6_18_opsin_file_{match.group(1)}"
+    match = re.search(r"ventral_sosrs_2\((\d{3})\)", recording)
+    if match:
+        return f"6_18_control_file_{match.group(1)}"
+    return _recording_index(recording)
 
 
 def _summary_table(units: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for condition in GROUP_ORDER:
-        group = units.loc[units["condition"].eq(condition)]
-        for metric in ["pre_rate_hz", "post_rate_hz", "post_minus_pre_hz"]:
-            values = group[metric].to_numpy(dtype=float)
-            rows.append(
-                {
-                    "condition": condition,
-                    "condition_label": GROUP_LABELS[condition],
-                    "metric": metric,
-                    "unit_observations": len(group),
-                    "organoid_wells_represented": group["well"].nunique(),
-                    "mean_hz": float(np.mean(values)),
-                    "median_hz": float(np.median(values)),
-                    "sem_across_units_hz": (
-                        float(np.std(values, ddof=1) / np.sqrt(len(values)))
-                        if len(values) > 1
-                        else np.nan
-                    ),
-                }
-            )
+    for kslabel in ["good", "mua"]:
+        for condition in GROUP_ORDER:
+            group = units.loc[
+                units["KSLabel"].eq(kslabel) & units["condition"].eq(condition)
+            ]
+            for metric in ["pre_rate_hz", "post_rate_hz", "post_minus_pre_hz"]:
+                values = group[metric].to_numpy(dtype=float)
+                rows.append(
+                    {
+                        "KSLabel": kslabel,
+                        "condition": condition,
+                        "condition_label": GROUP_LABELS[condition],
+                        "metric": metric,
+                        "unit_observations": len(group),
+                        "organoid_wells_represented": group["well"].nunique(),
+                        "analyzer_variants": group["raw_variant"].nunique(),
+                        "mean_hz": float(np.mean(values)),
+                        "median_hz": float(np.median(values)),
+                        "sem_across_units_hz": (
+                            float(np.std(values, ddof=1) / np.sqrt(len(values)))
+                            if len(values) > 1
+                            else np.nan
+                        ),
+                    }
+                )
     return pd.DataFrame(rows)
 
 
 def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Path]:
+    paths: list[Path] = []
+    for kslabel in ["good", "mua"]:
+        subset = units.loc[units["KSLabel"].eq(kslabel)].copy()
+        if not subset.empty:
+            paths.extend(_plot_one_kslabel(plt, subset, output_dir, kslabel))
+    return paths
+
+
+def _plot_one_kslabel(
+    plt,
+    units: pd.DataFrame,
+    output_dir: Path,
+    kslabel: str,
+) -> list[Path]:
     fig, axes = plt.subplots(
         1,
         3,
@@ -291,6 +400,8 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
         gridspec_kw={"width_ratios": [1.35, 1.0, 1.55]},
     )
     ax_pairs, ax_group_delta, ax_wells = axes
+    point_size = 11 if kslabel == "mua" else 15
+    point_alpha = 0.62 if kslabel == "mua" else 0.82
     x_positions = {("opsin", "pre"): 0.0, ("opsin", "post"): 1.0, ("no_opsin", "pre"): 3.0, ("no_opsin", "post"): 4.0}
     for condition in GROUP_ORDER:
         group = units.loc[units["condition"].eq(condition)].copy()
@@ -309,9 +420,10 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
             ax_pairs.scatter(
                 [pre_x + offset, post_x + offset],
                 [row.pre_rate_hz, row.post_rate_hz],
-                s=15,
+                s=point_size,
                 color=color,
-                alpha=0.82,
+                marker=VARIANT_MARKERS[row.raw_variant],
+                alpha=point_alpha,
                 edgecolor="white",
                 linewidth=0.3,
                 zorder=3,
@@ -319,8 +431,10 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
     ax_pairs.axvline(2.0, color="#d1d5db", lw=0.8)
     ax_pairs.set_xticks([0, 1, 3, 4])
     ax_pairs.set_xticklabels(["Before", "After", "Before", "After"])
-    ax_pairs.text(0.5, 0.98, "+ opsin\n6 units · D6 only", transform=ax_pairs.get_xaxis_transform(), ha="center", va="top", color="#245EA8", fontweight="bold")
-    ax_pairs.text(3.5, 0.98, "− opsin\n41 units · 5 wells", transform=ax_pairs.get_xaxis_transform(), ha="center", va="top", color="#59636F", fontweight="bold")
+    opsin_group = units.loc[units["condition"].eq("opsin")]
+    no_opsin_group = units.loc[units["condition"].eq("no_opsin")]
+    ax_pairs.text(0.5, 0.98, f"+ opsin\n{len(opsin_group)} {kslabel} units · {opsin_group['well'].nunique()} wells", transform=ax_pairs.get_xaxis_transform(), ha="center", va="top", color="#245EA8", fontweight="bold")
+    ax_pairs.text(3.5, 0.98, f"− opsin\n{len(no_opsin_group)} {kslabel} units · {no_opsin_group['well'].nunique()} wells", transform=ax_pairs.get_xaxis_transform(), ha="center", va="top", color="#59636F", fontweight="bold")
     ax_pairs.set_ylabel("Unit firing rate (Hz)")
     ax_pairs.set_title("A  Every unit: before versus after", loc="left", fontweight="bold")
 
@@ -333,6 +447,7 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
                 row.post_minus_pre_hz,
                 s=22,
                 color=WELL_COLORS.get(row.well, "#6b7280"),
+                marker=VARIANT_MARKERS[row.raw_variant],
                 alpha=0.86,
                 edgecolor="white",
                 linewidth=0.4,
@@ -343,19 +458,29 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
     ax_group_delta.set_ylabel("After − before (Hz)")
     ax_group_delta.set_title("B  Per-unit change", loc="left", fontweight="bold")
 
-    well_order = [well for well in ["D6", "B4", "B5", "C3", "D2", "E5"] if well in set(units["well"])]
+    opsin_wells = sorted(
+        units.loc[units["condition"].eq("opsin"), "well"].unique(),
+        key=lambda well: (_well_column(well), well),
+    )
+    no_opsin_wells = sorted(
+        units.loc[units["condition"].eq("no_opsin"), "well"].unique(),
+        key=lambda well: (_well_column(well), well),
+    )
+    well_order = opsin_wells + no_opsin_wells
     for well_index, well in enumerate(well_order):
         group = units.loc[units["well"].eq(well)].copy()
         offsets = _symmetric_offsets(len(group), width=0.24)
-        ax_wells.scatter(
-            well_index + offsets,
-            group["post_minus_pre_hz"],
-            s=24,
-            color=WELL_COLORS[well],
-            alpha=0.88,
-            edgecolor="white",
-            linewidth=0.4,
-        )
+        for offset, row in zip(offsets, group.itertuples(index=False), strict=True):
+            ax_wells.scatter(
+                well_index + offset,
+                row.post_minus_pre_hz,
+                s=20 if kslabel == "mua" else 24,
+                color=WELL_COLORS[well],
+                marker=VARIANT_MARKERS[row.raw_variant],
+                alpha=0.72 if kslabel == "mua" else 0.88,
+                edgecolor="white",
+                linewidth=0.4,
+            )
         ax_wells.text(
             well_index,
             0.98,
@@ -367,7 +492,7 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
             color=WELL_COLORS[well],
         )
     ax_wells.axhline(0, color="#6b7280", ls="--", lw=0.8)
-    ax_wells.axvline(0.5, color="#d1d5db", lw=0.8)
+    ax_wells.axvline(len(opsin_wells) - 0.5, color="#d1d5db", lw=0.8)
     ax_wells.set_xticks(range(len(well_order)))
     ax_wells.set_xticklabels(well_order)
     ax_wells.set_ylabel("After − before (Hz)")
@@ -377,14 +502,18 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
         axis.spines[["top", "right"]].set_visible(False)
         axis.grid(axis="y", color="#e5e7eb", lw=0.55, alpha=0.8)
         axis.set_axisbelow(True)
-    handles = [
+    well_handles = [
         plt.Line2D([0], [0], marker="o", linestyle="none", color=color, label=well, markersize=5)
         for well, color in WELL_COLORS.items()
         if well in set(units["well"])
     ]
-    ax_wells.legend(handles=handles, title="well / organoid", frameon=False, fontsize=6.5, title_fontsize=6.5, ncol=2, loc="lower left")
+    variant_handles = [
+        plt.Line2D([0], [0], marker=marker, linestyle="none", color="#111827", label=variant, markersize=5)
+        for variant, marker in VARIANT_MARKERS.items()
+    ]
+    ax_wells.legend(handles=well_handles + variant_handles, title="well color / raw-version marker", frameon=False, fontsize=6.2, title_fontsize=6.2, ncol=2, loc="lower left")
     fig.suptitle(
-        "Per-unit firing rates before and after optical stimulation",
+        f"Per-unit firing rates before and after optical stimulation · KSLabel={kslabel}",
         x=0.04,
         y=0.985,
         ha="left",
@@ -394,7 +523,7 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
     fig.text(
         0.04,
         0.94,
-        "KSLabel=good · primary analyzer variant · matched 25-ms windows · all 250 pulses retained · "
+        "All non-LFP raw versions (primary ○; 200 Hz–3 kHz □) · matched 25-ms windows · all 250 pulses retained · "
         "each dot/line is one unit in one recording (units are not tracked across recordings)",
         ha="left",
         fontsize=7.5,
@@ -403,7 +532,7 @@ def _plot_unit_breakdown(plt, units: pd.DataFrame, output_dir: Path) -> list[Pat
     fig.subplots_adjust(left=0.065, right=0.99, bottom=0.12, top=0.84, wspace=0.34)
     paths = []
     for suffix in ["png", "pdf", "svg"]:
-        path = (output_dir / STEM).with_suffix(f".{suffix}")
+        path = (output_dir / f"{STEM}_{kslabel}").with_suffix(f".{suffix}")
         kwargs = {"bbox_inches": "tight", "facecolor": "white"}
         if suffix == "png":
             kwargs["dpi"] = 500
@@ -417,6 +546,11 @@ def _symmetric_offsets(count: int, *, width: float) -> np.ndarray:
     if count <= 1:
         return np.zeros(count)
     return np.linspace(-width, width, count)
+
+
+def _well_column(well: str) -> int:
+    match = re.search(r"(\d+)$", str(well))
+    return int(match.group(1)) if match else 99
 
 
 def _style(plt) -> None:

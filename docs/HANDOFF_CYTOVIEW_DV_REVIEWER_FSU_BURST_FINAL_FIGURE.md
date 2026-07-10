@@ -2063,3 +2063,245 @@ output:
 The B/C representative selection, D/E classified-unit firing source, and F
 pooled activity source tables are byte-identical to job 53262736. No unit
 selection, measurement, statistic, or source data changed.
+
+### Final graphical-consistency pass
+
+This pass kept the two-level arrangement, panel content, unit selections, and
+source tables fixed. The rendering was audited for repeated graphical rules:
+
+- representative spatial, ACG, and PTP-stability cards now use matched title
+  size and padding, identical hidden-spine/tick treatment, and consistent card
+  geometry;
+- regional C/E plots retain the shared 0–13 Hz scale, standardized tick
+  lengths/padding, and a deliberate shared-y convention with the redundant E
+  left axis removed;
+- pooled F1–F6 plots use a common major-tick locator, tick length, label
+  padding, title baseline, y-label coordinates, and x-label styling;
+- the 3D feature-space grid was visually subdued to match the lighter lower
+  plot grids;
+- regional C/E spacing was increased only enough to prevent title and x-label
+  collisions; all other within-section spacing remains unchanged;
+- panel letters and repeated subplot titles were aligned to common local
+  baselines.
+
+Canonical consistency-proof render:
+
+```text
+job_id: 53267210
+state: COMPLETED
+runtime: 00:01:10
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_132939/
+```
+
+The B/C, D/E, and F source CSVs are byte-identical to job 53267041.
+
+### Panel A support-panel refinement
+
+The final requested micro-adjustment affects only Panel A: the unchanged 3D
+feature-space plot remains above, while its original-amplitude mean-waveform
+display and compact RS/FS composition bar now occupy equal-width side-by-side
+support panels directly beneath it. No other axes, spacing, panel arrangement,
+data, or source table changed.
+
+Proof render:
+
+```text
+job_id: 53267759
+state: COMPLETED
+runtime: 00:01:10
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_133917/
+```
+
+The B/C, D/E, and F source CSVs are byte-identical to job 53267210.
+
+### Section-boundary header treatment
+
+The final presentation pass adds two high-contrast section boundaries without
+altering the panel arrangement or scientific content. The upper individual-unit
+section and lower pooled-organoid section each now use a full-width, rounded
+black header bar with polished white typography. The A/B/C subsection labels
+remain immediately below the upper bar, while the pooled-SUA title and its
+organoid-level subtitle are contained in the lower bar. The lower bar was
+vertically inset within its header row so the F1–F6 titles remain unobstructed.
+
+Canonical render:
+
+```text
+job_id: 53268003
+state: COMPLETED
+runtime: 00:00:40
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_134503/
+```
+
+The B/C, D/E, and F source CSVs are byte-identical to job 53267759.
+
+### Section-header bleed correction
+
+The section bars were clipped to their dedicated header rows so they no longer
+cover adjacent plot titles, axes, or data. The upper and lower black rounded
+headers remain visually dominant, with explicit white clearance before the
+subplots. No panel arrangement or data changed.
+
+Final proof render:
+
+```text
+job_id: 53268415
+state: COMPLETED
+runtime: 00:01:05
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_135041/
+```
+
+The B/C, D/E, and F source CSVs are byte-identical to job 53268003.
+
+### Typography and representative-unit scale refinement
+
+The latest pass reduced header and subplot typography, slimmed both black
+rounded section bars, narrowed the C/E regional-firing column from 30% to 20%
+of the upper width, and reassigned that space to B/D. Representative spatial
+footprints are now larger; the ACG and PTP-stability strips are both shorter in
+height and constrained to a narrower centered width beneath each footprint.
+
+Canonical proof render:
+
+```text
+job_id: 53271593
+state: COMPLETED
+runtime: 00:01:02
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_140742/
+```
+
+The B/C, D/E, and F source CSVs are byte-identical to job 53268415.
+
+### Header, typography, and B/D/E scale pass
+
+The black header bars are now thinner, with their titles centered within the
+rounded rectangles. Panel letters were reduced and positioned consistently;
+the F letter remains inside the pooled-SUA header. The upper width allocation
+now gives B/D 62% and C/E 18%, with E retaining its own y-axis label. B/D
+spatial footprints were enlarged while their ACG and PTP strips were narrowed
+and shortened. Typography uses the installed Nimbus Sans family, the cluster's
+Arial-compatible sans-serif, with no font warnings in the final job.
+
+Canonical render:
+
+```text
+job_id: 53272155
+state: COMPLETED
+runtime: 00:01:08
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_141513/
+```
+
+The B/C, D/E, and F source CSVs are byte-identical to job 53271593.
+
+### Bottom-row sequential panel lettering
+
+The pooled-SUA row now uses sequential panel letters F, G, H, I, J, and K.
+Metric names were removed from above the plots; each plot retains its y-axis
+title as the metric descriptor and its dorsal/ventral x-axis labels. The
+pooled section header remains unlettered.
+
+Final proof render:
+
+```text
+job_id: 53273222
+state: COMPLETED
+runtime: 00:00:34
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_142323/
+```
+
+### Bottom-letter and metric-title cleanup
+
+The pooled-SUA header no longer carries an `F` letter, and the six pooled
+metric titles no longer carry `F1`–`F6` prefixes. The metric names themselves
+are unchanged. All source tables remain byte-identical.
+
+Final proof render:
+
+```text
+job_id: 53272875
+state: COMPLETED
+runtime: 00:00:55
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_141935/
+```
+
+### C–K axis-label scaling
+
+Axis titles and category labels for C–K were enlarged and standardized to one
+common typography scale. The C/E regional plots retain the same y-limits, and
+the local C/E gap was increased only enough to prevent the larger labels from
+colliding. No plotted values or source data changed.
+
+Final proof render:
+
+```text
+job_id: 53278363
+state: COMPLETED
+runtime: 00:01:07
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_145626/
+```
+
+### B/D spatial-width and display-gain refinement
+
+The representative-unit column was widened from 62% to 66% of the upper
+section, while the regional C/E column was reduced correspondingly. Spatial
+waveform display gain increased from 2.6 to 3.2, enlarging the B/D footprints
+without changing the underlying templates or data. The compact ACG/PTP strips
+remain beneath each footprint.
+
+Final proof render:
+
+```text
+job_id: 53279548
+state: COMPLETED
+runtime: 00:01:02
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_150803/
+```
+
+### Final axis-title and representative-card spacing refinement
+
+C–K axis titles are now single-line labels, enlarged consistently, and moved
+closer to their axes. B/D spatial footprints were increased further, while
+the ACG and PTP strips retained compact dimensions with additional vertical
+separation and clearer matched labels beneath each footprint.
+
+Final proof render:
+
+```text
+job_id: 53279206
+state: COMPLETED
+runtime: 00:00:58
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_150346/
+```
