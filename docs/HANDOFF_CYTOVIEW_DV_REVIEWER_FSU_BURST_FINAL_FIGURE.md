@@ -1701,3 +1701,194 @@ Panel C: RS1 CytoView B2 u9 + RS3 CytoView B3 u29
 Only the Panel B representative changed. Panel A classification and Panel D
 activity remain the locked CytoView dorsal/ventral population; the Lumos unit
 is not included in those biological summaries.
+
+### Official FS lock and restored 3D Panel A with companion summaries
+
+The official FS representatives moving forward are now:
+
+```text
+FS1  CytoView ventral B1 u24
+LFS1 Lumos F8 u5
+```
+
+CytoView FS16 is no longer selected for the unified figure. The exact current
+keys remain in `LOCKED_FS_UNIT_KEYS` and the representative-selection CSV.
+
+Panel A was restored to the large aligned three-feature CytoView waveform space
+(x=TTP, y=repolarization time, z=spike half-width). Relative to the earlier 3D
+version:
+
+- the gray TTP cutoff plane was removed;
+- the view changed from azimuth -56 to -46 degrees, a 10-degree rotation;
+- the prose sentence describing point size was removed;
+- P99.9 firing-rate size encoding remains documented only by the compact symbol
+  key;
+- the FS <=0.50-ms and RS >0.50-ms TTP rules are stated in the class legend;
+- the dorsal/ventral stacked RS/FS unit summary was added to the right;
+- raw aligned trough-normalized FS/RS mean +/- SEM waveforms, without display
+  smoothing, were added directly below the stacked summary.
+
+The companion summaries remain CytoView-only and do not include the Lumos
+representative. The first render (job 53258406) exposed a 3D/auxiliary-label
+spacing collision. The clean canonical rerender widened Panel A and corrected
+that collision:
+
+```text
+job_id: 53259205
+state: COMPLETED
+elapsed: 00:01:07
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_111720/
+```
+
+### Narrow representative QC and new regional FS-unit activity panel
+
+The upper figure was reorganized to follow the publication narrative:
+
+```text
+A: waveform classification
+B-C: cross-platform FS and CytoView RS representative-unit QC
+D: dorsal versus ventral CytoView FS-unit firing rates
+E: organoid-level spontaneous network metrics
+```
+
+The representative cards were made substantially narrower. Within each card,
+the spatial footprint remains the dominant element, while raw unsmoothed ACG
+and PTP stability are retained as short tick-free strips. Repeated labels and
+empty space were minimized.
+
+The Panel A waveform summary now uses the aligned waveforms at their original
+uV amplitudes rather than trough-normalized amplitudes. It displays only the
+overlaid class-mean FS and RS traces: no SEM shading, axes, ticks, grid, frame,
+or surrounding box. A compact 0.5-ms / 5-uV scale bar is retained. These traces
+are not display-smoothed.
+
+Panel D plots one retained CytoView FS unit per point using the legacy
+whole-recording firing rate. No region or well averaging occurs before
+plotting. The overlay is the unit-level group mean +/- SEM and established
+dorsal/ventral colors are used:
+
+```text
+dorsal:  10 FS units, 5 recording/well observations, 0.8299 +/- 0.2387 Hz
+ventral: 11 FS units, 7 recording/well observations, 1.6676 +/- 0.3991 Hz
+```
+
+The Lumos LFS1 unit is a representative QC example only and is not included in
+the dorsal/ventral activity comparison. The former D1-D7 network strip is now
+E1-E7 with unchanged calculations and observations.
+
+Canonical render:
+
+```text
+job_id: 53259724
+state: COMPLETED
+elapsed: 00:01:13
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_113238/
+```
+
+New/renamed source tables:
+
+```text
+cytoview_unified_rsfs_activity_figure_20260710_panel_D_regional_FS_unit_firing_rates.csv
+cytoview_unified_rsfs_activity_figure_20260710_panel_E_activity_source_data.csv
+```
+
+### Final Nature-style two-row narrative layout
+
+The unified figure was rebuilt into exactly two visual rows:
+
+```text
+top row:    A classification | B FS QC | C RS QC | D FS regional firing | E RS regional firing
+bottom row: F1-F6 Regional spontaneous network activity
+```
+
+The transient three-row draft from job 53259943 is superseded. The top-row
+regional firing panels now sit beside the unit-classification and QC panels.
+
+Palette lock:
+
+```text
+waveform class panels A-C:
+FS #B45F43 muted terracotta
+RS #3E5C76 deep slate blue
+
+regional panels D-F:
+dorsal  #657A57 muted forest/sage
+ventral #C08A3E warm ochre
+```
+
+Panel A retains the 3D aligned TTP/repolarization-time/half-width space as the
+dominant element. The class-mean waveforms remain aligned, original-amplitude
+uV traces with only a 0.5-ms/5-uV scale bar. The composition inset is now two
+small horizontal 100% stacked bars for dorsal and ventral, with count and
+percentage in each FS/RS segment. The class/P99.9 key is positioned with Panel
+A; the bottom key contains only regional colors, processing-variant markers,
+and mean +/- SEM.
+
+Panels B and C contain only their respective FS and RS examples. Visible titles
+are generic (`FS1`, `FS2`, `RS1`, `RS2`) plus TTP; platform, region, well, and
+unit IDs remain available in source data but are not shown. Spatial footprints
+dominate each narrow card, with raw ACG and PTP stability as secondary strips.
+
+Panels D and E use one point per classified CytoView unit and share an exact
+0-13 Hz y-axis:
+
+```text
+D FS: dorsal 10 units / 5 wells; ventral 11 units / 7 wells
+E RS: dorsal 62 units / 15 wells; ventral 91 units / 25 wells
+```
+
+The bottom row is titled `Regional spontaneous network activity` and contains
+only overall firing rate, burst rate, MFR within bursts, burst duration,
+inter-burst interval, and spikes per burst. Maximum burst size was removed.
+
+Canonical clean render:
+
+```text
+job_id: 53259978
+state: COMPLETED
+elapsed: 00:01:04
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_115637/
+```
+
+Current regional source tables:
+
+```text
+cytoview_unified_rsfs_activity_figure_20260710_panels_D_E_regional_classified_unit_firing_rates.csv
+cytoview_unified_rsfs_activity_figure_20260710_panel_F_regional_spontaneous_network_activity.csv
+```
+
+### Corrected two-row hierarchy: B-to-D above C-to-E
+
+The earlier interpretation that placed A-E in a single top-line sequence was
+not the intended hierarchy. The upper row is now one composite block: Panel A
+spans the full left height, and the area to its right is split into two
+horizontal narratives:
+
+```text
+upper subrow: B representative FS units -> D regional FS-unit firing
+lower subrow: C representative RS units -> E regional RS-unit firing
+```
+
+The full-width bottom row remains F1-F6 regional spontaneous network activity.
+No data, palette, shared D/E y-axis, representative selection, or lower activity
+calculation changed in this layout correction.
+
+Canonical render:
+
+```text
+job_id: 53260022
+state: COMPLETED
+elapsed: 00:01:24
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_120059/
+```

@@ -33,9 +33,9 @@ LUMOS_FIRING_PATH = JOB_ROOT / "lumos_gui_ready_unsorted_unit_firing_rates_20260
 STEM = "cytoview_unified_rsfs_activity_figure_20260710"
 
 CLASS_ORDER = ["FS", "RS"]
-CLASS_COLORS = {"FS": "#E76F51", "RS": "#277DA1"}
+CLASS_COLORS = {"FS": "#C87932", "RS": "#4F718C"}
 REGION_ORDER = ["dorsal", "ventral"]
-REGION_COLORS = {"dorsal": "#2A9D8F", "ventral": "#6A4C93"}
+REGION_COLORS = {"dorsal": "#6F8061", "ventral": "#C59A52"}
 VARIANT_MARKERS = {
     "primary_raw": "o",
     "filter_200Hz-3kHz": "s",
@@ -200,8 +200,9 @@ def main() -> int:
     fs_gallery_spatial_source, fs_gallery_acg_source, fs_gallery_amplitude_source = (
         _representative_source_tables(fs_gallery_assets)
     )
-    panel_d_specs = _panel_d_specs()
-    panel_d_source = _panel_d_source_data(wells, panel_d_specs)
+    panel_f_specs = _panel_f_specs()
+    panel_f_source = _panel_activity_source_data(wells, panel_f_specs)
+    regional_unit_source = _regional_classified_unit_firing_source(units)
 
     feature_path = output_dir / f"{STEM}_panel_A_aligned_features.csv"
     trace_output_path = output_dir / f"{STEM}_panel_A_landmark_waveform_traces.csv.gz"
@@ -217,7 +218,8 @@ def main() -> int:
     fs_gallery_spatial_path = output_dir / f"{STEM}_FS_candidate_gallery_spatial_waveforms.csv.gz"
     fs_gallery_acg_path = output_dir / f"{STEM}_FS_candidate_gallery_autocorrelograms.csv"
     fs_gallery_amplitude_path = output_dir / f"{STEM}_FS_candidate_gallery_amplitude_stability.csv.gz"
-    panel_d_path = output_dir / f"{STEM}_panel_D_activity_source_data.csv"
+    regional_unit_path = output_dir / f"{STEM}_panels_D_E_regional_classified_unit_firing_rates.csv"
+    panel_f_path = output_dir / f"{STEM}_panel_F_regional_spontaneous_network_activity.csv"
     units[
         [
             "unit_key",
@@ -254,7 +256,8 @@ def main() -> int:
     fs_gallery_amplitude_source.to_csv(
         fs_gallery_amplitude_path, index=False, compression="gzip"
     )
-    panel_d_source.to_csv(panel_d_path, index=False)
+    panel_f_source.to_csv(panel_f_path, index=False)
+    regional_unit_source.to_csv(regional_unit_path, index=False)
 
     figure_paths = _plot_unified_figure(
         plt,
@@ -265,7 +268,7 @@ def main() -> int:
         waveform_summary,
         representative_assets,
         wells,
-        panel_d_specs,
+        panel_f_specs,
         output_dir / STEM,
         args.export_formats,
         args.fs_cutoff_ms,
@@ -282,7 +285,10 @@ def main() -> int:
     provenance = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "script": str(Path(__file__).resolve()),
-        "figure_role": "unified supplementary figure; panels A-C RS/FS classification, panel D activity",
+        "figure_role": (
+            "unified supplementary figure; panel A classification, panels B-C representative QC, "
+            "panels D-E regional classified-unit firing, panel F organoid-level spontaneous network activity"
+        ),
         "activity_source_dir": str(activity_dir),
         "activity_provenance": str(activity_provenance_path),
         "activity_provenance_sha256": _sha256(activity_provenance_path),
@@ -313,10 +319,10 @@ def main() -> int:
                 "aligned spike half-width",
             ],
             "feature_space_encoding": (
-                "2x2 layout: x=TTP/y=repolarization time scatter, raw TTP histogram, "
-                "x=TTP/y=spike half-width scatter, and dorsal/ventral stacked class summary; "
-                "scatter point size=unit temporal P99.9 smoothed inverse-ISI firing rate; "
-                "color=locked TTP-cutoff RS/FS class"
+                "large 3D x=TTP/y=repolarization time/z=spike half-width scatter with no cutoff plane; "
+                "point size=unit temporal P99.9 smoothed inverse-ISI firing rate and color=locked "
+                "TTP-cutoff RS/FS class; companion column contains aligned original-amplitude "
+                "class means above a minimal horizontal dorsal/ventral RS/FS composition summary"
             ),
             "selection_result": (
                 "repolarization time was the strongest non-TTP univariate feature; "
@@ -333,10 +339,17 @@ def main() -> int:
                 "points outside the explicitly displayed scatter-axis limits are omitted before plotting, "
                 "not rendered beyond the axes"
             ),
-            "histogram_smoothing": "none",
+            "view": "elevation 22 degrees, azimuth -46 degrees; 10-degree rotation from prior -56 view",
+            "cutoff_plane": False,
+            "point_size_explanatory_sentence": False,
+            "point_size_key": "compact symbol legend only",
             "classification_summary": (
                 "pooled classified-unit percentages and counts by dorsal/ventral region; "
                 "descriptive unit summary, not an organoid-level inferential analysis"
+            ),
+            "waveform_summary": (
+                "aligned FS/RS class means at original uV amplitudes; no normalization, SEM shading, "
+                "axes, ticks, grid, frame, or display smoothing"
             ),
             "units_with_complete_display_features": int(
                 units[["feature_ttp_ms", "feature_repolarization_time_ms", "feature_spike_half_width_ms"]]
@@ -358,8 +371,8 @@ def main() -> int:
             "card_axis_ticks": "none",
             "best_channel_center_circle": False,
             "population_scope_note": (
-                "representative cards are cross-platform; Panel A classification and Panel D activity "
-                "remain the locked CytoView dorsal/ventral population"
+                "representative cards are cross-platform; Panel A classification, Panels D-E regional "
+                "unit activity, and Panel F network activity remain the locked CytoView population"
             ),
         },
         "panel_C_representative_units": {
@@ -377,12 +390,29 @@ def main() -> int:
             "scope": "all retained FS units meeting representative-candidate completeness and >=100 spike rule",
             "figures": [str(path) for path in fs_gallery_paths],
         },
-        "panel_D": {
+        "panels_D_E_regional_classified_unit_activity": {
+            "metric": "legacy whole-recording firing rate for each retained CytoView FS or RS unit",
+            "plotting_unit": "one point per classified unit; no regional or well averaging before plotting",
+            "overlay": "unit-level group mean +/- SEM",
+            "shared_y_axis_hz": [0.0, 13.0],
+            "region_colors": REGION_COLORS,
+            "counts": {
+                f"{class_label}_{region}": {
+                    "units": int(len(group)),
+                    "recording_well_observations": int(group["recording_well_id"].nunique()),
+                }
+                for (class_label, region), group in regional_unit_source.groupby(
+                    ["rs_fs_class", "region_call"]
+                )
+            },
+        },
+        "panel_F": {
             "layout": "single row, one metric per column, compact dorsal/ventral spacing",
-            "metrics": [spec[1] for spec in panel_d_specs],
-            "E1_choice": "legacy spike-count / recording-duration firing rate only",
+            "metrics": [spec[1] for spec in panel_f_specs],
+            "F1_choice": "legacy spike-count / recording-duration firing rate only",
             "aggregation": "one point per recording-version/well organoid; regional mean +/- SEM",
             "burst_detection": activity_provenance["burst_detection"],
+            "maximum_burst_size_removed": True,
         },
         "outputs": {
             "figures": [str(path) for path in figure_paths],
@@ -399,9 +429,10 @@ def main() -> int:
             "FS_candidate_gallery_spatial_waveforms": str(fs_gallery_spatial_path),
             "FS_candidate_gallery_autocorrelograms": str(fs_gallery_acg_path),
             "FS_candidate_gallery_amplitude_stability": str(fs_gallery_amplitude_path),
+            "panels_D_E_regional_classified_unit_firing_rates": str(regional_unit_path),
             "panel_A_landmark_traces": str(trace_output_path),
             "panel_A_landmark_summary": str(waveform_summary_path),
-            "panel_D_source": str(panel_d_path),
+            "panel_F_source": str(panel_f_path),
         },
     }
     provenance_path = output_dir / f"{STEM}_provenance.json"
@@ -827,34 +858,57 @@ def _representative_source_tables(
     return pd.DataFrame(spatial_rows), pd.DataFrame(acg_rows), pd.DataFrame(amplitude_rows)
 
 
-def _panel_d_specs() -> list[tuple[str, str, str, str]]:
+def _panel_f_specs() -> list[tuple[str, str, str, str]]:
     return [
-        ("D1", "mean_unit_firing_rate_hz", "Firing rate", "Mean firing rate\n(Hz)"),
-        ("D2", "mean_unit_burst_rate_per_min", "Burst rate", "Burst rate\n(bursts/min)"),
+        ("F1", "mean_unit_firing_rate_hz", "Firing rate", "Mean firing rate\n(Hz)"),
+        ("F2", "mean_unit_burst_rate_per_min", "Burst rate", "Burst rate\n(bursts/min)"),
         (
-            "D3",
+            "F3",
             "mean_unit_firing_rate_within_bursts_hz",
             "MFR/Burst",
             "MFR/Burst\n(Hz)",
         ),
-        ("D4", "mean_unit_burst_duration_ms", "Burst duration", "Burst duration\n(ms)"),
+        ("F4", "mean_unit_burst_duration_ms", "Burst duration", "Burst duration\n(ms)"),
         (
-            "D5",
+            "F5",
             "mean_unit_interburst_interval_s",
             "Inter-burst interval",
             "Inter-burst interval\n(s)",
         ),
-        ("D6", "mean_unit_spikes_per_burst", "Spikes/burst", "Mean spikes\nper burst"),
-        (
-            "D7",
-            "maximum_spikes_in_any_sua_burst",
-            "Maximum burst size",
-            "Maximum spikes\nin a burst",
-        ),
+        ("F6", "mean_unit_spikes_per_burst", "Spikes/burst", "Mean spikes\nper burst"),
     ]
 
 
-def _panel_d_source_data(
+def _regional_classified_unit_firing_source(units: pd.DataFrame) -> pd.DataFrame:
+    """Return one source-data row per retained CytoView classified unit."""
+    columns = [
+        "unit_key",
+        "recording_well_id",
+        "organoid_well",
+        "recording",
+        "well",
+        "region_call",
+        "raw_variant",
+        "unit_id",
+        "rs_fs_class",
+        "source_spike_count",
+        "recording_duration_s",
+        "source_firing_rate_hz",
+        "aligned_trough_to_peak_duration_ms",
+        "template_ptp_best_channel_uV",
+    ]
+    source = units.loc[units["rs_fs_class"].isin(CLASS_ORDER), columns].copy()
+    source = source.rename(columns={"source_firing_rate_hz": "classified_unit_firing_rate_hz"})
+    groups = source.groupby(["rs_fs_class", "region_call"])
+    source["group_classified_unit_count"] = groups["unit_key"].transform("size")
+    source["group_recording_well_observation_count"] = groups["recording_well_id"].transform(
+        "nunique"
+    )
+    source["summary_overlay"] = "unit-level mean +/- SEM; no pre-averaging"
+    return source.sort_values(["rs_fs_class", "region_call", "recording_well_id", "unit_id"])
+
+
+def _panel_activity_source_data(
     wells: pd.DataFrame, specs: list[tuple[str, str, str, str]]
 ) -> pd.DataFrame:
     id_columns = [
@@ -917,11 +971,16 @@ def _plot_unified_figure(
     waveform_summary: pd.DataFrame,
     representative_assets: list[dict[str, object]],
     wells: pd.DataFrame,
-    panel_d_specs: list[tuple[str, str, str, str]],
+    panel_f_specs: list[tuple[str, str, str, str]],
     output_base: Path,
     export_formats: str,
     fs_cutoff_ms: float,
 ) -> list[Path]:
+    from matplotlib.colors import to_rgba
+    from matplotlib.patches import FancyBboxPatch
+    from matplotlib.transforms import Bbox
+
+    neutral = "#2B2B2B"
     plt.rcParams.update(
         {
             "font.family": "DejaVu Sans",
@@ -933,27 +992,32 @@ def _plot_unified_figure(
             "axes.linewidth": 0.7,
             "xtick.major.width": 0.7,
             "ytick.major.width": 0.7,
+            "text.color": neutral,
+            "axes.labelcolor": neutral,
+            "axes.edgecolor": neutral,
+            "xtick.color": neutral,
+            "ytick.color": neutral,
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
         }
     )
     fig = plt.figure(figsize=(16.0, 9.8), facecolor="white")
-    outer = fig.add_gridspec(2, 1, height_ratios=[1.72, 0.82], hspace=0.25)
+    outer = fig.add_gridspec(2, 1, height_ratios=[1.72, 1.00], hspace=0.27)
     top = outer[0].subgridspec(
-        2, 3, width_ratios=[1.55, 1.15, 1.15], hspace=0.23, wspace=0.20
+        2, 3, width_ratios=[1.40, 1.55, 1.05], hspace=0.20, wspace=0.18
     )
-    panel_a_grid = top[:, 0].subgridspec(2, 2, hspace=0.40, wspace=0.38)
-    axes_a = [
-        fig.add_subplot(panel_a_grid[0, 0]),
-        fig.add_subplot(panel_a_grid[0, 1]),
-        fig.add_subplot(panel_a_grid[1, 0]),
-        fig.add_subplot(panel_a_grid[1, 1]),
-    ]
+    panel_a_grid = top[:, 0].subgridspec(
+        2, 2, width_ratios=[2.35, 0.86], height_ratios=[1.35, 0.65], hspace=0.28, wspace=0.34
+    )
+    ax_a_features = fig.add_subplot(panel_a_grid[:, 0], projection="3d")
+    ax_a_waveform = fig.add_subplot(panel_a_grid[0, 1])
+    ax_a_composition = fig.add_subplot(panel_a_grid[1, 1])
     representative_axes: dict[str, list[tuple[object, object, object]]] = {"FS": [], "RS": []}
     for row_index, class_label in enumerate(CLASS_ORDER):
-        for column_index in range(2):
-            card = top[row_index, column_index + 1].subgridspec(
-                3, 1, height_ratios=[2.60, 0.34, 0.20], hspace=0.08
+        class_grid = top[row_index, 1].subgridspec(1, 2, wspace=0.10)
+        for unit_index in range(2):
+            card = class_grid[0, unit_index].subgridspec(
+                3, 1, height_ratios=[2.95, 0.30, 0.17], hspace=0.055
             )
             representative_axes[class_label].append(
                 (
@@ -962,17 +1026,93 @@ def _plot_unified_figure(
                     fig.add_subplot(card[2]),
                 )
             )
-    bottom = outer[1].subgridspec(1, 7, wspace=0.58)
-    axes_d = [fig.add_subplot(bottom[index]) for index in range(7)]
+    ax_d_fs_firing = fig.add_subplot(top[0, 2])
+    ax_e_rs_firing = fig.add_subplot(top[1, 2])
+    bottom_block = outer[1].subgridspec(2, 1, height_ratios=[0.12, 1.0], hspace=0.02)
+    ax_f_title = fig.add_subplot(bottom_block[0, 0])
+    ax_f_title.set_axis_off()
+    ax_f_title.text(
+        0.0,
+        0.55,
+        "F",
+        transform=ax_f_title.transAxes,
+        fontsize=12,
+        fontweight="bold",
+        va="center",
+    )
+    ax_f_title.text(
+        0.025,
+        0.55,
+        "Regional spontaneous network activity",
+        transform=ax_f_title.transAxes,
+        fontsize=9.2,
+        fontweight="bold",
+        va="center",
+    )
+    ax_f_title.plot(
+        [0.0, 1.0],
+        [0.08, 0.08],
+        transform=ax_f_title.transAxes,
+        color="#B8B8B8",
+        lw=0.65,
+        clip_on=False,
+    )
+    bottom = bottom_block[1, 0].subgridspec(1, 6, wspace=0.52)
+    axes_f = [fig.add_subplot(bottom[index]) for index in range(6)]
+    fig.subplots_adjust(left=0.045, right=0.992, top=0.982, bottom=0.060)
 
-    _plot_panel_a_2x2(axes_a, units, fs_cutoff_ms)
+    _plot_feature_space_3d(ax_a_features, units, fs_cutoff_ms)
+    _plot_panel_a_mean_waveforms(ax_a_waveform, waveform_summary)
+    _plot_panel_a_composition_bar(ax_a_composition, units)
     _plot_representative_cards(representative_axes, representative_assets)
-    _plot_activity_strip(axes_d, wells, panel_d_specs)
+    shared_unit_rate_ylim = (0.0, 13.0)
+    _plot_regional_class_unit_firing(ax_d_fs_firing, units, "FS", shared_unit_rate_ylim)
+    _plot_regional_class_unit_firing(ax_e_rs_firing, units, "RS", shared_unit_rate_ylim)
+    _plot_activity_strip(axes_f, wells, panel_f_specs)
 
-    _panel_letter(axes_a[0], "A", x=-0.28)
-    _panel_letter(representative_axes["FS"][0][0], "B", x=-0.18)
-    _panel_letter(representative_axes["RS"][0][0], "C", x=-0.18)
-    fig.text(0.012, 0.337, "D", fontsize=12, fontweight="bold", va="top")
+    _panel_letter(ax_a_features, "A", x=-0.08)
+    for class_label, panel_letter, section_title in [
+        ("FS", "B", "Representative FS units"),
+        ("RS", "C", "Representative RS units"),
+    ]:
+        group_axes = [axis for card_axes in representative_axes[class_label] for axis in card_axes]
+        for axis in group_axes:
+            axis.set_facecolor("none")
+        bounds = Bbox.union([axis.get_position() for axis in group_axes])
+        pad_x, pad_bottom, pad_top = 0.006, 0.009, 0.034
+        tint = FancyBboxPatch(
+            (bounds.x0 - pad_x, bounds.y0 - pad_bottom),
+            bounds.width + 2 * pad_x,
+            bounds.height + pad_bottom + pad_top,
+            boxstyle="round,pad=0.003,rounding_size=0.006",
+            transform=fig.transFigure,
+            facecolor=to_rgba(CLASS_COLORS[class_label], 0.06),
+            edgecolor="none",
+            linewidth=0,
+            zorder=-0.5,
+        )
+        fig.add_artist(tint)
+        header_y = bounds.y1 + 0.017
+        fig.text(
+            bounds.x0 - pad_x,
+            header_y,
+            panel_letter,
+            fontsize=12,
+            fontweight="bold",
+            va="center",
+            color=neutral,
+        )
+        fig.text(
+            bounds.x0 + 0.020,
+            header_y,
+            section_title,
+            fontsize=8.2,
+            fontweight="bold",
+            va="center",
+            color=CLASS_COLORS[class_label],
+        )
+    _panel_letter(ax_d_fs_firing, "D", x=-0.28)
+    _panel_letter(ax_e_rs_firing, "E", x=-0.20)
 
     class_handles = [
         Line2D(
@@ -983,7 +1123,11 @@ def _plot_unified_figure(
             markerfacecolor=CLASS_COLORS[label],
             markeredgecolor="none",
             markersize=5,
-            label=f"{label} (n={int(units['rs_fs_class'].eq(label).sum())})",
+            label=(
+                f"FS (TTP ≤0.50 ms; n={int(units['rs_fs_class'].eq(label).sum())})"
+                if label == "FS"
+                else f"RS (TTP >0.50 ms; n={int(units['rs_fs_class'].eq(label).sum())})"
+            ),
         )
         for label in CLASS_ORDER
     ]
@@ -1027,18 +1171,39 @@ def _plot_unified_figure(
         )
         for value in [10.0, 20.0, 30.0]
     ]
+    ax_a_features.legend(
+        handles=class_handles + size_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.16),
+        ncol=3,
+        frameon=False,
+        fontsize=5.6,
+        handletextpad=0.35,
+        columnspacing=0.8,
+    )
+    region_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="none",
+            markerfacecolor=REGION_COLORS[region],
+            markeredgecolor="none",
+            markersize=5,
+            label=region.title(),
+        )
+        for region in REGION_ORDER
+    ]
     fig.legend(
-        handles=class_handles + size_handles + variant_handles + [mean_handle],
+        handles=region_handles + variant_handles + [mean_handle],
         loc="lower center",
         bbox_to_anchor=(0.5, 0.006),
-        ncol=9,
+        ncol=6,
         frameon=False,
         fontsize=7,
         handletextpad=0.4,
         columnspacing=1.2,
     )
-    fig.subplots_adjust(left=0.045, right=0.995, top=0.982, bottom=0.075)
-
     output_paths: list[Path] = []
     for suffix in [part.strip().lower() for part in export_formats.split(",") if part.strip()]:
         path = output_base.with_suffix(f".{suffix}")
@@ -1214,6 +1379,11 @@ def _plot_panel_a_2x2(axes: list[object], units: pd.DataFrame, fs_cutoff_ms: flo
         fs_cutoff_ms=fs_cutoff_ms,
     )
 
+    _plot_panel_a_region_summary(ax_region, units)
+
+
+def _plot_panel_a_region_summary(ax_region, units: pd.DataFrame) -> None:
+    """Plot the compact descriptive dorsal/ventral RS/FS stacked summary."""
     summary = _panel_a_region_classification_summary(units)
     x = np.arange(len(REGION_ORDER), dtype=float)
     bottom = np.zeros(len(REGION_ORDER), dtype=float)
@@ -1264,6 +1434,152 @@ def _plot_panel_a_2x2(axes: list[object], units: pd.DataFrame, fs_cutoff_ms: flo
     ax_region.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.75)
 
 
+def _plot_panel_a_composition_bar(ax, units: pd.DataFrame) -> None:
+    """Plot a minimal horizontal dorsal/ventral RS/FS composition summary."""
+    summary = _panel_a_region_classification_summary(units)
+    y = np.arange(len(REGION_ORDER), dtype=float)
+    left = np.zeros(len(REGION_ORDER), dtype=float)
+    for class_label in CLASS_ORDER:
+        class_rows = summary.loc[summary["rs_fs_class"].eq(class_label)].set_index("region_call")
+        percentages = np.array(
+            [class_rows.loc[region, "percent_of_region_units"] for region in REGION_ORDER],
+            dtype=float,
+        )
+        counts = np.array(
+            [class_rows.loc[region, "unit_count"] for region in REGION_ORDER], dtype=int
+        )
+        bars = ax.barh(
+            y,
+            percentages,
+            left=left,
+            height=0.48,
+            color=CLASS_COLORS[class_label],
+            edgecolor="white",
+            linewidth=0.6,
+        )
+        for bar, count, percentage, base in zip(bars, counts, percentages, left, strict=True):
+            if percentage >= 10:
+                ax.text(
+                    base + percentage / 2,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{count}\n{percentage:.0f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=4.7,
+                    color="white",
+                    fontweight="bold",
+                )
+        left += percentages
+    totals = summary.groupby("region_call")["region_total_units"].first()
+    ax.set_yticks(
+        y,
+        [f"{region.title()}  n={int(totals.loc[region])}" for region in REGION_ORDER],
+    )
+    ax.invert_yaxis()
+    ax.set_xlim(0, 100)
+    ax.set_xticks([])
+    ax.set_title("RS/FS composition", loc="left", fontsize=6.5, fontweight="bold", pad=2)
+    ax.tick_params(axis="y", labelsize=5.2, length=0, pad=2)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+
+def _plot_panel_a_mean_waveforms(ax, waveform_summary: pd.DataFrame) -> None:
+    """Plot aligned class means at original amplitude beneath the region summary."""
+    all_means: list[np.ndarray] = []
+    for class_label in CLASS_ORDER:
+        summary = waveform_summary.loc[
+            waveform_summary["rs_fs_class"].eq(class_label)
+            & waveform_summary["representation"].eq("raw_uV")
+        ].sort_values("time_ms")
+        time = summary["time_ms"].to_numpy(float)
+        mean = summary["mean"].to_numpy(float)
+        all_means.append(mean)
+        ax.plot(time, mean, color=CLASS_COLORS[class_label], lw=1.25, label=class_label)
+    ax.set_xlim(-0.55, 1.15)
+    ax.set_title("Mean aligned waveforms", loc="left", fontweight="bold")
+    combined = np.concatenate(all_means)
+    y_min, y_max = float(np.nanmin(combined)), float(np.nanmax(combined))
+    margin = 0.12 * max(y_max - y_min, 1.0)
+    ax.set_ylim(y_min - margin, y_max + margin)
+    scale_x = 0.50
+    scale_y = 5.0
+    x0 = 0.52
+    y0 = y_min - 0.02 * max(y_max - y_min, 1.0)
+    ax.plot([x0, x0 + scale_x], [y0, y0], color="#333333", lw=0.85, clip_on=False)
+    ax.plot([x0 + scale_x, x0 + scale_x], [y0, y0 + scale_y], color="#333333", lw=0.85, clip_on=False)
+    ax.text(x0 + scale_x / 2, y0 - 0.06 * (y_max - y_min), "0.5 ms", ha="center", va="top", fontsize=5.2)
+    ax.text(x0 + scale_x + 0.035, y0 + scale_y / 2, "5 µV", ha="left", va="center", fontsize=5.2, rotation=90)
+    ax.set_axis_off()
+
+
+def _plot_regional_class_unit_firing(
+    ax,
+    units: pd.DataFrame,
+    class_label: str,
+    shared_ylim: tuple[float, float],
+) -> None:
+    """Plot one legacy whole-recording firing-rate point per retained classified unit."""
+    source = _regional_classified_unit_firing_source(units)
+    source = source.loc[source["rs_fs_class"].eq(class_label)].copy()
+    rng = np.random.default_rng(20260710)
+    for position, region in enumerate(REGION_ORDER):
+        group = source.loc[source["region_call"].eq(region)].copy()
+        values = group["classified_unit_firing_rate_hz"].to_numpy(float)
+        jitter = rng.uniform(-0.105, 0.105, size=len(group))
+        ax.scatter(
+            np.full(len(group), position, dtype=float) + jitter,
+            values,
+            s=20 if class_label == "FS" else 13,
+            color=REGION_COLORS[region],
+            alpha=0.78,
+            edgecolor="white",
+            linewidth=0.45,
+            zorder=2,
+        )
+        mean = float(np.mean(values))
+        sem = _sem(values)
+        ax.errorbar(
+            position,
+            mean,
+            yerr=sem,
+            fmt="D",
+            ms=5.2,
+            mfc="white",
+            mec="#222222",
+            mew=0.8,
+            ecolor="#222222",
+            elinewidth=0.9,
+            capsize=3,
+            zorder=4,
+        )
+    labels = []
+    for region in REGION_ORDER:
+        group = source.loc[source["region_call"].eq(region)]
+        labels.append(
+            f"{region.title()}\n{len(group)} {class_label} units\n"
+            f"{group['recording_well_id'].nunique()} wells"
+        )
+    ax.set_xticks(np.arange(len(REGION_ORDER)), labels)
+    ax.set_xlim(-0.38, 1.38)
+    ax.set_ylim(shared_ylim)
+    ax.set_ylabel(f"{class_label}-unit firing rate (Hz)")
+    ax.set_title(f"Regional {class_label}-unit firing", loc="left", fontweight="bold")
+    ax.text(
+        0.02,
+        0.99,
+        f"One point per {class_label} unit · mean ± SEM",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=5.8,
+        color="#555555",
+    )
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.75)
+    ax.set_axisbelow(True)
+
+
 def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None:
     complete = units[
         [
@@ -1303,25 +1619,19 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
     x_limits = axis_limits["feature_ttp_ms"]
     y_limits = axis_limits["feature_repolarization_time_ms"]
     z_limits = axis_limits["feature_spike_half_width_ms"]
-    yy, zz = np.meshgrid(
-        np.linspace(y_limits[0], y_limits[1], 2),
-        np.linspace(z_limits[0], z_limits[1], 2),
-    )
-    xx = np.full_like(yy, fs_cutoff_ms)
-    ax.plot_surface(xx, yy, zz, color="#777777", alpha=0.09, shade=False)
     ax.set_title(
-        f"Aligned waveform space (n={len(plotted)} shown)",
+        f"Aligned three-feature waveform space (n={len(plotted)} shown)",
         loc="left",
         fontweight="bold",
         pad=4,
     )
     ax.set_xlabel("Trough-to-peak (ms)", labelpad=5)
-    ax.set_ylabel("Repolarization time (ms)", labelpad=6)
-    ax.set_zlabel("Spike half-width (ms)", labelpad=5)
+    ax.set_ylabel("Repolarization time (ms)", labelpad=3)
+    ax.set_zlabel("Spike half-width (ms)", labelpad=1)
     ax.set_xlim(x_limits)
     ax.set_ylim(y_limits)
     ax.set_zlim(z_limits)
-    ax.view_init(elev=22, azim=-56)
+    ax.view_init(elev=22, azim=-46)
     ax.set_box_aspect((1.20, 0.95, 0.75))
     ax.tick_params(labelsize=6, pad=0)
     ax.grid(True, alpha=0.22)
@@ -1422,13 +1732,13 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
-    display_id = str(metadata.get("representative_display_id", f"{class_label}{order}"))
+    display_id = f"{class_label}{order}"
     ax.set_title(
-        f"{display_id}  {str(metadata['region_call']).title()} {metadata['well']} · "
-        f"u{metadata['unit_id']} · TTP {metadata['feature_ttp_ms']:.2f} ms",
+        f"{display_id} · TTP {metadata['feature_ttp_ms']:.2f} ms",
         loc="left",
-        fontsize=7.0,
+        fontsize=6.3,
         fontweight="bold",
+        color=color,
         pad=2,
     )
 
@@ -1692,7 +2002,7 @@ def _plot_activity_strip(axes, wells, specs) -> None:
                 ax.scatter(
                     positions[region] + jitter[point_index],
                     float(row[metric]),
-                    s=17,
+                    s=20,
                     marker=VARIANT_MARKERS.get(str(row["raw_variant"]), "D"),
                     color=REGION_COLORS[region],
                     edgecolor="white",
@@ -1706,12 +2016,12 @@ def _plot_activity_strip(axes, wells, specs) -> None:
                     float(np.mean(plotted_values)),
                     yerr=_sem(plotted_values),
                     fmt="D",
-                    ms=3.6,
+                    ms=4.4,
                     color="black",
                     markerfacecolor="white",
                     markeredgewidth=0.8,
-                    capsize=2.5,
-                    lw=0.8,
+                    capsize=3.0,
+                    lw=0.9,
                     zorder=5,
                 )
         counts = [
@@ -1725,7 +2035,7 @@ def _plot_activity_strip(axes, wells, specs) -> None:
         ax.set_xlim(-0.18, 0.48)
         ax.set_title(f"{panel}  {title}", loc="left", fontweight="bold", pad=4)
         ax.set_ylabel(ylabel)
-        ax.grid(axis="y", color="#DDDDDD", lw=0.55, alpha=0.8)
+        ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.72)
         _clean_axis(ax)
 
 
