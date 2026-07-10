@@ -106,7 +106,14 @@ def main() -> int:
 
     import spikeinterface.full as si
 
-    target_well = args.well.strip() or WELL_NUMBER_MAP.get(str(args.well_number), str(args.well_number))
+    explicit_well = args.well.strip()
+    target_well = explicit_well or WELL_NUMBER_MAP.get(str(args.well_number), str(args.well_number))
+    well_request_label = f"explicit well {explicit_well}" if explicit_well else f"numeric well {args.well_number}"
+    well_mapping_assumption = (
+        "explicit well was supplied; numeric well mapping not used"
+        if explicit_well
+        else "1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3"
+    )
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -121,8 +128,9 @@ def main() -> int:
         analyzer_path = row["root"] / target_well / "postprocessed" / "block0_None_recording1.zarr"
         availability = {
             "repeat": repeat,
-            "well_number_requested": args.well_number,
-            "well_number_mapping_assumption": "1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3",
+            "well_request": well_request_label,
+            "well_number_requested": "" if explicit_well else args.well_number,
+            "well_number_mapping_assumption": well_mapping_assumption,
             "well": target_well,
             "recording_root": str(row["root"]),
             "analyzer_path": str(analyzer_path),
@@ -179,9 +187,10 @@ def main() -> int:
         "script": str(Path(__file__).resolve()),
         "results_root": str(args.results_root.expanduser().resolve()),
         "recording_pattern": args.recording_pattern,
-        "well_number_requested": args.well_number,
+        "well_request": well_request_label,
+        "well_number_requested": "" if explicit_well else args.well_number,
         "well": target_well,
-        "well_number_mapping_assumption": "1=A1, 2=A2, 3=A3, 4=B1, 5=B2, 6=B3",
+        "well_number_mapping_assumption": well_mapping_assumption,
         "analysis_scope": "Isolated repeated-recording stability analysis; not included in dorsal/ventral summaries.",
         "matching_logic": (
             "KSLabel=good units are grouped by exact best-channel electrode across usable repeats. "
@@ -211,7 +220,7 @@ def main() -> int:
     provenance_path.write_text(json.dumps(provenance, indent=2, default=str) + "\n", encoding="utf-8")
 
     print("Recording-series stability render complete")
-    print(f"Well: {target_well} (requested numeric well {args.well_number})")
+    print(f"Well: {target_well} ({well_request_label})")
     print(f"Usable repeats: {', '.join(usable_repeats) if usable_repeats else 'none'}")
     print(f"Selected chains: {len(selected_chains)}")
     print(f"Output dir: {output_dir}")
