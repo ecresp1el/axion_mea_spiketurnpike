@@ -28,6 +28,8 @@ DEFAULT_ACTIVITY_DIR = (
     "isi2ms_le3pct_exclude2_dorsal_drivers_20260710_082420"
 )
 DEFAULT_ALIGNMENT_DIR = JOB_ROOT / "waveform_alignment_feature_audit_20260709_cytoview"
+LUMOS_ALIGNMENT_DIR = JOB_ROOT / "waveform_alignment_feature_audit_20260709"
+LUMOS_FIRING_PATH = JOB_ROOT / "lumos_gui_ready_unsorted_unit_firing_rates_20260709.csv"
 STEM = "cytoview_unified_rsfs_activity_figure_20260710"
 
 CLASS_ORDER = ["FS", "RS"]
@@ -39,6 +41,21 @@ VARIANT_MARKERS = {
     "filter_200Hz-3kHz": "s",
     "broadband_processor_raw": "^",
 }
+LOCKED_CYTOVIEW_FS_UNIT_KEYS = [
+    # Retained user-selected CytoView gallery FS1 (2026-07-10).
+    "step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz|B1|24",
+]
+LOCKED_LUMOS_FS_UNIT_KEY = (
+    "step1_nonlfp_th5_20260708_2_25_2026_129-8447_test(000)_broadband_processor_raw|F8|5"
+)
+LOCKED_FS_UNIT_KEYS = [*LOCKED_CYTOVIEW_FS_UNIT_KEYS, LOCKED_LUMOS_FS_UNIT_KEY]
+LOCKED_RS_UNIT_KEYS = [
+    # User-selected existing RS1 and RS3, in that order (2026-07-10).
+    "step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz|B2|9",
+    "step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz|B3|29",
+]
+
+SPATIAL_WAVEFORM_DISPLAY_GAIN = 2.6
 
 
 def parse_args() -> argparse.Namespace:
@@ -139,9 +156,49 @@ def main() -> int:
     waveform_summary = _waveform_summary(traces)
     feature_selection_audit = _feature_selection_audit(units, audit_feature_columns)
     representative_ranking, representative_selection = _select_representatives(units)
-    representative_assets = _load_representative_assets(representative_selection)
+    representative_selection = pd.concat(
+        [representative_selection, pd.DataFrame([_lumos_fs_representative_metadata()])],
+        ignore_index=True,
+        sort=False,
+    ).sort_values(["rs_fs_class", "representative_order_within_class"])
+    fs_gallery_selection = representative_ranking.loc[
+        representative_ranking["rs_fs_class"].eq("FS")
+        & representative_ranking["representative_candidate"]
+    ].sort_values("representative_selection_score", ascending=False).copy()
+    fs_gallery_selection["representative_order_within_class"] = np.arange(
+        1, len(fs_gallery_selection) + 1
+    )
+    fs_gallery_selection["representative_display_id"] = [
+        f"FS{rank}" for rank in fs_gallery_selection["representative_order_within_class"]
+    ]
+    asset_selection = pd.concat(
+        [
+            fs_gallery_selection,
+            representative_selection,
+        ],
+        ignore_index=True,
+    ).drop_duplicates("unit_key")
+    all_representative_assets = _load_representative_assets(asset_selection)
+    selected_keys = set(representative_selection["unit_key"])
+    selected_metadata = {
+        row["unit_key"]: row for row in representative_selection.to_dict("records")
+    }
+    representative_assets = []
+    for asset in all_representative_assets:
+        unit_key = asset["metadata"]["unit_key"]
+        if unit_key in selected_keys:
+            updated = dict(asset)
+            updated["metadata"] = selected_metadata[unit_key]
+            representative_assets.append(updated)
+    fs_gallery_keys = set(fs_gallery_selection["unit_key"])
+    fs_gallery_assets = [
+        asset for asset in all_representative_assets if asset["metadata"]["unit_key"] in fs_gallery_keys
+    ]
     representative_spatial_source, representative_acg_source, representative_amplitude_source = (
         _representative_source_tables(representative_assets)
+    )
+    fs_gallery_spatial_source, fs_gallery_acg_source, fs_gallery_amplitude_source = (
+        _representative_source_tables(fs_gallery_assets)
     )
     panel_d_specs = _panel_d_specs()
     panel_d_source = _panel_d_source_data(wells, panel_d_specs)
@@ -150,11 +207,16 @@ def main() -> int:
     trace_output_path = output_dir / f"{STEM}_panel_A_landmark_waveform_traces.csv.gz"
     waveform_summary_path = output_dir / f"{STEM}_panel_A_landmark_waveform_summary.csv"
     feature_audit_path = output_dir / f"{STEM}_panel_A_feature_selection_audit.csv"
+    classification_summary_path = output_dir / f"{STEM}_panel_A_region_classification_summary.csv"
     representative_ranking_path = output_dir / f"{STEM}_panels_B_C_representative_ranking.csv"
     representative_selection_path = output_dir / f"{STEM}_panels_B_C_representative_selection.csv"
     representative_spatial_path = output_dir / f"{STEM}_panels_B_C_spatial_waveforms.csv.gz"
     representative_acg_path = output_dir / f"{STEM}_panels_B_C_autocorrelograms.csv"
     representative_amplitude_path = output_dir / f"{STEM}_panels_B_C_amplitude_stability.csv.gz"
+    fs_gallery_selection_path = output_dir / f"{STEM}_FS_candidate_gallery_selection.csv"
+    fs_gallery_spatial_path = output_dir / f"{STEM}_FS_candidate_gallery_spatial_waveforms.csv.gz"
+    fs_gallery_acg_path = output_dir / f"{STEM}_FS_candidate_gallery_autocorrelograms.csv"
+    fs_gallery_amplitude_path = output_dir / f"{STEM}_FS_candidate_gallery_amplitude_stability.csv.gz"
     panel_d_path = output_dir / f"{STEM}_panel_D_activity_source_data.csv"
     units[
         [
@@ -175,6 +237,8 @@ def main() -> int:
     traces.to_csv(trace_output_path, index=False, compression="gzip")
     waveform_summary.to_csv(waveform_summary_path, index=False)
     feature_selection_audit.to_csv(feature_audit_path, index=False)
+    panel_a_classification_summary = _panel_a_region_classification_summary(units)
+    panel_a_classification_summary.to_csv(classification_summary_path, index=False)
     representative_ranking.to_csv(representative_ranking_path, index=False)
     representative_selection.to_csv(representative_selection_path, index=False)
     representative_spatial_source.to_csv(
@@ -183,6 +247,12 @@ def main() -> int:
     representative_acg_source.to_csv(representative_acg_path, index=False)
     representative_amplitude_source.to_csv(
         representative_amplitude_path, index=False, compression="gzip"
+    )
+    fs_gallery_selection.to_csv(fs_gallery_selection_path, index=False)
+    fs_gallery_spatial_source.to_csv(fs_gallery_spatial_path, index=False, compression="gzip")
+    fs_gallery_acg_source.to_csv(fs_gallery_acg_path, index=False)
+    fs_gallery_amplitude_source.to_csv(
+        fs_gallery_amplitude_path, index=False, compression="gzip"
     )
     panel_d_source.to_csv(panel_d_path, index=False)
 
@@ -199,6 +269,12 @@ def main() -> int:
         output_dir / STEM,
         args.export_formats,
         args.fs_cutoff_ms,
+    )
+    fs_gallery_paths = _plot_fs_candidate_gallery(
+        plt,
+        fs_gallery_assets,
+        output_dir / f"{STEM}_FS_candidate_gallery",
+        args.export_formats,
     )
 
     activity_provenance = json.loads(activity_provenance_path.read_text(encoding="utf-8"))
@@ -237,8 +313,9 @@ def main() -> int:
                 "aligned spike half-width",
             ],
             "feature_space_encoding": (
-                "3D x=TTP, y=repolarization time, z=spike half-width; "
-                "point size=unit temporal P99.9 smoothed inverse-ISI firing rate; "
+                "2x2 layout: x=TTP/y=repolarization time scatter, raw TTP histogram, "
+                "x=TTP/y=spike half-width scatter, and dorsal/ventral stacked class summary; "
+                "scatter point size=unit temporal P99.9 smoothed inverse-ISI firing rate; "
                 "color=locked TTP-cutoff RS/FS class"
             ),
             "selection_result": (
@@ -252,6 +329,15 @@ def main() -> int:
             "interpretation": (
                 "exploratory same-dataset feature ranking; RS/FS labels remain defined only by aligned TTP"
             ),
+            "visual_axis_policy": (
+                "points outside the explicitly displayed scatter-axis limits are omitted before plotting, "
+                "not rendered beyond the axes"
+            ),
+            "histogram_smoothing": "none",
+            "classification_summary": (
+                "pooled classified-unit percentages and counts by dorsal/ventral region; "
+                "descriptive unit summary, not an organoid-level inferential analysis"
+            ),
             "units_with_complete_display_features": int(
                 units[["feature_ttp_ms", "feature_repolarization_time_ms", "feature_spike_half_width_ms"]]
                 .notna()
@@ -260,16 +346,36 @@ def main() -> int:
             ),
         },
         "panel_B": {
-            "display": "three compact KSLabel=good FS representative-unit QC cards",
+            "display": "two spatial-footprint-forward KSLabel=good cross-platform FS representative-unit QC cards",
+            "selection": (
+                "retained CytoView FS1 plus Lumos LFS1 F8 u5; Lumos candidate replaced CytoView FS16 "
+                "after matched spatial/ACG/PTP-stability QC"
+            ),
+            "locked_unit_keys": LOCKED_FS_UNIT_KEYS,
             "card_assets": ["local multichannel footprint", "probability autocorrelogram", "amplitude stability"],
+            "probability_acg_display_smoothing": "none",
+            "spatial_waveform_uniform_display_gain": SPATIAL_WAVEFORM_DISPLAY_GAIN,
+            "card_axis_ticks": "none",
+            "best_channel_center_circle": False,
+            "population_scope_note": (
+                "representative cards are cross-platform; Panel A classification and Panel D activity "
+                "remain the locked CytoView dorsal/ventral population"
+            ),
         },
         "panel_C_representative_units": {
-            "display": "three compact KSLabel=good RS representative-unit QC cards",
+            "display": "two spatial-footprint-forward KSLabel=good RS representative-unit QC cards",
             "card_assets": ["local multichannel footprint", "probability autocorrelogram", "amplitude stability"],
-            "selection": (
-                "within-class waveform-feature centrality plus spike-count/template-PTP quality; "
-                "at least one dorsal and one ventral unit per class when available"
-            ),
+            "selection": "user-locked existing representatives RS1 and RS3 in that order",
+            "locked_unit_keys": LOCKED_RS_UNIT_KEYS,
+            "probability_acg_display_smoothing": "none",
+            "spatial_waveform_uniform_display_gain": SPATIAL_WAVEFORM_DISPLAY_GAIN,
+            "card_axis_ticks": "none",
+            "best_channel_center_circle": False,
+        },
+        "FS_candidate_gallery": {
+            "unit_count": int(len(fs_gallery_selection)),
+            "scope": "all retained FS units meeting representative-candidate completeness and >=100 spike rule",
+            "figures": [str(path) for path in fs_gallery_paths],
         },
         "panel_D": {
             "layout": "single row, one metric per column, compact dorsal/ventral spacing",
@@ -280,13 +386,19 @@ def main() -> int:
         },
         "outputs": {
             "figures": [str(path) for path in figure_paths],
+            "FS_candidate_gallery_figures": [str(path) for path in fs_gallery_paths],
             "panel_A_features": str(feature_path),
             "panel_A_feature_selection_audit": str(feature_audit_path),
+            "panel_A_region_classification_summary": str(classification_summary_path),
             "panels_B_C_representative_ranking": str(representative_ranking_path),
             "panels_B_C_representative_selection": str(representative_selection_path),
             "panels_B_C_spatial_waveforms": str(representative_spatial_path),
             "panels_B_C_autocorrelograms": str(representative_acg_path),
             "panels_B_C_amplitude_stability": str(representative_amplitude_path),
+            "FS_candidate_gallery_selection": str(fs_gallery_selection_path),
+            "FS_candidate_gallery_spatial_waveforms": str(fs_gallery_spatial_path),
+            "FS_candidate_gallery_autocorrelograms": str(fs_gallery_acg_path),
+            "FS_candidate_gallery_amplitude_stability": str(fs_gallery_amplitude_path),
             "panel_A_landmark_traces": str(trace_output_path),
             "panel_A_landmark_summary": str(waveform_summary_path),
             "panel_D_source": str(panel_d_path),
@@ -300,6 +412,9 @@ def main() -> int:
     print(f"Recording/well universe: {len(wells)}")
     print("Figures:")
     for path in figure_paths:
+        print(path)
+    print("FS candidate gallery:")
+    for path in fs_gallery_paths:
         print(path)
     print(f"Provenance: {provenance_path}")
     return 0
@@ -432,7 +547,7 @@ def _feature_selection_audit(
 
 
 def _select_representatives(units: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Rank clean, class-central units and select three per class with region diversity."""
+    """Rank eligible units and return the exact user-locked two per class."""
     frames: list[pd.DataFrame] = []
     feature_columns = [
         "feature_ttp_ms",
@@ -481,56 +596,109 @@ def _select_representatives(units: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
         ["rs_fs_class", "representative_selection_score"],
         ascending=[True, False],
     )
+    ranking["fs_gallery_rank"] = np.nan
+    fs_ranked_indices = ranking.loc[
+        ranking["rs_fs_class"].eq("FS") & ranking["representative_candidate"]
+    ].sort_values("representative_selection_score", ascending=False).index
+    ranking.loc[fs_ranked_indices, "fs_gallery_rank"] = np.arange(
+        1, len(fs_ranked_indices) + 1
+    )
 
     selected_rows: list[pd.Series] = []
+    by_key = ranking.set_index("unit_key", drop=False)
+    locked_by_class = {"FS": LOCKED_CYTOVIEW_FS_UNIT_KEYS, "RS": LOCKED_RS_UNIT_KEYS}
+    locked_display_ids = {"FS": ["FS1"], "RS": ["RS1", "RS3"]}
     for class_label in CLASS_ORDER:
-        pool = ranking.loc[
-            ranking["rs_fs_class"].eq(class_label)
-            & ranking["representative_candidate"]
-            & ranking["waveform_centrality_score"].le(1.25)
-        ].sort_values("representative_selection_score", ascending=False)
-        if len(pool) < 3:
-            pool = ranking.loc[
-                ranking["rs_fs_class"].eq(class_label)
-                & ranking["representative_candidate"]
-            ].sort_values("representative_selection_score", ascending=False)
-        chosen_indices: list[int] = []
-        used_analyzers: set[str] = set()
-        for region in REGION_ORDER:
-            region_pool = pool.loc[pool["region_call"].eq(region)]
-            for index, row in region_pool.iterrows():
-                analyzer = str(row["analyzer_path"])
-                if analyzer not in used_analyzers:
-                    chosen_indices.append(index)
-                    used_analyzers.add(analyzer)
-                    break
-        for index, row in pool.iterrows():
-            if len(chosen_indices) >= 3:
-                break
-            if index in chosen_indices:
-                continue
-            analyzer = str(row["analyzer_path"])
-            if analyzer in used_analyzers:
-                continue
-            chosen_indices.append(index)
-            used_analyzers.add(analyzer)
-        for index, row in pool.iterrows():
-            if len(chosen_indices) >= 3:
-                break
-            if index not in chosen_indices:
-                chosen_indices.append(index)
-        chosen = ranking.loc[chosen_indices].sort_values(
-            "representative_selection_score", ascending=False
-        )
-        for order, (_, row) in enumerate(chosen.iterrows(), start=1):
-            row = row.copy()
+        locked_keys = locked_by_class[class_label]
+        missing = [unit_key for unit_key in locked_keys if unit_key not in by_key.index]
+        if missing:
+            raise ValueError(f"Locked {class_label} unit keys missing from ranking: {missing}")
+        for order, (unit_key, display_id) in enumerate(
+            zip(locked_keys, locked_display_ids[class_label], strict=True), start=1
+        ):
+            row = by_key.loc[unit_key].copy()
+            if row["rs_fs_class"] != class_label:
+                raise ValueError(f"Locked {display_id} has class {row['rs_fs_class']}")
+            if not bool(row["representative_candidate"]):
+                raise ValueError(f"Locked {display_id} is not representative-eligible: {unit_key}")
             row["representative_order_within_class"] = order
+            row["representative_display_id"] = display_id
             selected_rows.append(row)
     selection = pd.DataFrame(selected_rows).sort_values(
         ["rs_fs_class", "representative_order_within_class"]
     )
     ranking["selected_for_figure"] = ranking["unit_key"].isin(selection["unit_key"])
     return ranking, selection
+
+
+def _lumos_fs_representative_metadata() -> dict[str, object]:
+    """Return the locked Lumos F8 u5 metadata in the representative-card schema."""
+    paired = pd.read_csv(
+        LUMOS_ALIGNMENT_DIR / "waveform_alignment_feature_audit_20260709_paired_unit_metrics.csv"
+    )
+    firing = pd.read_csv(LUMOS_FIRING_PATH)
+    merged = paired.merge(
+        firing[
+            [
+                "recording",
+                "well",
+                "unit_id",
+                "duration_s",
+                "num_spikes",
+                "firing_rate_hz",
+                "ContamPct",
+            ]
+        ],
+        on=["recording", "well", "unit_id"],
+        how="left",
+        validate="one_to_one",
+    )
+    candidate = merged.loc[merged["unit_key"].eq(LOCKED_LUMOS_FS_UNIT_KEY)]
+    if len(candidate) != 1:
+        raise ValueError("Locked Lumos FS candidate was not found uniquely")
+    row = candidate.iloc[0]
+    if row["KSLabel"] != "good" or float(row["after_trough_to_peak_duration_ms"]) > 0.50:
+        raise ValueError("Locked Lumos FS candidate no longer satisfies the good/TTP rule")
+    return {
+        "unit_key": row["unit_key"],
+        "recording_well_id": f"{row['recording']}|{row['well']}",
+        "organoid_well": "not applicable; Lumos representative QC only",
+        "recording": row["recording"],
+        "well": row["well"],
+        "region_call": "Lumos",
+        "region_source": "lumos_48well geometry; not dorsal/ventral biology",
+        "region_override_applied": False,
+        "plate_id": "129-8447",
+        "raw_variant": "broadband_processor_raw",
+        "recording_duration_s": float(row["duration_s"]),
+        "unit_id": row["unit_id"],
+        "KSLabel": "good",
+        "analyzer_path": row["analyzer_path"],
+        "source_spike_count": int(row["num_spikes"]),
+        "source_firing_rate_hz": float(row["firing_rate_hz"]),
+        "source_ContamPct": float(row["ContamPct"]),
+        "template_ptp_best_channel_uV": float(row["after_template_ptp_best_channel_uV"]),
+        "aligned_usable_snippets": int(row["usable_snippets"]),
+        "aligned_trough_to_peak_duration_ms": float(row["after_trough_to_peak_duration_ms"]),
+        "aligned_waveform_asymmetry": float(row["after_waveform_asymmetry"]),
+        "aligned_repolarization_slope_uV_per_ms": float(
+            row["after_post_trough_rebound_slope_uV_per_ms"]
+        ),
+        "aligned_fs_rs_cutoff_ms": 0.50,
+        "aligned_fs_rs_class": "FS",
+        "rs_fs_class": "FS",
+        "feature_ttp_ms": float(row["after_trough_to_peak_duration_ms"]),
+        "feature_asymmetry": float(row["after_waveform_asymmetry"]),
+        "feature_repolarization_slope_uV_per_ms": float(
+            row["after_post_trough_rebound_slope_uV_per_ms"]
+        ),
+        "feature_repolarization_time_ms": float(row["after_repolarization_time_ms"]),
+        "feature_spike_half_width_ms": float(row["after_spike_half_width_ms"]),
+        "representative_candidate": True,
+        "representative_order_within_class": 2,
+        "representative_display_id": "LFS1",
+        "representative_selection_provenance": "cross-platform matched-QC replacement for FS16",
+    }
 
 
 def _load_representative_assets(selection: pd.DataFrame) -> list[dict[str, object]]:
@@ -714,6 +882,32 @@ def _panel_d_source_data(
     return pd.DataFrame(rows)
 
 
+def _panel_a_region_classification_summary(units: pd.DataFrame) -> pd.DataFrame:
+    """Return pooled unit counts and percentages for the descriptive A4 panel."""
+    counts = (
+        units.groupby(["region_call", "rs_fs_class"], observed=False)
+        .size()
+        .rename("unit_count")
+        .reset_index()
+    )
+    complete_index = pd.MultiIndex.from_product(
+        [REGION_ORDER, CLASS_ORDER], names=["region_call", "rs_fs_class"]
+    )
+    counts = (
+        counts.set_index(["region_call", "rs_fs_class"])
+        .reindex(complete_index, fill_value=0)
+        .reset_index()
+    )
+    counts["region_total_units"] = counts.groupby("region_call")["unit_count"].transform("sum")
+    counts["percent_of_region_units"] = np.where(
+        counts["region_total_units"].gt(0),
+        100.0 * counts["unit_count"] / counts["region_total_units"],
+        np.nan,
+    )
+    counts["summary_level"] = "pooled classified units; descriptive"
+    return counts
+
+
 def _plot_unified_figure(
     plt,
     Line2D,
@@ -743,17 +937,23 @@ def _plot_unified_figure(
             "ps.fonttype": 42,
         }
     )
-    fig = plt.figure(figsize=(16.0, 10.8), facecolor="white")
-    outer = fig.add_gridspec(2, 1, height_ratios=[1.85, 0.82], hspace=0.28)
+    fig = plt.figure(figsize=(16.0, 9.8), facecolor="white")
+    outer = fig.add_gridspec(2, 1, height_ratios=[1.72, 0.82], hspace=0.25)
     top = outer[0].subgridspec(
-        2, 4, width_ratios=[1.45, 1.0, 1.0, 1.0], hspace=0.30, wspace=0.24
+        2, 3, width_ratios=[1.55, 1.15, 1.15], hspace=0.23, wspace=0.20
     )
-    ax_a_features = fig.add_subplot(top[:, 0], projection="3d")
+    panel_a_grid = top[:, 0].subgridspec(2, 2, hspace=0.40, wspace=0.38)
+    axes_a = [
+        fig.add_subplot(panel_a_grid[0, 0]),
+        fig.add_subplot(panel_a_grid[0, 1]),
+        fig.add_subplot(panel_a_grid[1, 0]),
+        fig.add_subplot(panel_a_grid[1, 1]),
+    ]
     representative_axes: dict[str, list[tuple[object, object, object]]] = {"FS": [], "RS": []}
     for row_index, class_label in enumerate(CLASS_ORDER):
-        for column_index in range(3):
+        for column_index in range(2):
             card = top[row_index, column_index + 1].subgridspec(
-                3, 1, height_ratios=[1.22, 0.52, 0.58], hspace=0.13
+                3, 1, height_ratios=[2.60, 0.34, 0.20], hspace=0.08
             )
             representative_axes[class_label].append(
                 (
@@ -765,16 +965,14 @@ def _plot_unified_figure(
     bottom = outer[1].subgridspec(1, 7, wspace=0.58)
     axes_d = [fig.add_subplot(bottom[index]) for index in range(7)]
 
-    _plot_feature_space_3d(ax_a_features, units, fs_cutoff_ms)
-    landmark_ax = ax_a_features.inset_axes([0.56, 0.72, 0.36, 0.18])
-    _plot_smoothed_landmark_inset(landmark_ax, traces)
+    _plot_panel_a_2x2(axes_a, units, fs_cutoff_ms)
     _plot_representative_cards(representative_axes, representative_assets)
     _plot_activity_strip(axes_d, wells, panel_d_specs)
 
-    _panel_letter(ax_a_features, "A", x=-0.08)
+    _panel_letter(axes_a[0], "A", x=-0.28)
     _panel_letter(representative_axes["FS"][0][0], "B", x=-0.18)
     _panel_letter(representative_axes["RS"][0][0], "C", x=-0.18)
-    fig.text(0.012, 0.325, "D", fontsize=12, fontweight="bold", va="top")
+    fig.text(0.012, 0.337, "D", fontsize=12, fontweight="bold", va="top")
 
     class_handles = [
         Line2D(
@@ -921,6 +1119,151 @@ def _p99_marker_size(value_hz: float) -> float:
     return float(10.0 + 1.7 * np.clip(value_hz, 0.0, 45.0))
 
 
+def _panel_a_scatter(
+    ax,
+    units: pd.DataFrame,
+    *,
+    y_feature: str,
+    y_label: str,
+    y_limits: tuple[float, float],
+    title: str,
+    fs_cutoff_ms: float,
+) -> None:
+    x_limits = (0.24, 2.00)
+    complete = units[["feature_ttp_ms", y_feature]].notna().all(axis=1)
+    within_axes = (
+        complete
+        & units["feature_ttp_ms"].between(*x_limits, inclusive="both")
+        & units[y_feature].between(*y_limits, inclusive="both")
+    )
+    plotted = units.loc[within_axes]
+    for class_label in CLASS_ORDER:
+        subset = plotted.loc[plotted["rs_fs_class"].eq(class_label)]
+        sizes = [
+            _p99_marker_size(value)
+            for value in pd.to_numeric(
+                subset["inverse_isi_gaussian_temporal_p99_9_hz"], errors="coerce"
+            )
+        ]
+        ax.scatter(
+            subset["feature_ttp_ms"],
+            subset[y_feature],
+            s=sizes,
+            color=CLASS_COLORS[class_label],
+            alpha=0.68,
+            edgecolor="white",
+            linewidth=0.35,
+            clip_on=True,
+        )
+    ax.axvline(fs_cutoff_ms, color="#666666", lw=0.8, ls="--", zorder=0)
+    ax.set_xlim(x_limits)
+    ax.set_ylim(y_limits)
+    ax.set_xlabel("Trough-to-peak (ms)")
+    ax.set_ylabel(y_label)
+    ax.set_title(f"{title} (n={len(plotted)})", loc="left", fontweight="bold")
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(color="#E5E5E5", lw=0.5, alpha=0.75)
+    ax.set_axisbelow(True)
+
+
+def _plot_panel_a_2x2(axes: list[object], units: pd.DataFrame, fs_cutoff_ms: float) -> None:
+    """Plot the requested two-by-two classification summary for Panel A."""
+    ax_repolarization, ax_histogram, ax_half_width, ax_region = axes
+    _panel_a_scatter(
+        ax_repolarization,
+        units,
+        y_feature="feature_repolarization_time_ms",
+        y_label="Repolarization time (ms)",
+        y_limits=(0.00, 0.60),
+        title="TTP vs repolarization",
+        fs_cutoff_ms=fs_cutoff_ms,
+    )
+
+    histogram_units = units.loc[
+        units["feature_ttp_ms"].between(0.24, 2.00, inclusive="both")
+    ]
+    bins = np.arange(0.24, 2.00 + 0.0801, 0.08)
+    for class_label in CLASS_ORDER:
+        values = histogram_units.loc[
+            histogram_units["rs_fs_class"].eq(class_label), "feature_ttp_ms"
+        ].to_numpy(float)
+        ax_histogram.hist(
+            values,
+            bins=bins,
+            color=CLASS_COLORS[class_label],
+            alpha=0.72,
+            edgecolor="white",
+            linewidth=0.35,
+            label=class_label,
+        )
+    ax_histogram.axvline(fs_cutoff_ms, color="#666666", lw=0.8, ls="--")
+    ax_histogram.set_xlim(0.24, 2.00)
+    ax_histogram.set_xlabel("Trough-to-peak (ms)")
+    ax_histogram.set_ylabel("Units")
+    ax_histogram.set_title("TTP distribution", loc="left", fontweight="bold")
+    ax_histogram.spines[["top", "right"]].set_visible(False)
+    ax_histogram.legend(frameon=False, fontsize=5.8, handletextpad=0.3)
+
+    _panel_a_scatter(
+        ax_half_width,
+        units,
+        y_feature="feature_spike_half_width_ms",
+        y_label="Spike half-width (ms)",
+        y_limits=(0.00, 0.80),
+        title="Half-width vs TTP",
+        fs_cutoff_ms=fs_cutoff_ms,
+    )
+
+    summary = _panel_a_region_classification_summary(units)
+    x = np.arange(len(REGION_ORDER), dtype=float)
+    bottom = np.zeros(len(REGION_ORDER), dtype=float)
+    for class_label in CLASS_ORDER:
+        class_rows = summary.loc[summary["rs_fs_class"].eq(class_label)].set_index("region_call")
+        percentages = np.array(
+            [class_rows.loc[region, "percent_of_region_units"] for region in REGION_ORDER],
+            dtype=float,
+        )
+        counts = np.array(
+            [class_rows.loc[region, "unit_count"] for region in REGION_ORDER], dtype=int
+        )
+        bars = ax_region.bar(
+            x,
+            percentages,
+            bottom=bottom,
+            width=0.58,
+            color=CLASS_COLORS[class_label],
+            edgecolor="white",
+            linewidth=0.6,
+            label=class_label,
+        )
+        for bar, count, percentage, base in zip(
+            bars, counts, percentages, bottom, strict=True
+        ):
+            if percentage >= 7:
+                ax_region.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    base + percentage / 2,
+                    f"{class_label}\nn={count}",
+                    ha="center",
+                    va="center",
+                    fontsize=5.7,
+                    color="white",
+                    fontweight="bold",
+                )
+        bottom += percentages
+    totals = summary.groupby("region_call")["region_total_units"].first()
+    ax_region.set_xticks(
+        x,
+        [f"{region.title()}\nn={int(totals.loc[region])}" for region in REGION_ORDER],
+    )
+    ax_region.set_ylim(0, 100)
+    ax_region.set_ylabel("Classified units (%)")
+    ax_region.set_title("RS/FS units by region", loc="left", fontweight="bold")
+    ax_region.spines[["top", "right"]].set_visible(False)
+    ax_region.set_axisbelow(True)
+    ax_region.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.75)
+
+
 def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None:
     complete = units[
         [
@@ -929,7 +1272,15 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
             "feature_spike_half_width_ms",
         ]
     ].notna().all(axis=1)
-    plotted = units.loc[complete].copy()
+    axis_limits = {
+        "feature_ttp_ms": (0.24, 2.00),
+        "feature_repolarization_time_ms": (0.00, 0.60),
+        "feature_spike_half_width_ms": (0.00, 0.80),
+    }
+    within_axes = complete.copy()
+    for feature, (lower, upper) in axis_limits.items():
+        within_axes &= units[feature].between(lower, upper, inclusive="both")
+    plotted = units.loc[within_axes].copy()
     for class_label in CLASS_ORDER:
         subset = plotted.loc[plotted["rs_fs_class"].eq(class_label)]
         sizes = [
@@ -949,14 +1300,9 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
             linewidth=0.35,
             depthshade=False,
         )
-    y_limits = (
-        float(plotted["feature_repolarization_time_ms"].min()),
-        float(plotted["feature_repolarization_time_ms"].quantile(0.98)),
-    )
-    z_limits = (
-        float(plotted["feature_spike_half_width_ms"].min()),
-        float(plotted["feature_spike_half_width_ms"].quantile(0.98)),
-    )
+    x_limits = axis_limits["feature_ttp_ms"]
+    y_limits = axis_limits["feature_repolarization_time_ms"]
+    z_limits = axis_limits["feature_spike_half_width_ms"]
     yy, zz = np.meshgrid(
         np.linspace(y_limits[0], y_limits[1], 2),
         np.linspace(z_limits[0], z_limits[1], 2),
@@ -964,7 +1310,7 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
     xx = np.full_like(yy, fs_cutoff_ms)
     ax.plot_surface(xx, yy, zz, color="#777777", alpha=0.09, shade=False)
     ax.set_title(
-        f"Aligned three-feature waveform space (n={len(plotted)})",
+        f"Aligned waveform space (n={len(plotted)} shown)",
         loc="left",
         fontweight="bold",
         pad=4,
@@ -972,44 +1318,44 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
     ax.set_xlabel("Trough-to-peak (ms)", labelpad=5)
     ax.set_ylabel("Repolarization time (ms)", labelpad=6)
     ax.set_zlabel("Spike half-width (ms)", labelpad=5)
+    ax.set_xlim(x_limits)
     ax.set_ylim(y_limits)
     ax.set_zlim(z_limits)
     ax.view_init(elev=22, azim=-56)
     ax.set_box_aspect((1.20, 0.95, 0.75))
     ax.tick_params(labelsize=6, pad=0)
     ax.grid(True, alpha=0.22)
-    ax.text2D(
-        0.03,
-        0.03,
-        "Point size: temporal P99.9 smoothed inverse-ISI firing rate",
-        transform=ax.transAxes,
-        fontsize=5.8,
-        color="#555555",
-    )
 
 
-def _plot_smoothed_landmark_inset(ax, traces: pd.DataFrame) -> None:
+def _plot_smoothed_landmark_inset(ax, waveform_summary: pd.DataFrame) -> None:
     from scipy.signal import savgol_filter
 
-    pooled = traces.groupby("time_ms", as_index=False)["trough_normalized_waveform"].mean()
-    pooled = pooled.sort_values("time_ms")
-    time = pooled["time_ms"].to_numpy(float)
-    waveform = pooled["trough_normalized_waveform"].to_numpy(float)
-    window = min(7, waveform.size if waveform.size % 2 else waveform.size - 1)
-    smooth = savgol_filter(waveform, window_length=max(window, 3), polyorder=2)
-    trough = int(np.nanargmin(smooth))
-    post_indices = np.flatnonzero(time > time[trough])
-    peak = int(post_indices[np.nanargmax(smooth[post_indices])]) if post_indices.size else trough
-    ax.plot(time, smooth, color="#222222", lw=1.0)
-    ax.scatter(
-        time[[trough, peak]],
-        smooth[[trough, peak]],
-        s=14,
-        color="#222222",
-        edgecolor="white",
-        linewidth=0.45,
-        zorder=3,
-    )
+    for class_label in CLASS_ORDER:
+        summary = waveform_summary.loc[
+            waveform_summary["rs_fs_class"].eq(class_label)
+            & waveform_summary["representation"].eq("trough_normalized")
+        ].sort_values("time_ms")
+        time = summary["time_ms"].to_numpy(float)
+        waveform = summary["mean"].to_numpy(float)
+        window = min(7, waveform.size if waveform.size % 2 else waveform.size - 1)
+        smooth = savgol_filter(waveform, window_length=max(window, 3), polyorder=2)
+        trough = int(np.nanargmin(smooth))
+        post_indices = np.flatnonzero(time > time[trough])
+        peak = (
+            int(post_indices[np.nanargmax(smooth[post_indices])])
+            if post_indices.size
+            else trough
+        )
+        ax.plot(time, smooth, color=CLASS_COLORS[class_label], lw=0.9)
+        ax.scatter(
+            time[[trough, peak]],
+            smooth[[trough, peak]],
+            s=10,
+            color=CLASS_COLORS[class_label],
+            edgecolor="white",
+            linewidth=0.35,
+            zorder=3,
+        )
     ax.set_xlim(-0.55, 1.15)
     ax.set_axis_off()
 
@@ -1049,6 +1395,7 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
         bundle, dx, dy, x_multiplier=1.0, y_multiplier=1.30
     )
     color = CLASS_COLORS[class_label]
+    display_gain = SPATIAL_WAVEFORM_DISPLAY_GAIN
     ax.scatter(
         locations[local_channels, 0],
         locations[local_channels, 1],
@@ -1061,22 +1408,12 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
         x0, y0 = locations[int(channel_index)]
         ax.plot(
             x0 + local_time,
-            y0 + waveform * y_scale,
+            y0 + waveform * y_scale * display_gain,
             color=color,
             lw=1.35 if int(channel_index) == best else 0.75,
             alpha=1.0 if int(channel_index) == best else 0.72,
             zorder=3,
         )
-    center = locations[best]
-    ax.scatter(
-        [center[0]],
-        [center[1]],
-        s=38,
-        facecolor="none",
-        edgecolor=color,
-        linewidth=1.1,
-        zorder=5,
-    )
     local_xy = locations[local_channels]
     ax.set_xlim(local_xy[:, 0].min() - 0.55 * dx, local_xy[:, 0].max() + 0.55 * dx)
     ax.set_ylim(local_xy[:, 1].min() - 0.55 * dy, local_xy[:, 1].max() + 0.55 * dy)
@@ -1085,8 +1422,9 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
+    display_id = str(metadata.get("representative_display_id", f"{class_label}{order}"))
     ax.set_title(
-        f"{class_label}{order}  {str(metadata['region_call']).title()} {metadata['well']} · "
+        f"{display_id}  {str(metadata['region_call']).title()} {metadata['well']} · "
         f"u{metadata['unit_id']} · TTP {metadata['feature_ttp_ms']:.2f} ms",
         loc="left",
         fontsize=7.0,
@@ -1103,26 +1441,24 @@ def _plot_representative_acg(ax, asset, class_label: str, *, show_ylabel: bool) 
     values = np.asarray(probability["probability"], dtype=float)
     mask = np.asarray(probability["display_mask"], dtype=bool)
     x = bins[mask]
-    y = hybrid.smooth_probability_for_display(np.nan_to_num(values[mask], nan=0.0))
+    y = np.nan_to_num(values[mask], nan=0.0)
     color = CLASS_COLORS[class_label]
     ax.fill_between(x, 0, y, color=color, alpha=0.16, linewidth=0)
     ax.plot(x, y, color=color, lw=0.9)
     ax.axvline(-2, color="#777777", lw=0.55, ls="--")
     ax.axvline(2, color="#777777", lw=0.55, ls="--")
     ax.set_xlim(-50, 50)
-    ax.set_xticks([-40, 0, 40])
+    ax.set_xticks([])
+    ax.set_yticks([])
     ax.set_title(
         f"ACG  P(|lag|≤2 ms)={float(probability['p_refractory']):.3f}",
         loc="left",
         fontsize=5.8,
         pad=1,
     )
-    if show_ylabel:
-        ax.set_ylabel("Probability", fontsize=5.5)
-    else:
-        ax.set_yticklabels([])
-    ax.tick_params(labelsize=5, length=1.8, pad=1)
-    ax.spines[["top", "right"]].set_visible(False)
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
 
 def _plot_representative_stability(ax, asset, class_label: str, *, show_ylabel: bool) -> None:
@@ -1140,14 +1476,78 @@ def _plot_representative_stability(ax, asset, class_label: str, *, show_ylabel: 
         if med_x.size:
             ax.plot(med_x, med_y, color=color, lw=0.85)
     ax.set_xlim(0, max(float(asset["recording_minutes"]), 1e-6))
-    ax.set_title("Amplitude stability", loc="left", fontsize=5.8, pad=1)
-    ax.set_xlabel("Time (min)", fontsize=5.5, labelpad=1)
-    if show_ylabel:
-        ax.set_ylabel("PTP (µV)", fontsize=5.5)
-    else:
-        ax.set_yticklabels([])
-    ax.tick_params(labelsize=5, length=1.8, pad=1)
-    ax.spines[["top", "right"]].set_visible(False)
+    ax.set_title("PTP stability", loc="left", fontsize=5.6, pad=0.5)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+
+def _plot_fs_candidate_gallery(
+    plt,
+    assets: list[dict[str, object]],
+    output_base: Path,
+    export_formats: str,
+) -> list[Path]:
+    assets = sorted(
+        assets,
+        key=lambda asset: asset["metadata"]["representative_order_within_class"],
+    )
+    ncols = 5
+    nrows = int(np.ceil(len(assets) / ncols))
+    fig = plt.figure(figsize=(18.0, 3.65 * nrows), facecolor="white")
+    outer = fig.add_gridspec(nrows, ncols, hspace=0.30, wspace=0.24)
+    for index, asset in enumerate(assets):
+        row, column = divmod(index, ncols)
+        card = outer[row, column].subgridspec(
+            3, 1, height_ratios=[1.18, 0.72, 0.34], hspace=0.13
+        )
+        axes = (
+            fig.add_subplot(card[0]),
+            fig.add_subplot(card[1]),
+            fig.add_subplot(card[2]),
+        )
+        _plot_representative_spatial(axes[0], asset, "FS", index + 1)
+        _plot_representative_acg(axes[1], asset, "FS", show_ylabel=column == 0)
+        _plot_representative_stability(axes[2], asset, "FS", show_ylabel=column == 0)
+        if bool(asset["metadata"].get("selected_for_figure", False)):
+            axes[0].text(
+                0.98,
+                0.98,
+                "current pick",
+                transform=axes[0].transAxes,
+                ha="right",
+                va="top",
+                fontsize=5.5,
+                color=CLASS_COLORS["FS"],
+                fontweight="bold",
+            )
+    for index in range(len(assets), nrows * ncols):
+        row, column = divmod(index, ncols)
+        ax = fig.add_subplot(outer[row, column])
+        ax.set_axis_off()
+    fig.suptitle(
+        "Retained QC-eligible FS candidates for representative-unit selection",
+        fontsize=14,
+        fontweight="bold",
+        y=0.995,
+    )
+    fig.subplots_adjust(left=0.035, right=0.995, top=0.965, bottom=0.035)
+    output_paths: list[Path] = []
+    for suffix in [part.strip().lower() for part in export_formats.split(",") if part.strip()]:
+        path = output_base.with_suffix(f".{suffix}")
+        kwargs: dict[str, object] = {
+            "bbox_inches": "tight",
+            "facecolor": "white",
+            "transparent": False,
+        }
+        if suffix == "png":
+            kwargs["dpi"] = 300
+        fig.savefig(path, **kwargs)
+        output_paths.append(path)
+    plt.close(fig)
+    return output_paths
 
 
 def _plot_feature_space(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None:

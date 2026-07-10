@@ -1344,3 +1344,360 @@ underlying population. Panels B, C, and D retain the 174-unit source
 population. Panel B now contains only the FS and RS class-mean normalized
 waveforms, with no individual traces, raw-uV view, or SEM shading. Job
 53243805 supersedes job 53242707 for unified-figure appearance.
+
+### Three-feature space plus six representative-unit QC cards
+
+The next user-directed unified iteration supersedes job 53243805:
+
+```text
+job_id: 53245116
+state: COMPLETED
+elapsed: 00:00:46
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_091754/
+```
+
+Panel A is now a true three-axis aligned waveform space:
+
+```text
+x = aligned trough-to-peak duration
+y = aligned repolarization time
+z = aligned spike half-width
+color = locked FS/RS class (aligned TTP <= 0.50 ms defines FS)
+point size = unit temporal P99.9 of the 50-ms Gaussian-smoothed inverse-ISI rate
+```
+
+The small waveform next to A is display-only: the pooled normalized waveform
+is Savitzky-Golay smoothed and only the trough and post-trough peak are marked.
+No metric is recomputed from this smoothed display waveform.
+
+Panels B and C now replace the former mean-waveform/TTP-histogram panels with
+three `KSLabel=good` FS representatives and three `KSLabel=good` RS
+representatives. Each compact card contains a local multichannel waveform
+footprint, probability-normalized autocorrelogram with +/-2-ms reference
+lines, and sampled-spike amplitude stability over recording time. Selection
+combines within-class TTP/repolarization-time/half-width centrality with spike
+count, template PTP, firing rate, short-ISI fraction, and ContamPct quality,
+while requiring dorsal and ventral representation and preferring distinct
+analyzers.
+
+Selected units:
+
+```text
+FS1 ventral B1 u24, TTP 0.48 ms, P99.9 30.3154 Hz
+FS2 dorsal  B3 u16, TTP 0.40 ms, P99.9 16.9691 Hz
+FS3 ventral B1 u14, TTP 0.48 ms, P99.9  9.5126 Hz
+RS1 ventral B2 u9,  TTP 0.88 ms, P99.9 25.6821 Hz
+RS2 ventral B1 u17, TTP 0.80 ms, P99.9 26.1373 Hz
+RS3 dorsal  B3 u29, TTP 0.64 ms, P99.9 14.7824 Hz
+```
+
+New dedicated source outputs include:
+
+```text
+*_panel_A_aligned_features.csv
+*_panels_B_C_representative_ranking.csv
+*_panels_B_C_representative_selection.csv
+*_panels_B_C_spatial_waveforms.csv.gz
+*_panels_B_C_autocorrelograms.csv
+*_panels_B_C_amplitude_stability.csv.gz
+```
+
+Panel D remains the same legacy-firing-rate plus six burst-metric strip and
+still carries the two explicit dorsal driver exclusions with zero explicit
+ventral exclusions.
+
+### Axis-clipped compact A, raw ACGs, and full FS candidate gallery
+
+The next canonical visual iteration is:
+
+```text
+job_id: 53247598
+state: COMPLETED
+elapsed: 00:01:11
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_093726/
+```
+
+Panel A is smaller and less visually dominant. Its explicit display limits are
+TTP 0.24-2.00 ms, repolarization time 0.00-0.60 ms, and spike half-width
+0.00-0.80 ms. Points outside any displayed axis or lacking a displayed feature
+are filtered before scatter rendering, so no marker is drawn beyond the axes.
+This is a visual omission only: the source table still contains all 174 units.
+The figure reports 164 units shown. Point size remains temporal P99.9 smoothed
+inverse-ISI firing rate.
+
+The compact waveform directly above A now overlays the FS and RS class-mean
+aligned, trough-normalized waveforms. Savitzky-Golay smoothing is display-only;
+trough and post-trough peak landmarks are marked for both classes. No metric or
+class is recomputed from the smoothed inset.
+
+Panel B preliminary FS representatives were tightened to clear compact-waveform
+candidates (TTP <=0.40 ms and half-width <=0.24 ms):
+
+```text
+FS1 dorsal  B3 u16, TTP 0.40 ms
+FS2 ventral B1 u16, TTP 0.40 ms
+FS3 ventral B1 u22, TTP 0.40 ms
+```
+
+Representative-card changes:
+
+- spatial waveform glyphs receive a uniform 1.8x display gain while preserving
+  within-unit relative channel amplitudes;
+- probability ACGs are plotted from the raw probability bins with absolutely
+  no display smoothing;
+- the ACG row is taller and the amplitude-stability PTP row underneath is
+  substantially shorter.
+
+A separate gallery shows all 19 retained FS units meeting the representative
+completeness and >=100-spike rule, sorted by the reproducible QC score. Current
+main-figure picks are marked, but the gallery is intended for user visual
+override:
+
+```text
+cytoview_unified_rsfs_activity_figure_20260710_FS_candidate_gallery.{png,pdf,svg}
+cytoview_unified_rsfs_activity_figure_20260710_FS_candidate_gallery_selection.csv
+cytoview_unified_rsfs_activity_figure_20260710_FS_candidate_gallery_spatial_waveforms.csv.gz
+cytoview_unified_rsfs_activity_figure_20260710_FS_candidate_gallery_autocorrelograms.csv
+cytoview_unified_rsfs_activity_figure_20260710_FS_candidate_gallery_amplitude_stability.csv.gz
+```
+
+Job 53247598 supersedes job 53245116 for current unified-figure appearance and
+FS representative review.
+
+### User-locked FS representatives: gallery FS1, FS16, FS5
+
+The user selected gallery candidates FS1, FS16, and FS5, in that order. The
+canonical rerender is:
+
+```text
+job_id: 53248300
+state: COMPLETED
+elapsed: 00:01:13
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_095953/
+```
+
+Exact locked FS units:
+
+```text
+FS1  ventral B1 u24 | h1 exp17_2(001) filter_200Hz-3kHz | TTP 0.48 ms
+FS16 dorsal  B3 u9  | pvreporter round2 filter_200Hz-3kHz | TTP 0.40 ms
+FS5  ventral B1 u22 | h1 exp17_2(001) filter_200Hz-3kHz | TTP 0.40 ms
+```
+
+The exact unit keys are stored in `LOCKED_FS_UNIT_KEYS`, the representative
+selection CSV, and provenance. Main-figure card titles retain the gallery IDs
+FS1, FS16, and FS5 so the visual choice remains auditable. RS representatives
+and panels A/D are unchanged. Job 53248300 supersedes 53247598.
+
+### Four-unit spatial-footprint-forward aesthetics pass
+
+The main unified figure was reduced to two user-locked representatives per
+class:
+
+```text
+FS1  ventral B1 u24
+FS16 dorsal  B3 u9
+RS1  ventral B2 u9
+RS3  dorsal  B3 u29
+```
+
+The exact FS1/FS16 and RS1/RS3 unit keys are now stored in
+`LOCKED_FS_UNIT_KEYS` and `LOCKED_RS_UNIT_KEYS`. The spatial waveform display
+gain increased uniformly from 1.8x to 2.6x, each footprint receives a much
+larger share of the card, and the raw unsmoothed probability ACG and PTP
+stability summaries are compressed into tick-free context strips. The outlined
+best-channel center circles were removed from all four spatial footprints.
+
+Canonical aesthetics-only rerender:
+
+```text
+job_id: 53251676
+state: COMPLETED
+elapsed: 00:00:56
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_101457/
+```
+
+Panels A and D retain their preceding data and calculations in this render.
+
+### Exhaustive Panel A pairwise and three-feature separation audit
+
+Before another Panel A design change, the locked 174-unit CytoView population
+(21 FS, 153 RS) was audited across 18 unit-level features: 12 aligned waveform
+metrics and six firing-rate summaries. This yields all 153 unique feature pairs
+and all 816 unique three-feature combinations. Burst metrics were not included
+because they summarize network activity rather than individual-unit
+classification.
+
+Pairwise separation was quantified using:
+
+- Fisher trace ratio after pairwise z-scoring;
+- regularized pooled-covariance Mahalanobis centroid distance;
+- repeated 5x5-fold stratified CV ROC AUC from standardized class-balanced
+  logistic regression;
+- Euclidean silhouette score of the locked classes after z-scoring.
+
+The overall pair rank is the mean of the four descending metric-specific ranks.
+Three-feature models use standardized LDA with repeated 5x5-fold stratified CV
+ROC AUC. Per-model feature importance is the absolute standardized full-data
+LDA coefficient normalized to sum to one within the triple.
+
+Canonical audit:
+
+```text
+job_id: 53251761
+state: COMPLETED
+elapsed: 00:02:20
+stderr: 0 bytes
+output:
+.../cytoview_rsfs_feature_separability_20260710_20260710_102011/
+```
+
+The top overall pair is aligned TTP plus depolarization slope (CV AUC 1.000).
+The top LDA triple is aligned TTP, repolarization time, and smoothed inverse-ISI
+maximum (CV AUC 0.999667). Every top-10 LDA triple contains TTP, and TTP carries
+about 86% of normalized standardized LDA importance across those top models.
+This is expected because the current FS/RS label is defined by aligned TTP <=
+0.50 ms. TTP-containing results are therefore tautological separation, not
+independent validation.
+
+The exact post-peak-amplitude plus rebound-slope pair is separately flagged
+because it algebraically reconstructs TTP. The best pair excluding both direct
+TTP and that exact algebraic pair is spike amplitude plus rebound slope (CV AUC
+0.983320), but rebound slope remains mathematically timing-coupled and should
+still be interpreted cautiously. Panel A was not changed automatically from
+this audit.
+
+Primary outputs include:
+
+```text
+cytoview_rsfs_feature_separability_20260710_complete_pairwise_scatter_matrix.*
+cytoview_rsfs_feature_separability_20260710_all_pairwise_rankings.csv
+cytoview_rsfs_feature_separability_20260710_top10_feature_pairs.*
+cytoview_rsfs_feature_separability_20260710_all_three_feature_LDA_rankings.csv
+cytoview_rsfs_feature_separability_20260710_all_three_feature_LDA_importance_long.csv
+cytoview_rsfs_feature_separability_20260710_LDA_feature_importance_summary.csv
+cytoview_rsfs_feature_separability_20260710_top10_LDA_triples_and_importance.*
+cytoview_rsfs_feature_separability_20260710_provenance.json
+```
+
+### Lumos aligned good-unit FS gallery
+
+A separate rapid-review gallery was generated from the existing Lumos aligned
+waveform audit. The denominator is all 276 paired Lumos `KSLabel=good` units;
+85 satisfy aligned TTP <= 0.50 ms and are shown without any additional PTP,
+SNR, firing-rate, or other QC exclusion. Units receive stable `LFS1` through
+`LFS85` gallery identifiers and are ordered by descending template PTP, then
+usable snippets and source identity. The displayed aligned mean best-channel
+waveforms are baseline-corrected and trough-normalized with no smoothing.
+
+```text
+output:
+.../lumos_good_fs_aligned_waveform_gallery_20260710_20260710_1025/
+overview:
+lumos_good_fs_aligned_waveform_gallery_20260710_all_85_overview.*
+pages:
+lumos_good_fs_aligned_waveform_gallery_20260710_page_01.* through page_05.*
+source:
+lumos_good_fs_aligned_waveform_gallery_20260710_selection.csv
+lumos_good_fs_aligned_waveform_gallery_20260710_aligned_traces.csv.gz
+```
+
+### Panel A replaced by a two-by-two classification block
+
+The 3D Panel A was replaced, without changing the locked population or RS/FS
+rule, by:
+
+```text
+top left:     x=TTP, y=repolarization time
+top right:    raw unsmoothed TTP histogram
+bottom left:  x=TTP, y=spike half-width
+bottom right: pooled dorsal/ventral RS/FS unit percentages and counts
+```
+
+Both scatterplots retain RS/FS color, temporal P99.9 smoothed inverse-ISI
+firing-rate point sizes, the aligned 0.50-ms FS cutoff, and the preceding visual
+axis-exclusion policy. The histogram uses the aligned 0.08-ms sampling grid and
+no density smoothing. The regional summary is explicitly descriptive at the
+pooled-unit level, not an organoid-level inferential analysis:
+
+```text
+dorsal:  10 FS + 62 RS = 72 units  | 13.89% FS
+ventral: 11 FS + 91 RS = 102 units | 10.78% FS
+```
+
+Canonical clean render:
+
+```text
+job_id: 53252427
+state: COMPLETED
+elapsed: 00:01:00
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_103600/
+```
+
+The exact regional source table is
+`cytoview_unified_rsfs_activity_figure_20260710_panel_A_region_classification_summary.csv`.
+Panels B-D and their source calculations are unchanged.
+
+### Cross-platform FS replacement: Lumos F8 u5 replaces CytoView FS16
+
+The strongest eligible FS representative was evaluated across CytoView and
+Lumos rather than restricting Panel B to CytoView. The matched-QC comparison
+used the same aligned TTP <= 0.50-ms rule, `KSLabel=good`, spatial display gain,
+raw unsmoothed probability ACG, and sampled PTP stability presentation.
+
+Cross-platform comparison:
+
+```text
+job_id: 53254365
+state: COMPLETED
+elapsed: 00:00:15
+stderr: 0 bytes
+output:
+.../cross_platform_fs_representative_comparison_20260710_20260710_104920/
+```
+
+Key QC values:
+
+```text
+             FS1 CytoView   FS16 CytoView   LFS1 Lumos F8 u5
+TTP ms           0.48           0.40             0.40
+template PTP uV 35.44          13.15            91.94
+spike count      2258            279             2173
+firing rate Hz   4.98           0.45             2.41
+ContamPct        0.0            0.0              0.0
+P(|lag|<=2 ms)   0.0075         0.0000           0.0000
+PTP MAD/median   0.1681         0.0769           0.0473
+```
+
+Lumos F8 u5 has the strongest template PTP, clean refractory period, stable
+sampled spike amplitude, and a localized spatial footprint. It therefore
+replaces the weaker CytoView FS16; CytoView FS1 is retained. The primary F8 u6
+processing counterpart appears to be the same biological unit and was not
+treated as an independent representative.
+
+Canonical unified render after replacement:
+
+```text
+job_id: 53254604
+state: COMPLETED
+elapsed: 00:00:57
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_105122/
+Panel B: FS1 CytoView B1 u24 + LFS1 Lumos F8 u5
+Panel C: RS1 CytoView B2 u9 + RS3 CytoView B3 u29
+```
+
+Only the Panel B representative changed. Panel A classification and Panel D
+activity remain the locked CytoView dorsal/ventral population; the Lumos unit
+is not included in those biological summaries.
