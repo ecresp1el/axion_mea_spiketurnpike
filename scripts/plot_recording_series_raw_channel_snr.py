@@ -53,6 +53,7 @@ DEFAULT_PATTERN = (
 )
 DEFAULT_WELLS = "A1,A2,A3,B1,B2,B3"
 DEFAULT_DATE_LABEL = "20260709_raw_snr"
+DEFAULT_BINARY_ROOT = PROJECT_ROOT / "data" / "interim" / "kilosort_binary"
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class RecordingEntry:
     well: str
     root: Path
     analyzer_path: Path
+    binary_export_dir: Path
 
 
 def main() -> int:
@@ -72,7 +74,13 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--date-label", default=DEFAULT_DATE_LABEL)
     parser.add_argument("--raw-metadata-csv", type=Path, default=DEFAULT_RAW_METADATA_CSV)
+    parser.add_argument("--binary-root", type=Path, default=DEFAULT_BINARY_ROOT)
     parser.add_argument("--reference-repeat", default="000")
+    parser.add_argument(
+        "--plating-anchor-repeat",
+        default="001",
+        help="Repeat whose acquisition start approximates plating time for elapsed-time labels.",
+    )
     parser.add_argument("--stats-sample-stride", type=int, default=25)
     parser.add_argument("--stats-chunk-samples", type=int, default=1_250_000)
     parser.add_argument("--plot-max-bins", type=int, default=2400)
@@ -118,14 +126,19 @@ def main() -> int:
             well=well,
             root=row["root"],
             analyzer_path=row["root"] / well / "postprocessed" / "block0_None_recording1.zarr",
+            binary_export_dir=args.binary_root.expanduser() / row["root"].name / well,
         )
         for row in root_rows
         for well in wells
     ]
     metadata = raw_recording_metadata_by_repeat(
         args.raw_metadata_csv.expanduser(),
-        sorted({entry.repeat for entry in entries} | {str(args.reference_repeat).zfill(3)}),
+        sorted(
+            {entry.repeat for entry in entries}
+            | {str(args.reference_repeat).zfill(3), str(args.plating_anchor_repeat).zfill(3)}
+        ),
     )
+    plating_time = metadata.get(str(args.plating_anchor_repeat).zfill(3), {}).get("block_vector_start_time")
     stats_rows = []
     availability_rows = []
     envelope_cache: dict[tuple[str, str, int], dict[str, np.ndarray]] = {}
@@ -136,20 +149,19 @@ def main() -> int:
             "recording_root": str(entry.root),
             "analyzer_path": str(entry.analyzer_path),
             "analyzer_exists": entry.analyzer_path.exists(),
-            "status": "missing_analyzer",
+            "binary_manifest": str(entry.binary_export_dir / "binary_export_manifest.json"),
+            "status": "missing_recording_source",
         }
-        if not entry.analyzer_path.exists():
-            availability_rows.append(availability)
-            continue
         try:
-            analyzer = si.load_sorting_analyzer(entry.analyzer_path, load_extensions=False)
-            recording = analyzer.recording
+            recording, source_kind, source_path = load_recording_with_fallback(si, entry)
             rows, envelopes = summarize_recording_channels(recording, entry, metadata, args)
             stats_rows.extend(rows)
             envelope_cache.update(envelopes)
             availability.update(
                 {
                     "status": "usable",
+                    "source_kind": source_kind,
+                    "source_path": str(source_path),
                     "sampling_frequency_hz": float(recording.get_sampling_frequency()),
                     "duration_s": float(recording.get_total_duration()),
                     "num_channels": int(recording.get_num_channels()),
@@ -169,13 +181,7 @@ def main() -> int:
         (ranked_df["min_snr"] >= float(args.min_snr))
         & (ranked_df["min_abs_envelope_uV"] >= float(args.min_abs_envelope_uV))
     )
-    strict_df = ranked_df.loc[ranked_df["passes_strict_display_threshold"]].head(int(args.top_n))
-    if len(strict_df) < int(args.top_n):
-        filler_df = ranked_df.loc[~ranked_df.index.isin(strict_df.index)].head(int(args.top_n) - len(strict_df))
-        selected_df = pd.concat([strict_df, filler_df], ignore_index=True)
-    else:
-        selected_df = strict_df.copy()
-    selected_df = selected_df.sort_values("rank").reset_index(drop=True)
+    selected_df = select_top_channels(ranked_df, int(args.top_n))
 
     availability_path = output_dir / f"transient_plateing_raw_channel_availability_{args.date_label}.csv"
     stats_path = output_dir / f"transient_plateing_raw_channel_repeat_stats_{args.date_label}.csv"
@@ -186,7 +192,33 @@ def main() -> int:
     ranked_df.to_csv(ranked_path, index=False)
     selected_df.to_csv(selected_path, index=False)
 
-    figure_paths = render_summary_figure(selected_df, channel_stats_df, availability_df, envelope_cache, output_dir, args)
+    figure_paths = render_summary_figure(
+        selected_df, channel_stats_df, availability_df, envelope_cache, plating_time, output_dir, args
+    )
+    per_well_outputs = {}
+    for well in wells:
+        well_ranked = ranked_df.loc[ranked_df["well"].astype(str).eq(str(well))].copy()
+        well_selected = select_top_channels(well_ranked, int(args.top_n), local_rank_name="well_rank")
+        well_selected_path = output_dir / (
+            f"transient_plateing_raw_channel_{well}_top{int(args.top_n)}_{args.date_label}.csv"
+        )
+        well_selected.to_csv(well_selected_path, index=False)
+        well_figure_paths = render_summary_figure(
+            well_selected,
+            channel_stats_df.loc[channel_stats_df["well"].astype(str).eq(str(well))],
+            availability_df.loc[availability_df["well"].astype(str).eq(str(well))],
+            envelope_cache,
+            plating_time,
+            output_dir,
+            args,
+            scope_slug=str(well),
+            title=f"{well}: top {int(args.top_n)} raw channels across repeated recordings",
+        )
+        figure_paths.extend(well_figure_paths)
+        per_well_outputs[str(well)] = {
+            "selected_top": str(well_selected_path),
+            "figures": [str(path) for path in well_figure_paths],
+        }
     provenance = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "script": str(Path(__file__).resolve()),
@@ -211,6 +243,7 @@ def main() -> int:
             "ranked_summary": str(ranked_path),
             "selected_top": str(selected_path),
             "figures": [str(path) for path in figure_paths],
+            "per_well": per_well_outputs,
         },
     }
     provenance_path = output_dir / f"transient_plateing_raw_channel_snr_provenance_{args.date_label}.json"
@@ -248,8 +281,12 @@ def write_sbatch(args, output_dir: Path) -> Path:
         args.date_label,
         "--raw-metadata-csv",
         str(args.raw_metadata_csv.expanduser()),
+        "--binary-root",
+        str(args.binary_root.expanduser()),
         "--reference-repeat",
         str(args.reference_repeat),
+        "--plating-anchor-repeat",
+        str(args.plating_anchor_repeat),
         "--stats-sample-stride",
         str(args.stats_sample_stride),
         "--stats-chunk-samples",
@@ -273,8 +310,8 @@ def write_sbatch(args, output_dir: Path) -> Path:
 #SBATCH --job-name=raw_channel_snr
 #SBATCH --account=parent0
 #SBATCH --partition=standard
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=96G
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=32G
 #SBATCH --time={args.sbatch_time}
 #SBATCH --output={logs_dir}/raw_channel_snr_%j.out
 #SBATCH --error={logs_dir}/raw_channel_snr_%j.err
@@ -305,6 +342,48 @@ def discover_recording_roots(results_root: Path, pattern: str) -> list[dict[str,
 
 def parse_list(text: str) -> list[str]:
     return [item.strip() for item in str(text).split(",") if item.strip()]
+
+
+def load_recording_with_fallback(si, entry: RecordingEntry):
+    """Load an analyzer recording, or reconstruct it from its exported Axion binary."""
+    if entry.analyzer_path.exists():
+        analyzer = si.load_sorting_analyzer(entry.analyzer_path, load_extensions=False)
+        return analyzer.recording, "sorting_analyzer", entry.analyzer_path
+
+    manifest_path = entry.binary_export_dir / "binary_export_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Neither analyzer {entry.analyzer_path} nor binary manifest {manifest_path} exists"
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    binary_path = Path(manifest["output_bin"])
+    mapping_path = Path(manifest["channel_mapping_csv"])
+    if not binary_path.exists() or not mapping_path.exists():
+        raise FileNotFoundError(
+            f"Binary fallback is incomplete: binary={binary_path.exists()}, mapping={mapping_path.exists()}"
+        )
+    gain_to_uV = float(manifest["voltage_scale_v_per_sample"]) * 1e6
+    recording = si.read_binary(
+        binary_path,
+        sampling_frequency=float(manifest["fs"]),
+        dtype=str(manifest["dtype"]),
+        num_channels=int(manifest["n_chan_bin"]),
+        gain_to_uV=gain_to_uV,
+        offset_to_uV=0.0,
+        is_filtered=True,
+    )
+    mapping = pd.read_csv(mapping_path).sort_values("channel_index_zero_based")
+    if len(mapping) != recording.get_num_channels():
+        raise ValueError(
+            f"Channel mapping has {len(mapping)} rows but binary has {recording.get_num_channels()} channels"
+        )
+    recording.set_channel_locations(mapping[["x_um", "y_um"]].to_numpy(dtype=float))
+    expected_samples = int(manifest["n_samples"])
+    if recording.get_num_samples() != expected_samples:
+        raise ValueError(
+            f"Binary has {recording.get_num_samples()} samples; manifest declares {expected_samples}"
+        )
+    return recording, "axion_binary_export_fallback", binary_path
 
 
 def summarize_recording_channels(recording, entry: RecordingEntry, metadata: dict[str, dict[str, object]], args) -> tuple[list[dict[str, object]], dict[tuple[str, str, int], dict[str, np.ndarray]]]:
@@ -506,6 +585,27 @@ def rank_channels(stats_df: pd.DataFrame, *, min_repeats: int) -> pd.DataFrame:
     return ranked
 
 
+def select_top_channels(
+    ranked_df: pd.DataFrame,
+    top_n: int,
+    *,
+    local_rank_name: str | None = None,
+) -> pd.DataFrame:
+    """Select strict-pass channels first, then fill remaining slots by score order."""
+    strict_df = ranked_df.loc[ranked_df["passes_strict_display_threshold"]].head(int(top_n))
+    if len(strict_df) < int(top_n):
+        filler_df = ranked_df.loc[~ranked_df.index.isin(strict_df.index)].head(int(top_n) - len(strict_df))
+        selected = pd.concat([strict_df, filler_df], ignore_index=True)
+    else:
+        selected = strict_df.copy()
+    selected = selected.sort_values("rank").reset_index(drop=True)
+    if local_rank_name is not None:
+        selected.insert(0, "global_rank", selected["rank"].astype(int))
+        selected["rank"] = np.arange(1, len(selected) + 1)
+        selected.insert(1, local_rank_name, selected["rank"].astype(int))
+    return selected
+
+
 def finite_median(values: np.ndarray) -> float:
     values = np.asarray(values, dtype=float)
     values = values[np.isfinite(values)]
@@ -535,8 +635,12 @@ def render_summary_figure(
     stats_df: pd.DataFrame,
     availability_df: pd.DataFrame,
     envelope_cache: dict[tuple[str, str, int], dict[str, np.ndarray]],
+    plating_time: pd.Timestamp | None,
     output_dir: Path,
     args,
+    *,
+    scope_slug: str = "",
+    title: str = "Raw channel SNR stability across repeated recordings",
 ) -> list[Path]:
     selected = selected_df.head(int(args.top_n)).copy()
     rows = max(1, len(selected))
@@ -555,11 +659,12 @@ def render_summary_figure(
         ax_amp = fig.add_subplot(grid[row_index, 1])
         draw_amplitude_panel(ax_amp, group)
         ax_trace = fig.add_subplot(grid[row_index, 2])
-        draw_trace_stack_panel(ax_trace, group, envelope_cache)
+        draw_trace_stack_panel(ax_trace, group, envelope_cache, plating_time)
         ax_text = fig.add_subplot(grid[row_index, 3])
         draw_channel_text(ax_text, row)
-    fig.suptitle("Raw channel SNR stability across repeated recordings", fontsize=15, fontweight="bold", y=0.975)
-    stem = f"transient_plateing_raw_channel_top{int(args.top_n)}_snr_stability_{args.date_label}"
+    fig.suptitle(title, fontsize=15, fontweight="bold", y=0.975)
+    scope_part = f"_{scope_slug}" if scope_slug else ""
+    stem = f"transient_plateing_raw_channel{scope_part}_top{int(args.top_n)}_snr_stability_{args.date_label}"
     paths = []
     for fmt in [item.strip().lower() for item in str(args.export_formats).split(",") if item.strip()]:
         path = output_dir / f"{stem}.{fmt}"
@@ -580,6 +685,7 @@ def draw_summary_note(ax, selected: pd.DataFrame, availability_df: pd.DataFrame,
         "Rank score prioritizes large minimum SNR and large amplitude envelope across repeats, with penalties for across-repeat instability. "
         f"Usable repeats: {repeats or 'none'}; wells: {wells or 'none'}. "
         f"Unavailable analyzer rows: {len(missing)}. "
+        f"Elapsed times use the start of source {str(args.plating_anchor_repeat).zfill(3)} as the estimated plating-time anchor. "
         "Each trace row shows a full-recording min/max envelope for the same physical channel across repeats; strict-pass channels are marked in the summary."
     )
     wrapped = "\n".join(textwrap.wrap(text, width=190))
@@ -608,7 +714,12 @@ def draw_amplitude_panel(ax, group: pd.DataFrame) -> None:
     ax.spines[["top", "right"]].set_visible(False)
 
 
-def draw_trace_stack_panel(ax, group: pd.DataFrame, envelope_cache: dict[tuple[str, str, int], dict[str, np.ndarray]]) -> None:
+def draw_trace_stack_panel(
+    ax,
+    group: pd.DataFrame,
+    envelope_cache: dict[tuple[str, str, int], dict[str, np.ndarray]],
+    plating_time: pd.Timestamp | None,
+) -> None:
     all_values = []
     for record in group.to_dict("records"):
         env = envelope_cache.get((str(record["repeat"]), str(record["well"]), int(record["channel_index"])))
@@ -638,6 +749,35 @@ def draw_trace_stack_panel(ax, group: pd.DataFrame, envelope_cache: dict[tuple[s
         mean_uV = np.asarray(env["mean_uV"], dtype=float) + offset
         ax.fill_between(time_min, min_uV, max_uV, color=color, alpha=0.34, linewidth=0)
         ax.plot(time_min, mean_uV, color=color, lw=0.55, alpha=0.95)
+        start_time = parse_timestamp_or_none(record.get("block_vector_start_time"))
+        if start_time is not None:
+            ax.text(
+                0.006,
+                offset + 0.40 * (high - low),
+                f"start {start_time.strftime('%H:%M:%S')}",
+                transform=ax.get_yaxis_transform(),
+                ha="left",
+                va="center",
+                fontsize=6.3,
+                color="0.25",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 0.5},
+            )
+            if plating_time is not None and float(record.get("duration_s", 0.0)) >= 0:
+                end_time = start_time + pd.to_timedelta(float(record["duration_s"]), unit="s")
+                elapsed_s = float((end_time - plating_time).total_seconds())
+                elapsed_label = format_elapsed_from_plating(elapsed_s)
+                ax.text(
+                    0.994,
+                    offset + 0.40 * (high - low),
+                    elapsed_label,
+                    transform=ax.get_yaxis_transform(),
+                    ha="right",
+                    va="center",
+                    fontsize=6.3,
+                    fontweight="bold",
+                    color="0.18",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.78, "pad": 0.5},
+                )
         y_ticks.append(offset)
         y_labels.append(str(record["repeat"]))
     if group.shape[0] > 0:
@@ -653,6 +793,15 @@ def draw_trace_stack_panel(ax, group: pd.DataFrame, envelope_cache: dict[tuple[s
     ax.set_yticklabels(y_labels)
     ax.grid(axis="x", color="0.9", lw=0.55)
     ax.spines[["top", "right"]].set_visible(False)
+
+
+def format_elapsed_from_plating(elapsed_s: float) -> str:
+    before = elapsed_s < 0
+    total_seconds = int(round(abs(elapsed_s)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    value = f"{hours:d}:{minutes:02d}:{seconds:02d}"
+    return f"ends {value} before plating" if before else f"end: total {value} since plating"
 
 
 def draw_channel_text(ax, row: dict[str, object]) -> None:
