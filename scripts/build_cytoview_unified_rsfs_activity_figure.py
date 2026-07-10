@@ -976,6 +976,8 @@ def _plot_unified_figure(
     export_formats: str,
     fs_cutoff_ms: float,
 ) -> list[Path]:
+    from matplotlib.ticker import MaxNLocator
+
     neutral = "#2B2B2B"
     plt.rcParams.update(
         {
@@ -1000,9 +1002,9 @@ def _plot_unified_figure(
     )
     fig = plt.figure(figsize=(16.0, 11.0), facecolor="white")
     outer = fig.add_gridspec(
-        6,
+        4,
         1,
-        height_ratios=[0.045, 0.420, 0.075, 0.180, 0.050, 0.230],
+        height_ratios=[0.050, 0.515, 0.105, 0.230],
         hspace=0.0,
     )
     ax_upper_title = fig.add_subplot(outer[0, 0])
@@ -1010,21 +1012,23 @@ def _plot_unified_figure(
     ax_upper_title.text(
         0.0,
         0.58,
-        "Waveform-defined unit classification and validation",
+        "Waveform-defined extracellular single-unit (SUA) properties",
         transform=ax_upper_title.transAxes,
         fontsize=10.0,
         fontweight="bold",
         va="center",
     )
-    upper = outer[1, 0].subgridspec(1, 2, width_ratios=[0.19, 0.81], wspace=0.10)
-    panel_a_grid = upper[0, 0].subgridspec(
+    upper = outer[1, 0].subgridspec(
+        2, 3, width_ratios=[0.22, 0.48, 0.30], hspace=0.10, wspace=0.27
+    )
+    panel_a_grid = upper[:, 0].subgridspec(
         3, 1, height_ratios=[0.78, 0.14, 0.08], hspace=0.045
     )
     ax_a_features = fig.add_subplot(panel_a_grid[0, 0], projection="3d")
     ax_a_waveform = fig.add_subplot(panel_a_grid[1, 0])
     ax_a_composition = fig.add_subplot(panel_a_grid[2, 0])
 
-    representative_grid = upper[0, 1].subgridspec(
+    representative_grid = upper[:, 1].subgridspec(
         3, 1, height_ratios=[0.070, 0.465, 0.465], hspace=0.025
     )
     ax_representative_title = fig.add_subplot(representative_grid[0, 0])
@@ -1047,7 +1051,7 @@ def _plot_unified_figure(
         class_header = fig.add_subplot(class_block[0, 0])
         class_header.set_axis_off()
         representative_class_headers[class_label] = class_header
-        panel_letter = "B" if class_label == "FS" else "C"
+        panel_letter = "B" if class_label == "FS" else "D"
         class_title = "Fast-spiking (FS)" if class_label == "FS" else "Regular-spiking (RS)"
         class_header.text(
             0.0,
@@ -1090,11 +1094,14 @@ def _plot_unified_figure(
                     fig.add_subplot(card[2]),
                 )
             )
-    ax_regional_firing_title = fig.add_subplot(outer[2, 0])
+    regional_grid = upper[:, 2].subgridspec(
+        3, 1, height_ratios=[0.070, 0.465, 0.465], hspace=0.120
+    )
+    ax_regional_firing_title = fig.add_subplot(regional_grid[0, 0])
     ax_regional_firing_title.set_axis_off()
     ax_regional_firing_title.text(
-        0.19,
-        0.58,
+        0.0,
+        0.62,
         "Regional firing properties of classified units",
         transform=ax_regional_firing_title.transAxes,
         fontsize=9.2,
@@ -1103,31 +1110,26 @@ def _plot_unified_figure(
     )
     ax_regional_firing_title.text(
         1.0,
-        0.58,
+        0.14,
         "One point per classified unit · mean ± SEM",
         transform=ax_regional_firing_title.transAxes,
-        fontsize=5.8,
+        fontsize=5.2,
         color="#555555",
         ha="right",
         va="center",
     )
     ax_regional_firing_title.plot(
         [0.0, 1.0],
-        [0.10, 0.10],
+        [1.02, 1.02],
         transform=ax_regional_firing_title.transAxes,
         color="#CFCFCF",
         lw=0.60,
         clip_on=False,
     )
-    regional_units = outer[3, 0].subgridspec(
-        1, 3, width_ratios=[0.19, 0.405, 0.405], wspace=0.08
-    )
-    ax_regional_blank = fig.add_subplot(regional_units[0, 0])
-    ax_regional_blank.set_axis_off()
-    ax_d_fs_firing = fig.add_subplot(regional_units[0, 1])
-    ax_e_rs_firing = fig.add_subplot(regional_units[0, 2], sharey=ax_d_fs_firing)
+    ax_c_fs_firing = fig.add_subplot(regional_grid[1, 0])
+    ax_e_rs_firing = fig.add_subplot(regional_grid[2, 0], sharey=ax_c_fs_firing)
 
-    ax_f_title = fig.add_subplot(outer[4, 0])
+    ax_f_title = fig.add_subplot(outer[2, 0])
     ax_f_title.set_axis_off()
     ax_f_title.text(
         0.0,
@@ -1141,10 +1143,19 @@ def _plot_unified_figure(
     ax_f_title.text(
         0.025,
         0.58,
-        "Regional spontaneous network activity",
+        "Pooled spontaneous single-unit activity (SUA) across dorsal and ventral SOSRS organoids",
         transform=ax_f_title.transAxes,
         fontsize=9.2,
         fontweight="bold",
+        va="center",
+    )
+    ax_f_title.text(
+        0.025,
+        0.20,
+        "One point represents one organoid; metrics were computed from pooled classified single-unit activity within each organoid.",
+        transform=ax_f_title.transAxes,
+        fontsize=5.8,
+        color="#555555",
         va="center",
     )
     ax_f_title.plot(
@@ -1155,7 +1166,7 @@ def _plot_unified_figure(
         lw=0.65,
         clip_on=False,
     )
-    bottom = outer[5, 0].subgridspec(1, 6, wspace=0.20)
+    bottom = outer[3, 0].subgridspec(1, 6, wspace=0.20)
     axes_f = [fig.add_subplot(bottom[index]) for index in range(6)]
     fig.subplots_adjust(left=0.045, right=0.992, top=0.988, bottom=0.055)
 
@@ -1164,7 +1175,7 @@ def _plot_unified_figure(
     _plot_panel_a_composition_bar(ax_a_composition, units)
     _plot_representative_cards(representative_axes, representative_assets)
     shared_unit_rate_ylim = (0.0, 13.0)
-    _plot_regional_class_unit_firing(ax_d_fs_firing, units, "FS", shared_unit_rate_ylim)
+    _plot_regional_class_unit_firing(ax_c_fs_firing, units, "FS", shared_unit_rate_ylim)
     _plot_regional_class_unit_firing(ax_e_rs_firing, units, "RS", shared_unit_rate_ylim)
     ax_e_rs_firing.set_ylabel("")
     ax_e_rs_firing.tick_params(axis="y", left=False, labelleft=False)
@@ -1173,8 +1184,17 @@ def _plot_unified_figure(
     fig.align_ylabels(axes_f)
 
     _panel_letter(ax_a_features, "A", x=-0.08)
-    _panel_letter(ax_d_fs_firing, "D", x=-0.07)
-    _panel_letter(ax_e_rs_firing, "E", x=-0.05)
+    ax_a_features.text2D(
+        0.02,
+        1.15,
+        "Classification",
+        transform=ax_a_features.transAxes,
+        fontsize=7.8,
+        fontweight="normal",
+        va="center",
+    )
+    _panel_letter(ax_c_fs_firing, "C", x=-0.12)
+    _panel_letter(ax_e_rs_firing, "E", x=-0.12)
 
     class_handles = [
         Line2D(
@@ -1590,6 +1610,8 @@ def _plot_regional_class_unit_firing(
     shared_ylim: tuple[float, float],
 ) -> None:
     """Plot one legacy whole-recording firing-rate point per retained classified unit."""
+    from matplotlib.ticker import MaxNLocator
+
     source = _regional_classified_unit_firing_source(units)
     source = source.loc[source["rs_fs_class"].eq(class_label)].copy()
     rng = np.random.default_rng(20260710)
@@ -1637,8 +1659,12 @@ def _plot_regional_class_unit_firing(
     ax.set_ylim(shared_ylim)
     ax.set_ylabel("Classified-unit firing rate (Hz)")
     title = "Fast-spiking (FS)" if class_label == "FS" else "Regular-spiking (RS)"
-    ax.set_title(title, loc="left", fontweight="normal", y=1.01, pad=0)
+    ax.set_title(title, loc="left", fontweight="normal", y=1.015, pad=0)
     ax.spines[["top", "right"]].set_visible(False)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5, prune=None))
+    ax.tick_params(
+        axis="both", which="major", direction="out", length=2.2, width=0.6, pad=1.5, labelsize=5.7
+    )
     ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.75)
     ax.set_axisbelow(True)
 
@@ -1697,7 +1723,7 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
     ax.view_init(elev=22, azim=-46)
     ax.set_box_aspect((1.20, 0.95, 0.75))
     ax.tick_params(labelsize=6, pad=0)
-    ax.grid(True, alpha=0.22)
+    ax.grid(True, alpha=0.16)
 
 
 def _plot_smoothed_landmark_inset(ax, waveform_summary: pd.DataFrame) -> None:
@@ -1802,7 +1828,7 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
         fontsize=6.3,
         fontweight="normal",
         color=color,
-        pad=2,
+        pad=1.5,
     )
 
 
@@ -1827,7 +1853,7 @@ def _plot_representative_acg(ax, asset, class_label: str, *, show_ylabel: bool) 
         f"ACG  P(|lag|≤2 ms)={float(probability['p_refractory']):.3f}",
         loc="left",
         fontsize=5.8,
-        pad=1,
+        pad=1.5,
     )
     ax.tick_params(length=0)
     for spine in ax.spines.values():
@@ -1849,7 +1875,7 @@ def _plot_representative_stability(ax, asset, class_label: str, *, show_ylabel: 
         if med_x.size:
             ax.plot(med_x, med_y, color=color, lw=0.85)
     ax.set_xlim(0, max(float(asset["recording_minutes"]), 1e-6))
-    ax.set_title("PTP stability", loc="left", fontsize=5.6, pad=0.5)
+    ax.set_title("PTP stability", loc="left", fontsize=5.8, pad=1.5)
     ax.set_xticks([])
     ax.set_yticks([])
     ax.tick_params(length=0)
@@ -2051,6 +2077,8 @@ def _plot_ttp_distribution(ax, inset_axes, units, waveform_summary, fs_cutoff_ms
 
 
 def _plot_activity_strip(axes, wells, specs) -> None:
+    from matplotlib.ticker import MaxNLocator
+
     rng = np.random.default_rng(20260710)
     positions = {"dorsal": 0.0, "ventral": 0.30}
     for ax, (panel, metric, title, ylabel) in zip(axes, specs, strict=True):
@@ -2105,6 +2133,10 @@ def _plot_activity_strip(axes, wells, specs) -> None:
         )
         ax.set_ylabel(ylabel)
         ax.yaxis.set_label_coords(-0.17, 0.5)
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=4, prune="both"))
+        ax.tick_params(
+            axis="both", which="major", direction="out", length=2.2, width=0.6, pad=1.5, labelsize=5.5
+        )
         ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.72)
         _clean_axis(ax)
 
@@ -2116,7 +2148,7 @@ def _panel_letter(ax, label: str, *, x: float) -> None:
 
 def _clean_axis(ax) -> None:
     ax.spines[["top", "right"]].set_visible(False)
-    ax.tick_params(direction="out", length=2.6, pad=2)
+    ax.tick_params(direction="out", length=2.2, width=0.6, pad=1.5)
 
 
 def _sem(values: np.ndarray) -> float:

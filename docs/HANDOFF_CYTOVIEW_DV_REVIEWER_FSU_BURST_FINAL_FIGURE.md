@@ -2023,3 +2023,43 @@ output:
 
 The render was visually inspected. The B/C, D/E, and F source CSVs are
 byte-identical to job 53262409, confirming a layout/color-only revision.
+
+### Final two-analysis-level layout proof
+
+The attached final layout brief was implemented as the authoritative
+structure. The upper section is now explicitly titled `Waveform-defined
+extracellular single-unit (SUA) properties` and is entirely individual-unit
+level:
+
+```text
+[ A: Classification ] [ B: Representative FS units ] [ C: Regional FS firing ]
+[                    ] [ D: Representative RS units ] [ E: Regional RS firing ]
+```
+
+Panel A is a narrow spanning support column. B/D are the dominant
+representative-unit QC panels. C/E are compact regional firing panels with the
+same 0–13 Hz y-axis limits and separate dorsal/ventral unit points. Subsection
+labels distinguish Classification, Representative units, and Regional firing
+properties without introducing boxes or colored backgrounds.
+
+The lower section is explicitly titled `Pooled spontaneous single-unit
+activity (SUA) across dorsal and ventral SOSRS organoids`, with the subtitle:
+`One point represents one organoid; metrics were computed from pooled classified
+single-unit activity within each organoid.` The six pooled metrics remain in one
+continuous row.
+
+Canonical proof render:
+
+```text
+job_id: 53267041
+state: COMPLETED
+runtime: 00:00:55
+exit_code: 0:0
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_131616/
+```
+
+The B/C representative selection, D/E classified-unit firing source, and F
+pooled activity source tables are byte-identical to job 53262736. No unit
+selection, measurement, statistic, or source data changed.
