@@ -44,6 +44,11 @@ VARIANT_MARKERS = {
     "filter_200Hz-3kHz": "s",
     "broadband_processor_raw": "^",
 }
+VARIANT_LABELS = {
+    "primary_raw": "Primary",
+    "filter_200Hz-3kHz": "200 Hz-3 kHz",
+    "broadband_processor_raw": "Broadband processor",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,6 +62,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-template-ptp-uv", type=float, default=None)
     parser.add_argument("--max-contam-pct", type=float, default=None)
     parser.add_argument("--max-isi-lt-2ms-fraction", type=float, default=None)
+    parser.add_argument(
+        "--exclude-unit-key",
+        action="append",
+        default=[],
+        help="Exact recording|well|unit key to exclude after QC; may be repeated.",
+    )
+    parser.add_argument("--explicit-exclusion-label", default="")
     parser.add_argument("--max-isi-ms", type=float, default=100.0)
     parser.add_argument("--min-spikes-per-burst", type=int, default=3)
     parser.add_argument("--min-burst-duration-ms", type=float, default=100.0)
@@ -91,6 +103,9 @@ def main() -> int:
     source_kslabel = source_all.loc[
         source_all["KSLabel"].eq(args.kslabel) & ~source_all["lfp_like_excluded"]
     ].copy()
+    source_kslabel["unit_key"] = source_kslabel.apply(_unit_key, axis=1)
+    if source_kslabel["unit_key"].duplicated().any():
+        raise ValueError("Source unit keys are not unique")
     quality_columns = [
         "template_ptp_best_channel_uV",
         "ContamPct",
@@ -135,12 +150,35 @@ def main() -> int:
             source_after_contamination["isi_lt_2ms_fraction"], errors="coerce"
         ).le(args.max_isi_lt_2ms_fraction)
     refractory_excluded = source_after_contamination.loc[~refractory_pass].copy()
-    source = source_after_contamination.loc[refractory_pass].copy()
+    source_after_refractory = source_after_contamination.loc[refractory_pass].copy()
+
+    requested_exclusions = set(args.exclude_unit_key)
+    missing_exclusions = requested_exclusions.difference(source_after_refractory["unit_key"])
+    if missing_exclusions:
+        raise ValueError(
+            "Explicitly excluded unit keys were not present after QC: "
+            + "; ".join(sorted(missing_exclusions))
+        )
+    explicit_excluded = source_after_refractory.loc[
+        source_after_refractory["unit_key"].isin(requested_exclusions)
+    ].copy()
+    source = source_after_refractory.loc[
+        ~source_after_refractory["unit_key"].isin(requested_exclusions)
+    ].copy()
     if source.empty:
         raise SystemExit(f"No non-LFP KSLabel={args.kslabel} units found in {unit_metrics_path}")
-    source["unit_key"] = source.apply(_unit_key, axis=1)
-    if source["unit_key"].duplicated().any():
-        raise ValueError("Source unit keys are not unique")
+
+    quality_filter_note = _quality_filter_note(
+        args.min_template_ptp_uv,
+        args.max_contam_pct,
+        args.max_isi_lt_2ms_fraction,
+    )
+    if len(explicit_excluded):
+        explicit_note = (
+            f"explicitly excluded {len(explicit_excluded)} unit-level dorsal drivers"
+            + (f" ({args.explicit_exclusion_label})" if args.explicit_exclusion_label else "")
+        )
+        quality_filter_note = "; ".join(filter(None, [quality_filter_note, explicit_note]))
 
     aligned = pd.read_csv(aligned_metrics_path)
     aligned["KSLabel"] = aligned["KSLabel"].astype(str).str.lower()
@@ -277,15 +315,20 @@ def main() -> int:
     wells = _aggregate_recording_wells(units, recording_well_universe)
     region_summary = _aggregate_regions(wells)
     figure_source = _figure_source_data(wells)
+    final_locked_figure_source = _figure_source_data_from_specs(
+        wells, _final_locked_panel_specs()
+    )
     denominator = _denominator_flow(
         source_all,
         source_kslabel,
         source_after_template,
         source_after_contamination,
+        source_after_refractory,
         source,
         template_excluded,
         contamination_excluded,
         refractory_excluded,
+        explicit_excluded,
         units,
         wells,
         lfp_excluded,
@@ -302,10 +345,13 @@ def main() -> int:
         "recording_well_summary": output_dir / f"{stem}_recording_well_summary.csv",
         "region_summary": output_dir / f"{stem}_region_summary.csv",
         "figure_source_data": output_dir / f"{stem}_figure_source_data.csv",
+        "final_locked_panel_source_data": output_dir
+        / f"{stem}_panel_e_FINAL_legacy_p99_burst_metrics_source_data.csv",
         "firing_rate_comparison_source_data": output_dir / f"{stem}_firing_rate_comparison_source_data.csv",
         "panel_e_smoothed_rate_versions_source_data": output_dir
         / f"{stem}_panel_e_smoothed_rate_versions_source_data.csv",
         "denominator_flow": output_dir / f"{stem}_denominator_flow.csv",
+        "explicitly_excluded_units": output_dir / f"{stem}_explicitly_excluded_units.csv",
         "provenance": output_dir / f"{stem}_provenance.json",
     }
     units.to_csv(output_paths["unit_metrics"], index=False)
@@ -313,6 +359,9 @@ def main() -> int:
     wells.to_csv(output_paths["recording_well_summary"], index=False)
     region_summary.to_csv(output_paths["region_summary"], index=False)
     figure_source.to_csv(output_paths["figure_source_data"], index=False)
+    final_locked_figure_source.to_csv(
+        output_paths["final_locked_panel_source_data"], index=False
+    )
     firing_rate_comparison_source = _firing_rate_comparison_source_data(wells)
     firing_rate_comparison_source.to_csv(
         output_paths["firing_rate_comparison_source_data"], index=False
@@ -322,6 +371,7 @@ def main() -> int:
         output_paths["panel_e_smoothed_rate_versions_source_data"], index=False
     )
     denominator.to_csv(output_paths["denominator_flow"], index=False)
+    explicit_excluded.to_csv(output_paths["explicitly_excluded_units"], index=False)
 
     figure_paths = _plot_panel_e(
         plt,
@@ -330,11 +380,7 @@ def main() -> int:
         output_dir / stem,
         parameters=parameters,
         export_formats=args.export_formats,
-        method_note=_quality_filter_note(
-            args.min_template_ptp_uv,
-            args.max_contam_pct,
-            args.max_isi_lt_2ms_fraction,
-        ),
+        method_note=quality_filter_note,
     )
     firing_rate_comparison_paths = _plot_firing_rate_comparison(
         plt,
@@ -344,15 +390,36 @@ def main() -> int:
         gaussian_sigma_ms=args.inverse_isi_gaussian_sigma_ms,
         evaluation_bin_ms=args.inverse_isi_evaluation_bin_ms,
         min_spikes=args.min_spikes_for_smoothed_rate,
-        quality_filter_note=_quality_filter_note(
-            args.min_template_ptp_uv,
-            args.max_contam_pct,
-            args.max_isi_lt_2ms_fraction,
-        ),
+        quality_filter_note=quality_filter_note,
         export_formats=args.export_formats,
+    )
+    all_rate_panel_e_paths = _plot_panel_e_all_firing_rate_methods(
+        plt,
+        Line2D,
+        wells,
+        output_dir / f"{stem}_panel_e_all_firing_rate_methods",
+        parameters=parameters,
+        quality_filter_note=quality_filter_note,
+        export_formats=args.export_formats,
+    )
+    final_locked_panel_paths = _plot_panel_e(
+        plt,
+        Line2D,
+        wells,
+        output_dir / f"{stem}_panel_e_FINAL_legacy_p99_burst_metrics",
+        parameters=parameters,
+        export_formats=args.export_formats,
+        specs=_final_locked_panel_specs(),
+        ncols=4,
+        figsize=(17.2, 8.8),
+        figure_title="Spontaneous activity in dorsal and ventral forebrain organoids",
+        header_note=(
+            "Each point represents one recording/well organoid; diamonds show mean ± SEM"
+        ),
     )
     smoothed_rate_panel_e_paths: dict[str, list[Path]] = {}
     for temporal_summary, metric in _smoothed_rate_metrics().items():
+        temporal_summary_label = _temporal_summary_label(temporal_summary)
         smoothed_rate_panel_e_paths[temporal_summary] = _plot_panel_e(
             plt,
             Line2D,
@@ -360,13 +427,9 @@ def main() -> int:
             output_dir / f"{stem}_panel_e_smoothed_inverse_isi_temporal_{temporal_summary}",
             parameters=parameters,
             export_formats=args.export_formats,
-            specs=_panel_specs_with_smoothed_rate(temporal_summary, metric),
+            specs=_panel_specs_with_smoothed_rate(temporal_summary_label, metric),
             method_note=(
-                _quality_filter_note(
-                    args.min_template_ptp_uv,
-                    args.max_contam_pct,
-                    args.max_isi_lt_2ms_fraction,
-                )
+                quality_filter_note
                 + (
                     "; "
                     if any(
@@ -377,11 +440,12 @@ def main() -> int:
                             args.max_isi_lt_2ms_fraction,
                         ]
                     )
+                    or len(explicit_excluded)
                     else ""
                 )
-                + f"E1 inverse-ISI temporal {temporal_summary}, >= {args.min_spikes_for_smoothed_rate} "
+                + f"E1 inverse-ISI temporal {temporal_summary_label}, >= {args.min_spikes_for_smoothed_rate} "
                 f"spikes/unit, Gaussian sigma = {args.inverse_isi_gaussian_sigma_ms:g} ms; "
-                "E2-E6 unchanged"
+                "E2-E7 unchanged"
             ),
         )
     provenance = {
@@ -415,8 +479,16 @@ def main() -> int:
             "weak_template_units_excluded_sequentially": int(len(template_excluded)),
             "contamination_units_excluded_sequentially": int(len(contamination_excluded)),
             "refractory_units_excluded_sequentially": int(len(refractory_excluded)),
+            "explicit_units_excluded_after_QC": int(len(explicit_excluded)),
             "units_excluded_total": int(len(source_kslabel) - len(source)),
             "units_retained": int(len(source)),
+        },
+        "explicit_unit_exclusion": {
+            "label": args.explicit_exclusion_label,
+            "count": int(len(explicit_excluded)),
+            "unit_keys": explicit_excluded["unit_key"].tolist(),
+            "regions": explicit_excluded["region_call"].value_counts().to_dict(),
+            "note": "post-QC, unit-specific sensitivity analysis; no ventral units excluded",
         },
         "recording_well_observation_count": int(len(wells)),
         "unit_count": int(len(units)),
@@ -444,7 +516,7 @@ def main() -> int:
             "gaussian_sigma_ms": float(args.inverse_isi_gaussian_sigma_ms),
             "gaussian_truncate_sigma": 4.0,
             "outside_first_to_last_spike": "zero rate",
-            "temporal_summaries": ["mean", "median", "maximum"],
+            "temporal_summaries": ["mean", "median", "99th percentile", "99.9th percentile", "maximum"],
             "legacy_count_duration_rate_retained": True,
         },
         "aggregation": {
@@ -452,10 +524,32 @@ def main() -> int:
             "burst_rate": "mean per-unit burst rate within recording/well; zero-burst units retained",
             "conditional_metrics": "mean per-unit summaries among units for which the metric is defined",
         },
+        "final_locked_panel": {
+            "status": "locked at user direction on 2026-07-10",
+            "order": [
+                "legacy spike-count/recording-duration firing rate",
+                "50-ms Gaussian-smoothed inverse-ISI temporal 99th percentile",
+                "burst rate",
+                "mean firing rate per burst",
+                "burst duration",
+                "inter-burst interval",
+                "mean spikes per burst",
+                "maximum spikes in any SUA burst",
+            ],
+            "explicit_unit_exclusion_applied": bool(len(explicit_excluded)),
+            "figure_files": [str(path) for path in final_locked_panel_paths],
+            "source_data": str(output_paths["final_locked_panel_source_data"]),
+        },
         "outputs": {key: str(value) for key, value in output_paths.items()} | {
             "figures": [str(path) for path in figure_paths],
             "firing_rate_method_comparison_figures": [
                 str(path) for path in firing_rate_comparison_paths
+            ],
+            "panel_e_all_firing_rate_methods_figures": [
+                str(path) for path in all_rate_panel_e_paths
+            ],
+            "final_locked_panel_figures": [
+                str(path) for path in final_locked_panel_paths
             ],
             "panel_e_smoothed_rate_version_figures": {
                 summary: [str(path) for path in paths]
@@ -477,6 +571,12 @@ def main() -> int:
         print(path)
     print("\nFiring-rate method comparison figures:")
     for path in firing_rate_comparison_paths:
+        print(path)
+    print("\nPanel E with all firing-rate methods:")
+    for path in all_rate_panel_e_paths:
+        print(path)
+    print("\nFinal locked Panel E (legacy + P99 + burst metrics):")
+    for path in final_locked_panel_paths:
         print(path)
     print("\nPanel E smoothed-rate versions:")
     for temporal_summary, paths in smoothed_rate_panel_e_paths.items():
@@ -520,6 +620,12 @@ def _aggregate_recording_wells(units: pd.DataFrame, universe: pd.DataFrame) -> p
                 "mean_unit_inverse_isi_gaussian_temporal_median_hz": _mean(
                     group["inverse_isi_gaussian_temporal_median_hz"]
                 ),
+                "mean_unit_inverse_isi_gaussian_temporal_p99_hz": _mean(
+                    group["inverse_isi_gaussian_temporal_p99_hz"]
+                ),
+                "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz": _mean(
+                    group["inverse_isi_gaussian_temporal_p99_9_hz"]
+                ),
                 "mean_unit_inverse_isi_gaussian_temporal_max_hz": _mean(
                     group["inverse_isi_gaussian_temporal_max_hz"]
                 ),
@@ -561,6 +667,8 @@ def _aggregate_recording_wells(units: pd.DataFrame, universe: pd.DataFrame) -> p
             "inverse_isi_gaussian_eligible_sua_unit_count": 0,
             "mean_unit_inverse_isi_gaussian_temporal_mean_hz": np.nan,
             "mean_unit_inverse_isi_gaussian_temporal_median_hz": np.nan,
+            "mean_unit_inverse_isi_gaussian_temporal_p99_hz": np.nan,
+            "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz": np.nan,
             "mean_unit_inverse_isi_gaussian_temporal_max_hz": np.nan,
             "mean_unit_burst_rate_per_min": np.nan,
             "median_unit_burst_rate_per_min": np.nan,
@@ -629,6 +737,8 @@ def _aggregate_regions(wells: pd.DataFrame) -> pd.DataFrame:
         "mean_unit_firing_rate_hz",
         "mean_unit_inverse_isi_gaussian_temporal_mean_hz",
         "mean_unit_inverse_isi_gaussian_temporal_median_hz",
+        "mean_unit_inverse_isi_gaussian_temporal_p99_hz",
+        "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz",
         "mean_unit_inverse_isi_gaussian_temporal_max_hz",
         "mean_unit_burst_rate_per_min",
         "mean_unit_firing_rate_within_bursts_hz",
@@ -716,9 +826,10 @@ def _firing_rate_comparison_source_data(wells: pd.DataFrame) -> pd.DataFrame:
 def _panel_e_smoothed_rate_versions_source_data(wells: pd.DataFrame) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for temporal_summary, metric in _smoothed_rate_metrics().items():
+        temporal_summary_label = _temporal_summary_label(temporal_summary)
         frame = _figure_source_data_from_specs(
             wells,
-            _panel_specs_with_smoothed_rate(temporal_summary, metric),
+            _panel_specs_with_smoothed_rate(temporal_summary_label, metric),
         )
         frames.append(frame.assign(firing_rate_temporal_summary=temporal_summary))
     return pd.concat(frames, ignore_index=True)
@@ -760,10 +871,12 @@ def _denominator_flow(
     source_kslabel: pd.DataFrame,
     source_after_template: pd.DataFrame,
     source_after_contamination: pd.DataFrame,
+    source_after_refractory: pd.DataFrame,
     source: pd.DataFrame,
     template_excluded: pd.DataFrame,
     contamination_excluded: pd.DataFrame,
     refractory_excluded: pd.DataFrame,
+    explicit_excluded: pd.DataFrame,
     units: pd.DataFrame,
     wells: pd.DataFrame,
     lfp_excluded: pd.DataFrame,
@@ -819,6 +932,16 @@ def _denominator_flow(
         ),
         (
             f"KSLabel_{kslabel}_rows_after_all_quality_filters",
+            len(source_after_refractory),
+            "units entering explicit unit-level exclusion",
+        ),
+        (
+            "explicit_unit_driver_rows_excluded",
+            len(explicit_excluded),
+            "exact unit-key exclusions listed in provenance and exclusion CSV",
+        ),
+        (
+            f"KSLabel_{kslabel}_rows_entering_analysis",
             len(source),
             "units entering spike-train and burst analysis",
         ),
@@ -840,14 +963,19 @@ def _plot_panel_e(
     export_formats: str,
     specs: list[tuple[str, str, str, str]] | None = None,
     method_note: str | None = None,
+    ncols: int = 3,
+    figsize: tuple[float, float] | None = None,
+    figure_title: str = "SUA spontaneous activity in dorsal and ventral forebrain organoids",
+    header_note: str | None = None,
 ) -> list[Path]:
     specs = _panel_specs() if specs is None else specs
-    ncols = 3
     nrows = int(math.ceil(len(specs) / ncols))
+    if figsize is None:
+        figsize = (14.5, 4.35 * nrows)
     fig, axes = plt.subplots(
         nrows,
         ncols,
-        figsize=(14.5, 4.35 * nrows),
+        figsize=figsize,
         constrained_layout=False,
         squeeze=False,
     )
@@ -922,29 +1050,30 @@ def _plot_panel_e(
             markerfacecolor="#777777",
             markeredgecolor="white",
             markersize=7,
-            label=label,
+            label=VARIANT_LABELS.get(label, label),
         )
         for label, marker in VARIANT_MARKERS.items()
     ]
     mean_handle = Line2D(
-        [0], [0], marker="D", linestyle="none", markerfacecolor="white", markeredgecolor="black", label="Mean +/- SEM"
+        [0], [0], marker="D", linestyle="none", markerfacecolor="white", markeredgecolor="black", label="Mean ± SEM"
     )
     fig.legend(handles=variant_handles + [mean_handle], loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 0.945))
     fig.suptitle(
-        "SUA spontaneous activity in dorsal and ventral forebrain organoids",
+        figure_title,
         fontsize=15,
         fontweight="bold",
         y=0.995,
     )
+    default_header_note = (
+        f"KSLabel=good; each point is one recording/well organoid; spike-bearing versions remain separate; "
+        f"bursts: ISI <= {parameters.max_isi_ms:g} ms, >= {parameters.min_spikes} spikes, "
+        f"duration >= {parameters.min_duration_ms:g} ms"
+        + (f"; {method_note}" if method_note else "")
+    )
     fig.text(
         0.5,
         0.955,
-        (
-            f"KSLabel=good; each point is one recording/well organoid; spike-bearing versions remain separate; "
-            f"bursts: ISI <= {parameters.max_isi_ms:g} ms, >= {parameters.min_spikes} spikes, "
-            f"duration >= {parameters.min_duration_ms:g} ms"
-            + (f"; {method_note}" if method_note else "")
-        ),
+        header_note if header_note is not None else default_header_note,
         ha="center",
         va="top",
         fontsize=9,
@@ -975,7 +1104,7 @@ def _plot_firing_rate_comparison(
     export_formats: str,
 ) -> list[Path]:
     specs = _firing_rate_comparison_specs()
-    fig, axes = plt.subplots(2, 2, figsize=(10.6, 8.8), constrained_layout=False)
+    fig, axes = plt.subplots(2, 3, figsize=(15.2, 8.8), constrained_layout=False)
     fig.patch.set_facecolor("white")
     rng = np.random.default_rng(20260710)
     for ax, (metric, _, _, title, ylabel) in zip(axes.ravel(), specs, strict=True):
@@ -1080,6 +1209,188 @@ def _plot_firing_rate_comparison(
     return output_paths
 
 
+def _plot_panel_e_all_firing_rate_methods(
+    plt,
+    Line2D,
+    wells: pd.DataFrame,
+    output_base: Path,
+    *,
+    parameters: BurstDetectionParameters,
+    quality_filter_note: str,
+    export_formats: str,
+) -> list[Path]:
+    fig = plt.figure(figsize=(15.5, 12.0), constrained_layout=False)
+    fig.patch.set_facecolor("white")
+    grid = fig.add_gridspec(3, 3, height_ratios=[1.05, 1.0, 1.0], hspace=0.48, wspace=0.30)
+    firing_ax = fig.add_subplot(grid[0, :])
+    burst_axes = [
+        fig.add_subplot(grid[1, 0]),
+        fig.add_subplot(grid[1, 1]),
+        fig.add_subplot(grid[1, 2]),
+        fig.add_subplot(grid[2, 0]),
+        fig.add_subplot(grid[2, 1]),
+        fig.add_subplot(grid[2, 2]),
+    ]
+    rng = np.random.default_rng(20260710)
+
+    rate_specs = _firing_rate_comparison_specs()
+    method_labels = ["Legacy", "IFR mean", "IFR median", "IFR P99", "IFR P99.9", "IFR max"]
+    region_offsets = {"dorsal": -0.16, "ventral": 0.16}
+    for method_index, (metric, _, _, _, _) in enumerate(rate_specs):
+        for region in REGION_ORDER:
+            subset = wells.loc[wells["region_call"].eq(region)].copy()
+            values = pd.to_numeric(subset[metric], errors="coerce")
+            valid = values.notna() & values.gt(0)
+            plotted = subset.loc[valid]
+            values_array = values.loc[valid].to_numpy(dtype=float)
+            jitter = rng.uniform(-0.045, 0.045, size=len(plotted))
+            for point_index, (_, row) in enumerate(plotted.iterrows()):
+                firing_ax.scatter(
+                    method_index + region_offsets[region] + jitter[point_index],
+                    float(row[metric]),
+                    s=28,
+                    marker=VARIANT_MARKERS.get(str(row["raw_variant"]), "D"),
+                    facecolor=REGION_COLORS[region],
+                    edgecolor="white",
+                    linewidth=0.55,
+                    alpha=0.70,
+                    zorder=3,
+                )
+            if values_array.size:
+                mean = float(np.mean(values_array))
+                sem = _sem(values_array)
+                firing_ax.errorbar(
+                    method_index + region_offsets[region],
+                    mean,
+                    yerr=sem if np.isfinite(sem) else None,
+                    fmt="D",
+                    markersize=6,
+                    color=REGION_COLORS[region],
+                    markerfacecolor="white",
+                    markeredgewidth=1.3,
+                    capsize=3,
+                    linewidth=1.3,
+                    zorder=5,
+                )
+    firing_ax.set_yscale("log")
+    firing_ax.set_xticks(np.arange(len(method_labels)), method_labels)
+    firing_ax.set_ylabel("Firing-rate summary (Hz; log scale)")
+    firing_ax.set_title(
+        "E1  Overall firing rate: legacy and smoothed instantaneous-rate summaries",
+        loc="left",
+        fontsize=12,
+        fontweight="bold",
+    )
+    firing_ax.grid(axis="y", which="both", color="#D9D9D9", linewidth=0.7, alpha=0.8)
+    firing_ax.spines[["top", "right"]].set_visible(False)
+
+    for ax, (panel, metric, title, ylabel) in zip(
+        burst_axes,
+        _panel_specs()[1:],
+        strict=True,
+    ):
+        ax.set_facecolor("white")
+        for region_index, region in enumerate(REGION_ORDER):
+            subset = wells.loc[wells["region_call"].eq(region)].copy()
+            jitter = rng.uniform(-0.10, 0.10, size=len(subset))
+            for point_index, (_, row) in enumerate(subset.iterrows()):
+                value = float(row[metric]) if pd.notna(row[metric]) else np.nan
+                if not np.isfinite(value):
+                    continue
+                ax.scatter(
+                    region_index + jitter[point_index],
+                    value,
+                    s=38,
+                    marker=VARIANT_MARKERS.get(str(row["raw_variant"]), "D"),
+                    facecolor=REGION_COLORS[region],
+                    edgecolor="white",
+                    linewidth=0.65,
+                    alpha=0.80,
+                    zorder=3,
+                )
+            values = pd.to_numeric(subset[metric], errors="coerce").dropna().to_numpy(dtype=float)
+            if values.size:
+                mean = float(np.mean(values))
+                sem = _sem(values)
+                ax.errorbar(
+                    region_index,
+                    mean,
+                    yerr=sem if np.isfinite(sem) else None,
+                    fmt="D",
+                    markersize=6,
+                    color="black",
+                    markerfacecolor="white",
+                    markeredgewidth=1.2,
+                    capsize=4,
+                    linewidth=1.3,
+                    zorder=5,
+                )
+        counts = [
+            int(
+                pd.to_numeric(
+                    wells.loc[wells["region_call"].eq(region), metric], errors="coerce"
+                ).notna().sum()
+            )
+            for region in REGION_ORDER
+        ]
+        ax.set_xticks([0, 1], [f"Dorsal\nn={counts[0]}", f"Ventral\nn={counts[1]}"])
+        ax.set_xlim(-0.38, 1.38)
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"{panel}  {title}", loc="left", fontsize=10.5, fontweight="bold")
+        ax.grid(axis="y", color="#D9D9D9", linewidth=0.7, alpha=0.8)
+        ax.spines[["top", "right"]].set_visible(False)
+
+    legend_handles = [
+        Line2D(
+            [0], [0], marker="o", linestyle="none", markerfacecolor=REGION_COLORS[region],
+            markeredgecolor="white", markersize=7, label=region.title(),
+        )
+        for region in REGION_ORDER
+    ] + [
+        Line2D(
+            [0], [0], marker=marker, linestyle="none", markerfacecolor="#777777",
+            markeredgecolor="white", markersize=7, label=label,
+        )
+        for label, marker in VARIANT_MARKERS.items()
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        ncol=5,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.948),
+    )
+    fig.suptitle(
+        "SUA spontaneous activity in dorsal and ventral forebrain organoids",
+        fontsize=16,
+        fontweight="bold",
+        y=0.995,
+    )
+    fig.text(
+        0.5,
+        0.965,
+        (
+            "All E1 definitions shown together; each point is one recording/well organoid; "
+            f"{quality_filter_note}; bursts: ISI <= {parameters.max_isi_ms:g} ms, "
+            f">= {parameters.min_spikes} spikes, duration >= {parameters.min_duration_ms:g} ms"
+        ),
+        ha="center",
+        va="top",
+        fontsize=9,
+    )
+    fig.subplots_adjust(left=0.065, right=0.985, bottom=0.055, top=0.90)
+    output_paths: list[Path] = []
+    for suffix in [item.strip().lower() for item in export_formats.split(",") if item.strip()]:
+        path = output_base.with_suffix(f".{suffix}")
+        save_args = {"bbox_inches": "tight", "facecolor": "white", "transparent": False}
+        if suffix == "png":
+            save_args["dpi"] = 300
+        fig.savefig(path, **save_args)
+        output_paths.append(path)
+    plt.close(fig)
+    return output_paths
+
+
 def _panel_specs() -> list[tuple[str, str, str, str]]:
     return [
         ("E1", "mean_unit_firing_rate_hz", "Overall mean firing rate", "Mean SUA firing rate (Hz)"),
@@ -1107,12 +1418,43 @@ def _panel_specs() -> list[tuple[str, str, str, str]]:
     ]
 
 
+def _final_locked_panel_specs() -> list[tuple[str, str, str, str]]:
+    """Publication-locked Panel E order selected on 2026-07-10."""
+    return [
+        (
+            "E1a",
+            "mean_unit_firing_rate_hz",
+            "Overall firing rate: legacy",
+            "Mean SUA firing rate (Hz)",
+        ),
+        (
+            "E1b",
+            "mean_unit_inverse_isi_gaussian_temporal_p99_hz",
+            "Overall firing rate:\nsmoothed inverse-ISI P99",
+            "99th-percentile SUA firing rate (Hz)",
+        ),
+        *_panel_specs()[1:],
+    ]
+
+
 def _smoothed_rate_metrics() -> dict[str, str]:
     return {
         "mean": "mean_unit_inverse_isi_gaussian_temporal_mean_hz",
         "median": "mean_unit_inverse_isi_gaussian_temporal_median_hz",
+        "p99": "mean_unit_inverse_isi_gaussian_temporal_p99_hz",
+        "p99_9": "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz",
         "maximum": "mean_unit_inverse_isi_gaussian_temporal_max_hz",
     }
+
+
+def _temporal_summary_label(temporal_summary: str) -> str:
+    return {
+        "mean": "mean",
+        "median": "median",
+        "p99": "99th percentile",
+        "p99_9": "99.9th percentile",
+        "maximum": "maximum",
+    }[temporal_summary]
 
 
 def _panel_specs_with_smoothed_rate(
@@ -1152,6 +1494,20 @@ def _firing_rate_comparison_specs() -> list[tuple[str, str, str, str, str]]:
             "temporal_median",
             "Smoothed inverse-ISI: temporal median",
             "Median SUA firing rate (Hz)",
+        ),
+        (
+            "mean_unit_inverse_isi_gaussian_temporal_p99_hz",
+            "inverse_isi_gaussian_sigma_50ms",
+            "temporal_99th_percentile",
+            "Smoothed inverse-ISI: 99th percentile",
+            "99th-percentile SUA firing rate (Hz)",
+        ),
+        (
+            "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz",
+            "inverse_isi_gaussian_sigma_50ms",
+            "temporal_99.9th_percentile",
+            "Smoothed inverse-ISI: 99.9th percentile",
+            "99.9th-percentile SUA firing rate (Hz)",
         ),
         (
             "mean_unit_inverse_isi_gaussian_temporal_max_hz",

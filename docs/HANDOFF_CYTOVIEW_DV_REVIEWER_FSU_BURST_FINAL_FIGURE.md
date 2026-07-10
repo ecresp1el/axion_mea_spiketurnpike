@@ -1103,3 +1103,244 @@ contributing recording/well observations. Region summaries are dorsal n=16,
 mean=11.1875, median=10.5, maximum=30 spikes; ventral n=25, mean=24.12,
 median=16, maximum=70 spikes. All previously plotted unit and burst metrics are
 numerically identical to job 53240208.
+
+Two robust instantaneous-rate summaries were then added without changing any
+unit, burst, or QC rule: the temporal 99th and 99.9th percentiles of each unit's
+50-ms Gaussian-smoothed inverse-ISI trace. Per-unit percentiles are averaged
+across qualifying units within each recording/well, consistent with the other
+E1 versions.
+
+```text
+job_id: 53240569
+state: COMPLETED
+elapsed: 00:01:22
+stderr: 0 bytes
+output:
+.../cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_20260710_073045/
+```
+
+Region-level E1 means:
+
+```text
+summary       dorsal (n=16)   ventral (n=25)
+maximum          30.7387         34.1974 Hz
+99.9th pct       20.5516         24.8161 Hz
+99th pct         11.1434         15.4684 Hz
+```
+
+Relative to the absolute maximum, P99.9 reduces dorsal by 33.14% and ventral by
+27.43%; P99 reduces dorsal by 63.75% and ventral by 54.77%. These summaries do
+not discard spikes or bursts; they change only the time-series summary used for
+E1. All prior metrics, including E7, were verified identical to job 53240378.
+
+An explicit ventral-dorsal separation ranking was generated in the same run
+folder. Across all processing versions, the legacy spike-count/duration rate
+has the largest standardized and proportional separation (dorsal 0.9361 Hz,
+ventral 1.8412 Hz, +96.69%, Hedges g=1.191, Welch p=0.000163). The smoothed IFR
+temporal mean is nearly identical (+93.22%, g=1.172, p=0.000192). Among the
+high-rate summaries, P99 has the largest absolute difference (4.3250 Hz) but a
+smaller standardized effect (g=0.597, p=0.0538).
+
+By recording-processing variant, the 200-Hz-to-3-kHz version provides the
+strongest comparison with more than two observations per group: for the legacy
+rate, dorsal n=7 mean=0.9127 Hz and ventral n=10 mean=2.0569 Hz (+125.37%,
+g=1.308, p=0.00781). Broadband processor has a larger apparent g but only n=2
+per region and is not a stable basis for selection. Primary raw legacy gives
+g=0.880 with n=7 dorsal and n=13 ventral.
+
+A new integrated seven-panel composite was added at the user's request. E1
+spans the full top row and displays legacy, IFR temporal mean, median, P99,
+P99.9, and maximum together on a logarithmic Hz axis. E2-E7 occupy the next two
+rows and retain their established definitions.
+
+```text
+job_id: 53240822
+state: COMPLETED
+elapsed: 00:01:27
+stderr: 0 bytes
+output:
+.../cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_20260710_074119/
+figure:
+cytoview_dv_sua_spontaneous_activity_20260710_panel_e_all_firing_rate_methods.*
+```
+
+## Explicit dorsal-driver unit sensitivity run (2026-07-10)
+
+At the user's direction, the two remaining individual dorsal units with a
+50-ms Gaussian-smoothed inverse-ISI temporal maximum above 70 Hz were removed
+by exact unit key, with no ventral exclusions and no additional recording-kind
+filter:
+
+```text
+H1 exp17_3(000), filter_200Hz-3kHz, B3, unit 5: 79.3573 Hz
+H1 exp17_3(000), primary_raw, B1, unit 38: 77.1146 Hz
+```
+
+This is an explicit outcome-guided sensitivity analysis, not a generalizable
+QC threshold. Unit 5 was removed while the other B3 unit was retained. Unit 38
+was the only qualifying SUA unit in its recording/well observation, so that
+observation remains in the full non-LFP universe but has no qualifying SUA and
+does not contribute to conditional E1-E7 summaries.
+
+```text
+job_id: 53241975
+state: COMPLETED
+elapsed: 00:01:32
+stderr: 0 bytes
+output:
+.../cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_exclude2_dorsal_drivers_20260710_081502/
+figure:
+cytoview_dv_sua_spontaneous_activity_20260710_panel_e_all_firing_rate_methods.*
+```
+
+Validated result:
+
+```text
+retained units: 174 (153 RS, 21 FS)
+smoothed-rate eligible units: 172
+recording/well observations with qualifying smoothed SUA: 15 dorsal, 25 ventral
+accepted bursts: 6,962
+dorsal temporal-maximum mean: 30.7387 -> 26.3082 Hz
+ventral temporal-maximum mean: unchanged at 34.1974 Hz
+largest remaining dorsal recording/well mean temporal maximum: 39.1928 Hz
+```
+
+The run writes `*_explicitly_excluded_units.csv`, records both exact keys and
+the no-ventral-exclusion statement in `*_provenance.json`, and carries the
+exclusion through every firing-rate and burst panel.
+
+## Locked publication Panel E (canonical as of 2026-07-10)
+
+The user locked the final activity-panel content and order as:
+
+```text
+E1a  Legacy overall firing rate (spike count / recording duration)
+E1b  50-ms Gaussian-smoothed inverse-ISI temporal 99th percentile
+E2   Burst rate
+E3   Mean firing rate per burst (MFR/Burst)
+E4   Burst duration
+E5   Inter-burst interval
+E6   Mean spikes per burst
+E7   Maximum spikes in any SUA burst
+```
+
+This locked panel includes the exact two-unit dorsal-driver exclusion from the
+preceding sensitivity run. It is a clean 2-by-4 composite, with internal
+processing-version names replaced by readable legend labels. The exact panel
+order, exclusion status, figure paths, and dedicated source-data path are also
+stored under `final_locked_panel` in provenance.
+
+```text
+canonical_job_id: 53242259
+state: COMPLETED
+elapsed: 00:01:29
+stderr: 0 bytes
+canonical_output:
+.../cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_
+isi2ms_le3pct_exclude2_dorsal_drivers_20260710_082420/
+canonical_figure:
+cytoview_dv_sua_spontaneous_activity_20260710_panel_e_FINAL_
+legacy_p99_burst_metrics.{png,pdf,svg}
+canonical_source_data:
+cytoview_dv_sua_spontaneous_activity_20260710_panel_e_FINAL_
+legacy_p99_burst_metrics_source_data.csv
+```
+
+The 174-unit table, 52-row recording/well universe, two-row exclusion audit,
+and region summary are exactly identical to the validated job 53241975. Do not
+replace P99 with P99.9, maximum, mean, or median in this locked panel unless the
+user explicitly revises the specification.
+
+## Unified RS/FS classification plus activity figure (2026-07-10)
+
+The user subsequently requested a single publication-style figure that makes
+the activity summary panel D and places RS/FS classification panels A-C above
+it. The canonical first unified build is:
+
+```text
+job_id: 53242707
+state: COMPLETED
+elapsed: 00:00:16
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_083726/
+figure:
+cytoview_unified_rsfs_activity_figure_20260710.{png,pdf,svg}
+```
+
+Layout and data lock:
+
+```text
+A  waveform-feature schematic + aligned multidimensional feature space
+B  aligned RS/FS mean +/- SEM waveforms (top) + normalized individuals/means (bottom)
+C  aligned trough-to-peak distribution + TTP measurement inset
+D  seven metrics in one row/one metric per column:
+   legacy firing rate, burst rate, MFR/Burst, burst duration,
+   inter-burst interval, mean spikes/burst, maximum burst size
+```
+
+Panel D uses legacy firing rate only; it intentionally does not include the
+smoothed inverse-ISI P99 view from the preceding locked activity-only figure.
+The dorsal/ventral centers are reduced from 1.0 to 0.30 plotting units while
+retaining jitter and mean +/- SEM.
+
+Panels A-C use the exact post-QC/post-exclusion SUA population from the
+canonical activity run, not the older 237-unit pre-QC waveform-composite pool:
+174 aligned units total, 21 FS and 153 RS, with FS defined as aligned TTP <=
+0.50 ms. All 174 units have aligned waveform traces and complete TTP,
+asymmetry, and post-trough rebound/repolarization-slope features. This keeps
+A-C and D population-coherent. The explicit two dorsal driver exclusions are
+carried into the unified figure; zero ventral units are explicitly excluded.
+
+Dedicated source outputs:
+
+```text
+*_panel_A_C_aligned_features.csv
+*_panel_B_aligned_waveform_traces.csv.gz
+*_panel_B_waveform_mean_sem.csv
+*_panel_D_activity_source_data.csv
+*_provenance.json
+```
+
+### Beautified unified figure and feature-separation audit
+
+The user requested removal of the waveform-feature schematic from A, a much
+smaller B showing only class-mean normalized waveforms, and a more separative
+but scientifically interpretable feature combination. The revised canonical
+unified build is:
+
+```text
+job_id: 53243805
+state: COMPLETED
+elapsed: 00:00:33
+stderr: 0 bytes
+output:
+.../cytoview_unified_rsfs_activity_figure_20260710_20260710_085229/
+```
+
+Panel A now plots aligned TTP versus aligned repolarization time, with point
+size encoding aligned spike half-width. A repeated 5x5-fold, class-balanced
+logistic feature audit found:
+
+```text
+repolarization time alone: CV ROC AUC 0.957865
+spike half-width alone:    CV ROC AUC 0.832594
+the selected non-TTP pair: CV ROC AUC 0.959320
+```
+
+This audit is exploratory because class labels remain defined by aligned TTP
+<= 0.50 ms, not by a trained multifeature classifier. The apparent best pair,
+post-peak amplitude plus post-trough rebound slope (CV AUC 0.999677), was
+explicitly rejected as circular: rebound slope is post-peak amplitude divided
+by TTP, so the two values algebraically reconstruct the class-defining TTP.
+The full ranking is saved as `*_panel_A_feature_selection_audit.csv`.
+
+Panel A displays 173 complete-feature units because one retained RS unit lacks
+a defined repolarization-time value; it is not imputed or removed from the
+underlying population. Panels B, C, and D retain the 174-unit source
+population. Panel B now contains only the FS and RS class-mean normalized
+waveforms, with no individual traces, raw-uV view, or SEM shading. Job
+53243805 supersedes job 53242707 for unified-figure appearance.

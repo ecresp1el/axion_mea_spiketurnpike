@@ -83,6 +83,8 @@ def summarize_smoothed_inverse_isi_rate(
         return base | {
             "inverse_isi_gaussian_temporal_mean_hz": np.nan,
             "inverse_isi_gaussian_temporal_median_hz": np.nan,
+            "inverse_isi_gaussian_temporal_p99_hz": np.nan,
+            "inverse_isi_gaussian_temporal_p99_9_hz": np.nan,
             "inverse_isi_gaussian_temporal_max_hz": np.nan,
         }
 
@@ -110,6 +112,8 @@ def summarize_smoothed_inverse_isi_rate(
     return base | {
         "inverse_isi_gaussian_temporal_mean_hz": float(np.mean(smoothed_rate_hz)),
         "inverse_isi_gaussian_temporal_median_hz": float(np.median(smoothed_rate_hz)),
+        "inverse_isi_gaussian_temporal_p99_hz": float(np.percentile(smoothed_rate_hz, 99.0)),
+        "inverse_isi_gaussian_temporal_p99_9_hz": float(np.percentile(smoothed_rate_hz, 99.9)),
         "inverse_isi_gaussian_temporal_max_hz": float(np.max(smoothed_rate_hz)),
     }
 

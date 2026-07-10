@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-template-ptp-uv", type=float, default=None)
     parser.add_argument("--max-contam-pct", type=float, default=None)
     parser.add_argument("--max-isi-lt-2ms-fraction", type=float, default=None)
+    parser.add_argument("--exclude-unit-key", action="append", default=[])
+    parser.add_argument("--explicit-exclusion-label", default="")
     parser.add_argument("--max-isi-ms", type=float, default=100.0)
     parser.add_argument("--min-spikes-per-burst", type=int, default=3)
     parser.add_argument("--min-burst-duration-ms", type=float, default=100.0)
@@ -64,11 +66,12 @@ def main() -> int:
         if args.max_isi_lt_2ms_fraction is not None
         else ""
     )
+    exclusion_suffix = f"_exclude{len(args.exclude_unit_key)}_dorsal_drivers" if args.exclude_unit_key else ""
     output_dir = (
         args.output_root.expanduser().resolve()
         / (
             f"cytoview_dv_sua_spontaneous_activity_{args.date_label}{template_suffix}"
-            f"{contamination_suffix}{refractory_suffix}_{timestamp}"
+            f"{contamination_suffix}{refractory_suffix}{exclusion_suffix}_{timestamp}"
         )
     )
     repro_dir = output_dir / "repro"
@@ -114,6 +117,10 @@ def main() -> int:
         command.extend(
             ["--max-isi-lt-2ms-fraction", str(args.max_isi_lt_2ms_fraction)]
         )
+    for unit_key in args.exclude_unit_key:
+        command.extend(["--exclude-unit-key", unit_key])
+    if args.explicit_exclusion_label:
+        command.extend(["--explicit-exclusion-label", args.explicit_exclusion_label])
     command_text = " ".join(shlex.quote(item) for item in command)
     python_command = repro_dir / "python_command.sh"
     python_command.write_text(command_text + "\n", encoding="utf-8")
@@ -180,6 +187,11 @@ echo "Finished: $(date)"
             "minimum_uV_inclusive": args.min_template_ptp_uv,
             "maximum_ContamPct_inclusive": args.max_contam_pct,
             "maximum_isi_lt_2ms_fraction_inclusive": args.max_isi_lt_2ms_fraction,
+        },
+        "explicit_unit_exclusion": {
+            "label": args.explicit_exclusion_label,
+            "unit_keys": args.exclude_unit_key,
+            "note": "post-QC unit-level dorsal-driver sensitivity analysis; no ventral units excluded",
         },
         "burst_parameters": {
             "max_isi_ms": float(args.max_isi_ms),

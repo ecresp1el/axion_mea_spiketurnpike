@@ -48,6 +48,12 @@ class SpontaneousActivityTests(unittest.TestCase):
         self.assertTrue(
             np.isclose(summary["inverse_isi_gaussian_temporal_max_hz"], 10.0, atol=0.01)
         )
+        self.assertTrue(
+            np.isclose(summary["inverse_isi_gaussian_temporal_p99_hz"], 10.0, atol=0.01)
+        )
+        self.assertTrue(
+            np.isclose(summary["inverse_isi_gaussian_temporal_p99_9_hz"], 10.0, atol=0.01)
+        )
         self.assertGreater(summary["inverse_isi_gaussian_temporal_mean_hz"], 9.8)
         self.assertLessEqual(summary["inverse_isi_gaussian_temporal_mean_hz"], 10.0)
 
