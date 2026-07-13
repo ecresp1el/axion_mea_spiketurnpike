@@ -911,3 +911,210 @@ Interpretation: columns 4-8 still have the stronger pulse-locked peak responses,
 but the columns 1-3 comparison row still includes several clean `KSLabel=good`
 units. Outside-prior wells should stay in manual review as possible real
 responses, not be discarded automatically.
+
+## 2026-07-13 BiVe3 Modulation Analysis And Representative-Unit Review
+
+This section supersedes earlier condition assignments and automatic example
+ranking for the current June 18/June 22 BiVe3 analysis.
+
+### Corrected condition assignment
+
+The authoritative well-condition map now treats both `B4` and `D2` as BiVe3
+Opsin organoids. The usual first-four-columns no-opsin rule does not apply to
+these two lab-note-confirmed exceptions.
+
+```text
+BiVe3 Opsin wells: B4, B5, C6, D2, D6, E5
+No-opsin wells:    A3, B2, C3, E2
+```
+
+Authoritative source:
+
+```text
+scripts/plot_lumos_opsin_pre_post_unit_firing_rates.py::_load_condition_map
+```
+
+After the correction, the per-unit and pooled-channel HDF5 stores were rebuilt,
+not merely relabeled downstream:
+
+```text
+unit observations:             689
+BiVe3 unit observations:       558
+no-opsin unit observations:    131
+BiVe3 pooled channels:         383
+no-opsin pooled channels:      101
+```
+
+### Current modulation targets and eligibility
+
+The two direct-response targets remain separate:
+
+```text
+first_pulse_50: P1 only across 50 trains
+all_pulses_250: P1-P5 flattened in acquisition order as 250 pulse trials
+```
+
+The current primary eligible population retains unit observations with baseline
+mean firing rate `>=1 Hz` in `-20..-5 ms`. The `>=2 Hz` and no-cutoff results are
+preserved as sensitivity analyses. Positive and negative classification uses
+the published baseline mean `+/- 2 SEM` rule with a `5..25 ms` response window.
+
+At the primary `>=1 Hz` threshold, the corrected unit counts are:
+
+```text
+P1 only / BiVe3:       157 retained; 4 positive, 6 negative, 147 non-modulated
+P1 only / no opsin:      9 retained; 0 positive, 0 negative,   9 non-modulated
+All 250 / BiVe3:       219 retained; 23 positive, 10 negative, 186 non-modulated
+All 250 / no opsin:     21 retained; 2 positive, 1 negative,   18 non-modulated
+```
+
+The complete quantitative roster is:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/
+step1_nonlfp_th5_v5_ground_truth_latest/
+lumos_gaussian_opto_modulation_development/
+unit_modulation_classification_roster.csv
+```
+
+### Representative examples are manual and illustrative only
+
+Representative-unit panels must be selected manually after visual review. A
+displayed example does not enter, leave, or reweight the quantitative
+population. Final display choices must never alter:
+
+- modulation-class counts or percentages;
+- heatmaps;
+- latency or reliability distributions;
+- waveform comparisons;
+- statistical tests;
+- any other full eligible-population output.
+
+The intended final representative panel will contain one visually clear
+positive, one negative, and one non-modulated unit. Examples do not need to be
+the strongest or most statistically extreme units. Prefer clean mean
+best-channel waveforms, readable rasters, and PSTHs that visibly communicate
+the intended class.
+
+No final representative units have been selected as of this update.
+
+### Candidate contact sheets awaiting manual review
+
+All eligible positive and negative BiVe3 observation-target pairs at the
+primary `>=1 Hz` threshold are displayed. P1-only and all-250 candidates remain
+separate. Sheets are organized by modulation class and well, with identical
+waveform, raster, and PSTH axes within each target/class.
+
+```text
+first_pulse_50 positive: 4
+first_pulse_50 negative: 6
+all_pulses_250 positive: 23
+all_pulses_250 negative: 10
+total observation-target candidates: 43
+unique unit observations: 39
+```
+
+Output directory:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIGS/
+```
+
+This is the only output location for this plotting pipeline. It is overwritten
+atomically on each successful run and contains figure files only (`.png` and
+`.pdf`); no CSV, JSON, README, manifest, or intermediate output is written
+there. The former development-output directory has been removed.
+
+Principal review files:
+
+```text
+first_pulse_50_positive_candidate_contact_sheet.pdf
+first_pulse_50_negative_candidate_contact_sheet.pdf
+all_pulses_250_positive_candidate_contact_sheet.pdf
+all_pulses_250_negative_candidate_contact_sheet.pdf
+```
+
+Every candidate row shows:
+
+- mean normalized best-channel waveform;
+- unsmoothed raster from the stored 1-ms spike-count matrix;
+- raw 1-ms PSTH;
+- Gaussian-smoothed PSTH, sigma `1.5 ms`;
+- exact 0-ms pulse onset and raw-file XML optical command trace;
+- `-20..-5 ms` baseline and `5..25 ms` response windows;
+- response probability;
+- response-minus-baseline firing-rate modulation;
+- response-window OMI;
+- modulation onset and first-spike jitter.
+
+No final representative example has been selected. Once the user chooses final
+examples, record that choice in the analysis code or handoff without adding
+nonfigure files to `FINAL FIGS`; do not modify the quantitative roster or
+eligibility rules.
+
+Generation script:
+
+```text
+scripts/plot_lumos_bive3_modulation_candidate_contact_sheets.py
+```
+
+### Full-population raster and equal-unit-weight PSTH panels
+
+The same generation script and output directory now contain population panels
+for every eligible BiVe3 unit, including non-modulated units. These figures are
+quantitative full-population views and do not depend on contact-sheet review or
+the eventual representative examples.
+
+For each target, the figure has separate positive, negative, and non-modulated
+columns. The top panel is a population raster:
+
+```text
+x-axis: time relative to the exact pulse onset
+y-axis: unit-by-trial observation
+display window: -10 to +45 ms
+rows: only trials with at least one spike in that displayed window
+ordering: retained trials from unit 1, then retained trials from unit 2, etc.
+thin horizontal lines: unit boundaries
+stronger horizontal lines: well boundaries
+yellow band: exact 0-9.5 ms optical command
+gray band: -20 to -5 ms baseline
+orange band: 5 to 25 ms response
+```
+
+Displayed raster row counts at the primary `>=1 Hz` threshold are:
+
+```text
+P1 positive:          57 /   200 trials shown;   4 /   4 units represented
+P1 negative:          72 /   300 trials shown;   6 /   6 units represented
+P1 non-modulated:  1,391 / 7,350 trials shown; 144 / 147 units represented
+All-250 positive:    951 / 5,750 trials shown;  23 /  23 units represented
+All-250 negative:    499 / 2,500 trials shown;  10 /  10 units represented
+All-250 non-modulated: 8,134 / 46,500 trials shown; 186 / 186 units represented
+```
+
+Units with no spike-containing trial in the displayed interval receive no
+raster rows but remain in the eligible population, PSTH calculation, and all
+quantitative denominators. Filtering raster rows is strictly a visualization
+choice.
+
+The bottom panel uses explicit equal-unit weighting. Each unit PSTH is computed
+across that unit's own trials first. The population PSTH is then:
+
+```text
+Population_PSTH(t) = (1/N) * sum_u PSTH_u(t)
+```
+
+Every trial, including zero-spike trials, is retained when constructing each
+unit PSTH. Spikes are not pooled across units before normalization. Therefore,
+high-firing units and displayed examples do not receive extra weight. The plots
+show the mean raw 1-ms unit PSTH, mean Gaussian-smoothed unit PSTH
+(`sigma=1.5 ms`), and SEM across unit PSTHs.
+
+Population figures in `FINAL FIGS`:
+
+```text
+first_pulse_50_population_raster_psth_by_modulation_class.pdf
+first_pulse_50_population_raster_psth_by_modulation_class.png
+all_pulses_250_population_raster_psth_by_modulation_class.pdf
+all_pulses_250_population_raster_psth_by_modulation_class.png
+```
