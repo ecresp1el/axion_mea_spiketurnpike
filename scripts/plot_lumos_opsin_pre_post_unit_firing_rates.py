@@ -219,7 +219,7 @@ def main() -> int:
         "unit_observation": "one Kilosort unit within one recording and well; units are not tracked across recordings",
         "condition_source": (
             "user-confirmed plate layout: columns 1-4 (left) are no_opsin; "
-            "columns 5-8 (right) are opsin"
+            "columns 5-8 (right) are opsin; lab-note-confirmed D2 exception is opsin"
         ),
         "condition_map": condition_map,
         "windows_ms": {"before": [-args.window_ms, 0.0], "after": [0.0, args.window_ms]},
@@ -255,11 +255,15 @@ def main() -> int:
 
 
 def _load_condition_map() -> dict[str, str]:
-    return {
+    condition_map = {
         f"{row}{column}": "no_opsin" if column <= 4 else "opsin"
         for row in "ABCDEF"
         for column in range(1, 9)
     }
+    # Lab-note-confirmed exception: D2 contained an opsin-expressing organoid.
+    # No other well overrides the plate-column assignment.
+    condition_map["D2"] = "opsin"
+    return condition_map
 
 
 def _condition_assignment_audit(source_dir: Path, wells: list[str]) -> pd.DataFrame:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Test Lumos opsin effects using good units and independent organoid wells."""
+"""Test Lumos opsin effects using selected units and independent organoid wells."""
 
 from __future__ import annotations
 
@@ -38,7 +38,8 @@ DEFAULT_JOB_DIR = Path(
     "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/"
     "step1_nonlfp_th5_v5_ground_truth_latest"
 )
-STEM = "lumos_good_opsin_independent_significance_20260710"
+GOOD_ONLY_STEM = "lumos_good_opsin_independent_significance_20260710"
+ALL_UNITS_STEM = "lumos_all_units_opsin_independent_significance_20260713"
 WINDOWS = (
     ("early_0_5ms", 5.0),
     ("during_pulse_0_9p5ms", 9.5),
@@ -57,7 +58,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--unit-metrics-csv", type=Path, default=DEFAULT_UNIT_METRICS)
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_JOB_DIR / STEM)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--output-stem", default=None)
+    parser.add_argument(
+        "--ks-labels",
+        default="good",
+        help="Comma-separated Kilosort labels to include (for example: good,mua).",
+    )
     parser.add_argument("--expected-pulse-trials", type=int, default=250)
     return parser.parse_args()
 
@@ -70,7 +77,24 @@ def main() -> int:
     import matplotlib.pyplot as plt
     import spikeinterface.full as si
 
-    output_dir = args.output_dir.expanduser().resolve()
+    selected_labels = tuple(
+        label.strip().lower() for label in args.ks_labels.split(",") if label.strip()
+    )
+    if not selected_labels:
+        raise SystemExit("At least one --ks-labels value is required.")
+    good_only = selected_labels == ("good",)
+    stem = args.output_stem or (GOOD_ONLY_STEM if good_only else ALL_UNITS_STEM)
+    output_dir = (
+        args.output_dir.expanduser().resolve()
+        if args.output_dir is not None
+        else (DEFAULT_JOB_DIR / stem).resolve()
+    )
+    population_title = (
+        "Good units only"
+        if good_only
+        else f"All units ({' + '.join(selected_labels)})"
+    )
+    population_axis_label = "good-unit" if good_only else "unit"
     output_dir.mkdir(parents=True, exist_ok=True)
     condition_map = _load_condition_map()
     source = pd.read_csv(args.unit_metrics_csv.expanduser().resolve())
@@ -80,12 +104,12 @@ def main() -> int:
             regex=True,
         )
         & source["raw_variant"].isin(VARIANT_MARKERS)
-        & source["KSLabel"].eq("good")
+        & source["KSLabel"].astype(str).str.lower().isin(selected_labels)
     ].copy()
     source["condition"] = source["well"].map(condition_map)
     source = source.loc[source["condition"].notna()].copy()
     if source.empty:
-        raise SystemExit("No matching KSLabel=good units were found.")
+        raise SystemExit(f"No matching units were found for KSLabel in {selected_labels}.")
 
     unit_rows: list[dict[str, object]] = []
     psth_rows: list[dict[str, object]] = []
@@ -145,6 +169,7 @@ def main() -> int:
                     "well": well,
                     "condition": condition_map[well],
                     "raw_variant": variant,
+                    "KSLabel": str(unit_row["KSLabel"]),
                     "unit_id": _unit_label(unit_id),
                     "unit_key": f"{recording}|{well}|{_unit_label(unit_id)}",
                     "pulse_trials": len(pulse_onsets),
@@ -194,12 +219,12 @@ def main() -> int:
                         "well": well,
                         "condition": condition_map[well],
                         "raw_variant": variant,
-                        "n_good_units": len(group),
+                        "n_selected_units": len(group),
                         "bin_center_ms": center,
                         "mean_unit_rate_hz": rate,
                     }
                 )
-            status = f"{len(group)} good units"
+            status = f"{len(group)} selected units"
         except Exception as exc:  # noqa: BLE001
             status = "error"
             errors.append(
@@ -235,17 +260,17 @@ def main() -> int:
     leave_one_well_out = _leave_one_well_out_state_tests(well_summary)
 
     outputs = {
-        "unit_window_metrics": output_dir / f"{STEM}_unit_window_metrics.csv",
-        "analyzer_window_summary": output_dir / f"{STEM}_analyzer_window_summary.csv",
-        "recording_window_summary": output_dir / f"{STEM}_recording_window_summary.csv",
-        "well_window_summary": output_dir / f"{STEM}_well_window_summary.csv",
-        "independent_window_tests": output_dir / f"{STEM}_independent_window_tests.csv",
-        "well_psth": output_dir / f"{STEM}_well_psth.csv",
-        "psth_exact_tests": output_dir / f"{STEM}_psth_exact_tests.csv",
-        "activity_state_tests": output_dir / f"{STEM}_activity_state_tests.csv",
-        "variant_sensitivity_tests": output_dir / f"{STEM}_variant_sensitivity_tests.csv",
-        "leave_one_well_out_state_tests": output_dir / f"{STEM}_leave_one_well_out_state_tests.csv",
-        "errors": output_dir / f"{STEM}_errors.csv",
+        "unit_window_metrics": output_dir / f"{stem}_unit_window_metrics.csv",
+        "analyzer_window_summary": output_dir / f"{stem}_analyzer_window_summary.csv",
+        "recording_window_summary": output_dir / f"{stem}_recording_window_summary.csv",
+        "well_window_summary": output_dir / f"{stem}_well_window_summary.csv",
+        "independent_window_tests": output_dir / f"{stem}_independent_window_tests.csv",
+        "well_psth": output_dir / f"{stem}_well_psth.csv",
+        "psth_exact_tests": output_dir / f"{stem}_psth_exact_tests.csv",
+        "activity_state_tests": output_dir / f"{stem}_activity_state_tests.csv",
+        "variant_sensitivity_tests": output_dir / f"{stem}_variant_sensitivity_tests.csv",
+        "leave_one_well_out_state_tests": output_dir / f"{stem}_leave_one_well_out_state_tests.csv",
+        "errors": output_dir / f"{stem}_errors.csv",
     }
     units.to_csv(outputs["unit_window_metrics"], index=False)
     analyzer_summary.to_csv(outputs["analyzer_window_summary"], index=False)
@@ -262,12 +287,21 @@ def main() -> int:
     ).to_csv(outputs["errors"], index=False)
 
     figure_paths = _plot_results(
-        plt, well_summary, tests, well_psth, psth_tests, state_tests, output_dir
+        plt,
+        well_summary,
+        tests,
+        well_psth,
+        psth_tests,
+        state_tests,
+        output_dir,
+        stem,
+        population_title,
+        population_axis_label,
     )
     provenance = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "script": str(Path(__file__).resolve()),
-        "analysis_population": "KSLabel=good only",
+        "analysis_population": f"KSLabel in {list(selected_labels)}",
         "independent_unit": "organoid well (4 opsin wells, 6 no-opsin wells)",
         "nesting": (
             "units summarized within analyzer; raw variants averaged within biological "
@@ -277,7 +311,7 @@ def main() -> int:
             "user-confirmed plate rule: columns 1-4 no_opsin, columns 5-8 opsin"
         ),
         "primary_endpoint": (
-            "mean per-good-unit post-minus-pre firing-rate change in matched 9.5-ms windows"
+            "mean per-selected-unit post-minus-pre firing-rate change in matched 9.5-ms windows"
         ),
         "secondary_windows_ms": [duration for _, duration in WINDOWS if duration != 9.5],
         "multiple_testing": (
@@ -295,7 +329,7 @@ def main() -> int:
         "outputs": {key: str(value) for key, value in outputs.items()}
         | {"figures": [str(path) for path in figure_paths]},
     }
-    (output_dir / f"{STEM}_provenance.json").write_text(
+    (output_dir / f"{stem}_provenance.json").write_text(
         json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
     )
 
@@ -378,7 +412,7 @@ def _nested_window_summaries(
     analyzer = (
         units.groupby(group_columns, dropna=False)
         .agg(
-            n_good_units=("unit_id", "size"),
+            n_selected_units=("unit_id", "size"),
             mean_pre_rate_hz=("pre_rate_hz", "mean"),
             mean_post_rate_hz=("post_rate_hz", "mean"),
             mean_rate_delta_hz=("rate_delta_hz", "mean"),
@@ -553,7 +587,7 @@ def _activity_state_tests(well: pd.DataFrame) -> pd.DataFrame:
     labels = subset["condition"].eq("opsin").to_numpy()
     rows = []
     for metric in ["mean_pre_rate_hz", "mean_post_rate_hz"]:
-        effect, p_two, p_greater, _ = _exact_label_permutation(
+        effect, p_two, p_greater, null = _exact_label_permutation(
             subset[metric].to_numpy(dtype=float), labels
         )
         rows.append(
@@ -562,10 +596,36 @@ def _activity_state_tests(well: pd.DataFrame) -> pd.DataFrame:
                 "opsin_minus_no_opsin_hz": effect,
                 "exact_p_two_sided": p_two,
                 "exact_p_greater": p_greater,
+                "exact_p_less": float(np.mean(null <= effect + 1e-12)),
             }
         )
+    observed, p_two, p_greater, p_less = _adjusted_post_permutation(subset)
+    rows.append(
+        {
+            "test": "post_rate_adjusted_for_pre_rate",
+            "opsin_minus_no_opsin_hz": observed,
+            "exact_p_two_sided": p_two,
+            "exact_p_greater": p_greater,
+            "exact_p_less": p_less,
+        }
+    )
+    result = pd.DataFrame(rows)
+    result.loc[result["test"].isin(["mean_pre_rate_hz", "mean_post_rate_hz"]), "holm_p_two_state_rates"] = _holm_adjust(
+        result.loc[
+            result["test"].isin(["mean_pre_rate_hz", "mean_post_rate_hz"]),
+            "exact_p_two_sided",
+        ]
+    )
+    result["holm_p_all_state_tests"] = _holm_adjust(result["exact_p_two_sided"])
+    return result
+
+
+def _adjusted_post_permutation(
+    subset: pd.DataFrame,
+) -> tuple[float, float, float, float]:
     pre = subset["mean_pre_rate_hz"].to_numpy(dtype=float)
     post = subset["mean_post_rate_hz"].to_numpy(dtype=float)
+    labels = subset["condition"].eq("opsin").to_numpy()
     fixed = np.column_stack([np.ones(len(pre)), pre])
 
     def coefficient(group: np.ndarray) -> float:
@@ -579,22 +639,12 @@ def _activity_state_tests(well: pd.DataFrame) -> pd.DataFrame:
         permuted[list(indices)] = True
         null.append(coefficient(permuted))
     null_array = np.asarray(null, dtype=float)
-    rows.append(
-        {
-            "test": "post_rate_adjusted_for_pre_rate",
-            "opsin_minus_no_opsin_hz": observed,
-            "exact_p_two_sided": float(np.mean(np.abs(null_array) >= abs(observed) - 1e-12)),
-            "exact_p_greater": float(np.mean(null_array >= observed - 1e-12)),
-        }
+    return (
+        observed,
+        float(np.mean(np.abs(null_array) >= abs(observed) - 1e-12)),
+        float(np.mean(null_array >= observed - 1e-12)),
+        float(np.mean(null_array <= observed + 1e-12)),
     )
-    result = pd.DataFrame(rows)
-    result.loc[result["test"].isin(["mean_pre_rate_hz", "mean_post_rate_hz"]), "holm_p_two_state_rates"] = _holm_adjust(
-        result.loc[
-            result["test"].isin(["mean_pre_rate_hz", "mean_post_rate_hz"]),
-            "exact_p_two_sided",
-        ]
-    )
-    return result
 
 
 def _variant_sensitivity_tests(analyzer: pd.DataFrame) -> pd.DataFrame:
@@ -633,6 +683,23 @@ def _variant_sensitivity_tests(analyzer: pd.DataFrame) -> pd.DataFrame:
                         "exact_p_greater": p_greater,
                     }
                 )
+            if window_name == "standard_0_25ms":
+                effect, p_two, p_greater, p_less = _adjusted_post_permutation(subset)
+                rows.append(
+                    {
+                        "raw_variant": variant,
+                        "window": window_name,
+                        "window_ms": duration_ms,
+                        "metric": "post_rate_adjusted_for_pre_rate",
+                        "wells": len(subset),
+                        "opsin_wells": int(labels.sum()),
+                        "no_opsin_wells": int((~labels).sum()),
+                        "opsin_minus_no_opsin": effect,
+                        "exact_p_two_sided": p_two,
+                        "exact_p_greater": p_greater,
+                        "exact_p_less": p_less,
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -659,11 +726,35 @@ def _leave_one_well_out_state_tests(well: pd.DataFrame) -> pd.DataFrame:
                     "exact_p_greater": p_greater,
                 }
             )
+        effect, p_two, p_greater, p_less = _adjusted_post_permutation(subset)
+        rows.append(
+            {
+                "omitted_well": omitted_well,
+                "omitted_condition": state.loc[
+                    state["well"].eq(omitted_well), "condition"
+                ].iloc[0],
+                "metric": "post_rate_adjusted_for_pre_rate",
+                "remaining_wells": len(subset),
+                "opsin_minus_no_opsin_hz": effect,
+                "exact_p_two_sided": p_two,
+                "exact_p_greater": p_greater,
+                "exact_p_less": p_less,
+            }
+        )
     return pd.DataFrame(rows)
 
 
 def _plot_results(
-    plt, well, tests, well_psth, psth_tests, state_tests, output_dir: Path
+    plt,
+    well,
+    tests,
+    well_psth,
+    psth_tests,
+    state_tests,
+    output_dir: Path,
+    stem: str,
+    population_title: str,
+    population_axis_label: str,
 ) -> list[Path]:
     plt.rcParams.update(
         {
@@ -695,7 +786,7 @@ def _plot_results(
     axes[0, 0].set_xticks([0, 1, 3, 4], ["Before", "After", "Before", "After"])
     axes[0, 0].text(0.16, 0.94, "+ opsin", transform=axes[0, 0].transAxes, ha="center", color=colors["opsin"], fontweight="bold")
     axes[0, 0].text(0.79, 0.94, "− opsin", transform=axes[0, 0].transAxes, ha="center", color=colors["no_opsin"], fontweight="bold")
-    axes[0, 0].set_ylabel("Mean good-unit firing rate (Hz)")
+    axes[0, 0].set_ylabel(f"Mean {population_axis_label} firing rate (Hz)")
     axes[0, 0].set_title("A  Independent organoid-well activity")
     before_p = state_tests.loc[
         state_tests["test"].eq("mean_pre_rate_hz"), "holm_p_two_state_rates"
@@ -704,13 +795,14 @@ def _plot_results(
         state_tests["test"].eq("mean_post_rate_hz"), "holm_p_two_state_rates"
     ].iloc[0]
     adjusted_p = state_tests.loc[
-        state_tests["test"].eq("post_rate_adjusted_for_pre_rate"), "exact_p_two_sided"
+        state_tests["test"].eq("post_rate_adjusted_for_pre_rate"),
+        "holm_p_all_state_tests",
     ].iloc[0]
     axes[0, 0].text(
         0.02,
         0.02,
         f"Absolute rates: before Holm p={before_p:.3f}; after Holm p={after_p:.3f}\n"
-        f"After adjusted for before: exact p={adjusted_p:.3f}",
+        f"After adjusted for before: Holm p={adjusted_p:.3f}",
         transform=axes[0, 0].transAxes,
         va="bottom",
         color="#374151",
@@ -799,7 +891,7 @@ def _plot_results(
         & tests["metric"].eq("mean_rate_delta_hz")
     ].iloc[0]
     fig.suptitle(
-        "Good units only: independent-well test of opsin-associated optical response",
+        f"{population_title}: independent-well test of opsin-associated optical response",
         x=0.055,
         y=0.985,
         ha="left",
@@ -819,7 +911,7 @@ def _plot_results(
     fig.tight_layout(rect=[0.03, 0.03, 1, 0.93], h_pad=2.2, w_pad=2.2)
     paths = []
     for suffix in ("png", "pdf", "svg"):
-        path = output_dir / f"{STEM}.{suffix}"
+        path = output_dir / f"{stem}.{suffix}"
         kwargs = {"bbox_inches": "tight", "facecolor": "white"}
         if suffix == "png":
             kwargs["dpi"] = 350
