@@ -1,0 +1,137 @@
+SLURM_JOB_ID=53506697
+AUDIT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_robust_PCHIP_FINAL/waveform_source_audit
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/ttr90_canonical_negative_classifier
+{
+  "unit_denominator": 228,
+  "fs_cutoff_ms_applied_for_requested_comparison": 0.5,
+  "morphology_counts": {
+    "canonical_negative_trough": 152,
+    "positive_first_atypical": 74,
+    "positive_dominant_post_trough_atypical": 2
+  },
+  "canonical_negative_trough_count": 152,
+  "positive_first_or_atypical_unclassified_count": 76,
+  "valid_90pct_crossing_count_within_canonical_group": 152,
+  "class_counts_same_unit_denominator": {
+    "raw_discrete_global_peak": {
+      "FS": 30,
+      "RS": 122,
+      "unclassified": 76
+    },
+    "pchip_global_peak": {
+      "FS": 30,
+      "RS": 122,
+      "unclassified": 76
+    },
+    "ttr90": {
+      "FS": 111,
+      "RS": 41,
+      "unclassified": 76
+    }
+  },
+  "ttr90_confidence_category_counts_same_unit_denominator": {
+    "unclassified_atypical": 76,
+    "high_confidence_FS_like": 73,
+    "indeterminate": 55,
+    "high_confidence_RS_like": 24
+  },
+  "ttr90_confidence_anchors_ms": {
+    "high_confidence_FS_like_maximum_inclusive": 0.4,
+    "indeterminate_interval": ">0.40 and <0.56",
+    "high_confidence_RS_like_minimum_inclusive": 0.56,
+    "measurement": "continuous PCHIP-interpolated TTR90; not discretized"
+  },
+  "previously_strict_unclassified": {
+    "unit_count": 90,
+    "canonical_negative_trough_count": 38,
+    "newly_measurable_by_ttr90_count": 38,
+    "ttr90_FS_count": 16,
+    "ttr90_RS_count": 22,
+    "remaining_unclassified_count": 52,
+    "confidence_category_counts": {
+      "unclassified_atypical": 52,
+      "high_confidence_RS_like": 17,
+      "indeterminate": 12,
+      "high_confidence_FS_like": 9
+    }
+  },
+  "pchip_global_peak_to_ttr90_direct_transitions": [
+    {
+      "from_label": "FS",
+      "to_label": "FS",
+      "unit_count": 30
+    },
+    {
+      "from_label": "RS",
+      "to_label": "FS",
+      "unit_count": 81
+    },
+    {
+      "from_label": "RS",
+      "to_label": "RS",
+      "unit_count": 41
+    },
+    {
+      "from_label": "unclassified",
+      "to_label": "unclassified",
+      "unit_count": 76
+    }
+  ],
+  "timing_summary_canonical_ms": {
+    "raw_discrete_trough_to_global_peak_ms": {
+      "median": 0.76,
+      "q25": 0.56,
+      "q75": 0.8800000000000001
+    },
+    "pchip_trough_to_global_peak_ms": {
+      "median": 0.76,
+      "q25": 0.56,
+      "q75": 0.8800000000000001
+    },
+    "ttr90_ms": {
+      "median": 0.41178384671594215,
+      "q25": 0.3227974404140204,
+      "q75": 0.5060355456655873
+    }
+  },
+  "cutoff_transfer_assessment": {
+    "eligible_canonical_unit_count": 152,
+    "direct_cutoff_ms": 0.5,
+    "direct_cutoff_agreement_with_pchip_global_peak_class": 0.46710526315789475,
+    "direct_cutoff_confusion_against_pchip_global_peak": {
+      "FS_to_FS": 30,
+      "FS_to_RS": 0,
+      "RS_to_FS": 81,
+      "RS_to_RS": 41
+    },
+    "best_empirical_ttr90_threshold_to_match_pchip_global_peak_ms": 0.33804056571045493,
+    "best_empirical_threshold_balanced_accuracy": 0.9218579234972677,
+    "best_empirical_threshold_accuracy": 0.8947368421052632,
+    "best_empirical_threshold_confusion": {
+      "FS_to_FS": 29,
+      "FS_to_RS": 1,
+      "RS_to_FS": 15,
+      "RS_to_RS": 107
+    },
+    "median_pchip_peak_minus_ttr90_ms": 0.3002289181203832,
+    "comparison_note": "The direct 0.5-ms TTR90 split is retained as a separate sensitivity comparison. The primary TTR90 interpretation uses the supplied continuous PCHIP confidence anchors of <=0.40 ms and >=0.56 ms."
+  },
+  "config": {
+    "sampling_frequency_hz": 12500.0,
+    "fs_cutoff_ms": 0.5,
+    "dense_step_ms": 0.005,
+    "central_trough_radius_ms": 0.4,
+    "post_window_start_ms": 0.08,
+    "post_window_end_ms": 1.2,
+    "rebound_fraction": 0.9,
+    "high_confidence_fs_max_ms": 0.4,
+    "high_confidence_rs_min_ms": 0.56
+  },
+  "generated_at": "2026-07-14T12:15:33",
+  "outputs": {
+    "unit_metrics": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_unit_metrics.csv",
+    "dense_pchip_traces": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_pchip_traces.csv.gz",
+    "transitions": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_transitions.csv",
+    "overlays_pdf": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_overlays.pdf"
+  }
+}

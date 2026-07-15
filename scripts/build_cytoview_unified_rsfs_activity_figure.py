@@ -30,16 +30,47 @@ DEFAULT_ACTIVITY_DIR = (
 DEFAULT_ALIGNMENT_DIR = JOB_ROOT / "waveform_alignment_feature_audit_20260709_cytoview"
 LUMOS_ALIGNMENT_DIR = JOB_ROOT / "waveform_alignment_feature_audit_20260709"
 LUMOS_FIRING_PATH = JOB_ROOT / "lumos_gui_ready_unsorted_unit_firing_rates_20260709.csv"
+DEFAULT_LUMOS_VENTRAL_RECOMPUTED_UNITS = (
+    JOB_ROOT / ".channel_avg_work_20260713" / "lumos_ventral_unit_metrics_recomputed.csv"
+)
+DEFAULT_LUMOS_VENTRAL_CHANNEL_METRICS = (
+    JOB_ROOT / ".channel_avg_work_20260713" / "channel_averaged_metrics.csv"
+)
+DEFAULT_TTR90_CLASSIFIER_DIR = Path(
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/"
+    "Population Panels/ventral_MGE_putative_FS_RS_robust_PCHIP_FINAL/"
+    "ttr90_canonical_negative_classifier"
+)
+DEFAULT_TTR90_AUDIT_DIR = DEFAULT_TTR90_CLASSIFIER_DIR.parent / "waveform_source_audit"
 STEM = "cytoview_unified_rsfs_activity_figure_20260710"
 
 CLASS_ORDER = ["FS", "RS"]
 CLASS_COLORS = {"FS": "#B8742A", "RS": "#58758E"}
+TTR90_FS_MAX_MS = 0.40
+TTR90_RS_MIN_MS = 0.56
+TTR90_INDETERMINATE_COLOR = "#999999"
 REGION_ORDER = ["dorsal", "ventral"]
 REGION_COLORS = {"dorsal": "#6F8477", "ventral": "#C8A05A"}
 VARIANT_MARKERS = {
     "primary_raw": "o",
     "filter_200Hz-3kHz": "s",
     "broadband_processor_raw": "^",
+}
+CELL_LINE_MARKERS = {
+    "CL32 PV": "o",
+    "CL23 PV": "s",
+    "H1": "^",
+}
+CELL_LINE_CODES = {
+    "CL32 PV": "Cell line 1 · CL32 PV",
+    "CL23 PV": "Cell line 2 · CL23 PV",
+    "H1": "Cell line 3 · H1",
+}
+LUMOS_CELL_LINE_WELL_CORRECTIONS = {
+    # Paired reviewed correction: preserve the balanced Lumos allocation while
+    # restoring the CL32 identity of the RS-bearing plate-2 D2 organoid.
+    "2026-06-18|plate2|129-8445|D2": "CL32 PV",
+    "2026-06-18|plate2|129-8445|B5": "H1",
 }
 LOCKED_CYTOVIEW_FS_UNIT_KEYS = [
     # Retained user-selected CytoView gallery FS1 (2026-07-10).
@@ -65,6 +96,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--fs-cutoff-ms", type=float, default=0.50)
     parser.add_argument("--export-formats", default="png,pdf,svg")
+    parser.add_argument(
+        "--output-stem",
+        default=None,
+        help="Optional exact output filename stem, without extension.",
+    )
+    parser.add_argument("--lumos-ventral-mode", action="store_true")
+    parser.add_argument(
+        "--recomputed-unit-metrics",
+        type=Path,
+        default=DEFAULT_LUMOS_VENTRAL_RECOMPUTED_UNITS,
+    )
+    parser.add_argument(
+        "--channel-metrics",
+        type=Path,
+        default=DEFAULT_LUMOS_VENTRAL_CHANNEL_METRICS,
+    )
+    parser.add_argument(
+        "--robust-pchip-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional output directory from reclassify_lumos_ventral_robust_pchip_waveforms.py; "
+            "when supplied, use robust-median PCHIP features and new FS/RS labels."
+        ),
+    )
+    parser.add_argument(
+        "--ttr90-classifier-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional canonical-negative TTR90 classifier directory. Retain only "
+            "high-confidence FS-like (<=0.40 ms) and RS-like (>=0.56 ms) units; "
+            "indeterminate canonical units are shown only in gray in Panel A, "
+            "and atypical units are excluded."
+        ),
+    )
+    parser.add_argument(
+        "--ttr90-audit-dir",
+        type=Path,
+        default=DEFAULT_TTR90_AUDIT_DIR,
+        help=(
+            "Waveform-source audit containing the template-best channel used for "
+            "channel-first organoid aggregation in TTR90 mode."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -81,6 +157,9 @@ def main() -> int:
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+    if args.lumos_ventral_mode:
+        return _main_lumos_ventral(args, plt, Line2D, inset_axes, output_dir)
 
     activity_stem = "cytoview_dv_sua_spontaneous_activity_20260710"
     unit_path = activity_dir / f"{activity_stem}_unit_metrics.csv"
@@ -149,6 +228,7 @@ def main() -> int:
     traces = traces_all.loc[traces_all["unit_key"].isin(units["unit_key"])].copy()
     if traces["unit_key"].nunique() != len(units):
         raise ValueError("Not every retained activity unit has an aligned waveform trace")
+    traces = traces.loc[traces["unit_key"].isin(units["unit_key"])].copy()
     traces = traces.merge(
         units[["unit_key", "rs_fs_class"]], on="unit_key", how="left", validate="many_to_one"
     )
@@ -449,6 +529,633 @@ def main() -> int:
         print(path)
     print(f"Provenance: {provenance_path}")
     return 0
+
+
+def _main_lumos_ventral(args, plt, Line2D, inset_axes, output_dir: Path) -> int:
+    """Render the July-10 unified layout for pooled Lumos + ventral CytoView units."""
+    recomputed = pd.read_csv(args.recomputed_unit_metrics.expanduser().resolve())
+    lumos_paired = pd.read_csv(
+        LUMOS_ALIGNMENT_DIR / "waveform_alignment_feature_audit_20260709_paired_unit_metrics.csv"
+    )
+    cyto_paired = pd.read_csv(
+        DEFAULT_ALIGNMENT_DIR / "waveform_alignment_feature_audit_20260709_paired_unit_metrics.csv"
+    )
+    paired = pd.concat([lumos_paired, cyto_paired], ignore_index=True).drop_duplicates("unit_key")
+    firing_lumos = pd.read_csv(LUMOS_FIRING_PATH)
+    firing_lumos["unit_key"] = (
+        firing_lumos["recording"].astype(str)
+        + "|"
+        + firing_lumos["well"].astype(str)
+        + "|"
+        + firing_lumos["unit_id"].astype(str)
+    )
+    cyto_units = pd.read_csv(
+        DEFAULT_ACTIVITY_DIR / "cytoview_dv_sua_spontaneous_activity_20260710_unit_metrics.csv"
+    )
+    quality = pd.concat(
+        [
+            firing_lumos[["unit_key", "ContamPct"]].rename(
+                columns={"ContamPct": "source_ContamPct"}
+            ),
+            cyto_units[["unit_key", "source_ContamPct"]],
+        ],
+        ignore_index=True,
+    ).drop_duplicates("unit_key")
+    feature_columns = [
+        "after_spike_half_width_ms",
+        "after_repolarization_time_ms",
+        "after_template_ptp_best_channel_uV",
+        "after_spiketurnpike_amplitude_uV",
+        "after_pre_peak_amplitude_uV",
+        "after_post_peak_amplitude_uV",
+        "after_depolarization_slope_uV_per_ms",
+        "after_post_trough_rebound_slope_uV_per_ms",
+        "after_rep50_recovery_slope_uV_per_ms",
+        "after_waveform_asymmetry",
+        "after_peak_to_peak_ratio",
+        "analyzer_path",
+        "usable_snippets",
+    ]
+    units = recomputed.merge(
+        paired[["unit_key", *feature_columns]], on="unit_key", how="left", validate="one_to_one"
+    ).merge(quality, on="unit_key", how="left", validate="one_to_one")
+    units["recording_well_id"] = units["recording"].astype(str) + "|" + units["well"].astype(str)
+    units["organoid_well"] = units["well"].astype(str)
+    units["region_call"] = units["source_platform"].map(
+        {"Lumos": "Lumos", "CytoView": "Ventral CytoView"}
+    )
+    units["raw_variant"] = units["recording"].map(_raw_variant_from_recording)
+    units = _assign_cell_lines(units)
+    units["source_firing_rate_hz"] = units["legacy_firing_rate_hz"]
+    units["template_ptp_best_channel_uV"] = pd.to_numeric(
+        units["template_ptp_uV"], errors="coerce"
+    ).fillna(pd.to_numeric(units["after_template_ptp_best_channel_uV"], errors="coerce"))
+    units["source_isi_lt_2ms_fraction"] = 0.0
+    units["rs_fs_class"] = units["rs_fs_class"].astype(str)
+    units["aligned_fs_rs_class"] = units["rs_fs_class"]
+    units["aligned_trough_to_peak_duration_ms"] = units["unit_key"].map(
+        paired.set_index("unit_key")["after_trough_to_peak_duration_ms"]
+    )
+    units["aligned_waveform_asymmetry"] = units["after_waveform_asymmetry"]
+    units["aligned_repolarization_slope_uV_per_ms"] = units[
+        "after_post_trough_rebound_slope_uV_per_ms"
+    ]
+    units["feature_ttp_ms"] = units["aligned_trough_to_peak_duration_ms"]
+    units["feature_asymmetry"] = units["after_waveform_asymmetry"]
+    units["feature_repolarization_slope_uV_per_ms"] = units[
+        "after_post_trough_rebound_slope_uV_per_ms"
+    ]
+    units["feature_repolarization_time_ms"] = units["after_repolarization_time_ms"]
+    units["feature_spike_half_width_ms"] = units["after_spike_half_width_ms"]
+    units["timing_feature_label"] = "TTP"
+    robust_pchip_mode = args.robust_pchip_dir is not None
+    ttr90_mode = args.ttr90_classifier_dir is not None
+    if robust_pchip_mode and ttr90_mode:
+        raise ValueError("Choose either --robust-pchip-dir or --ttr90-classifier-dir")
+    excluded_ttr90_units = pd.DataFrame()
+    panel_a_indeterminate_units = pd.DataFrame()
+    if ttr90_mode:
+        ttr90_dir = args.ttr90_classifier_dir.expanduser().resolve()
+        ttr90_metrics = pd.read_csv(
+            ttr90_dir / "ttr90_canonical_negative_unit_metrics.csv"
+        )
+        ttr90_columns = [
+            "unit_key",
+            "morphology_class",
+            "canonical_negative_trough",
+            "valid_90pct_crossing_exists",
+            "ttr90_ms",
+            "ttr90_confidence_category",
+            "raw_discrete_trough_to_global_peak_ms",
+            "pchip_trough_to_global_peak_ms",
+            "rebound_amplitude_uV",
+        ]
+        missing_columns = sorted(set(ttr90_columns).difference(ttr90_metrics.columns))
+        if missing_columns:
+            raise ValueError(f"TTR90 metrics missing columns: {missing_columns}")
+        expected_keys = set(units["unit_key"])
+        ttr90_keys = set(ttr90_metrics["unit_key"])
+        if expected_keys != ttr90_keys:
+            raise ValueError(
+                "TTR90 unit roster mismatch: "
+                f"missing={len(expected_keys - ttr90_keys)}, "
+                f"extra={len(ttr90_keys - expected_keys)}"
+            )
+        units["previous_rs_fs_class"] = units["rs_fs_class"]
+        units = units.merge(
+            ttr90_metrics[ttr90_columns],
+            on="unit_key",
+            how="left",
+            validate="one_to_one",
+        )
+        ttr90_audit_dir = args.ttr90_audit_dir.expanduser().resolve()
+        ttr90_channels = pd.read_csv(
+            ttr90_audit_dir / "waveform_source_audit_unit_metrics.csv",
+            usecols=[
+                "unit_key",
+                "template_best_channel_id",
+                "template_best_channel_index",
+            ],
+        ).rename(
+            columns={
+                "template_best_channel_id": "ttr90_template_best_channel_id",
+                "template_best_channel_index": "ttr90_template_best_channel_index",
+            }
+        )
+        if set(ttr90_channels["unit_key"]) != expected_keys:
+            raise ValueError("TTR90 waveform-audit channel roster does not match units")
+        units = units.merge(
+            ttr90_channels,
+            on="unit_key",
+            how="left",
+            validate="one_to_one",
+        )
+        class_map = {
+            "high_confidence_FS_like": "FS",
+            "high_confidence_RS_like": "RS",
+        }
+        units["ttr90_plot_class"] = units["ttr90_confidence_category"].map(class_map)
+        excluded_ttr90_units = units.loc[units["ttr90_plot_class"].isna()].copy()
+        panel_a_indeterminate_units = units.loc[
+            units["ttr90_confidence_category"].eq("indeterminate")
+        ].copy()
+        panel_a_indeterminate_units["feature_ttp_ms"] = pd.to_numeric(
+            panel_a_indeterminate_units["ttr90_ms"], errors="coerce"
+        )
+        units = units.loc[units["ttr90_plot_class"].isin(CLASS_ORDER)].copy()
+        units["rs_fs_class"] = units["ttr90_plot_class"]
+        units["aligned_fs_rs_class"] = units["rs_fs_class"]
+        units["feature_ttp_ms"] = pd.to_numeric(units["ttr90_ms"], errors="coerce")
+        units["aligned_trough_to_peak_duration_ms"] = units["feature_ttp_ms"]
+        # Display shorthand only; the underlying timing column remains ttr90_ms.
+        units["timing_feature_label"] = "TTP"
+        units["classification_changed"] = units["previous_rs_fs_class"].ne(
+            units["rs_fs_class"]
+        )
+        units["classification_transition"] = (
+            units["previous_rs_fs_class"].astype(str)
+            + "→"
+            + units["rs_fs_class"].astype(str)
+        )
+        traces = pd.read_csv(
+            ttr90_dir / "ttr90_canonical_negative_pchip_traces.csv.gz"
+        ).rename(
+            columns={
+                "time_from_trough_ms": "time_ms",
+                "pchip_waveform_uV": "after_aligned_average_uV",
+            }
+        )
+        traces["time_ms"] = pd.to_numeric(traces["time_ms"], errors="coerce").round(6)
+    elif robust_pchip_mode:
+        robust_dir = args.robust_pchip_dir.expanduser().resolve()
+        robust_metrics = pd.read_csv(robust_dir / "robust_pchip_unit_metrics.csv")
+        robust_columns = [
+            "unit_key",
+            "old_rs_fs_class",
+            "new_rs_fs_class",
+            "classification_changed",
+            "classification_transition",
+            "robust_median_trough_to_peak_duration_ms",
+            "robust_median_repolarization_time_ms",
+            "robust_median_spike_half_width_ms",
+            "robust_median_peak_detection_status",
+            "aligned_mean_trough_to_peak_duration_ms",
+            "alignment_shift_median_samples",
+            "alignment_shift_mad_samples",
+            "alignment_correlation_median",
+        ]
+        missing_columns = sorted(set(robust_columns).difference(robust_metrics.columns))
+        if missing_columns:
+            raise ValueError(f"Robust PCHIP metrics missing columns: {missing_columns}")
+        expected_keys = set(units["unit_key"])
+        robust_keys = set(robust_metrics["unit_key"])
+        if expected_keys != robust_keys:
+            raise ValueError(
+                "Robust PCHIP unit roster mismatch: "
+                f"missing={len(expected_keys - robust_keys)}, extra={len(robust_keys - expected_keys)}"
+            )
+        units = units.merge(
+            robust_metrics[robust_columns],
+            on="unit_key",
+            how="left",
+            validate="one_to_one",
+        )
+        old_disagreement = units["old_rs_fs_class"].ne(units["rs_fs_class"])
+        if old_disagreement.any():
+            raise ValueError(
+                f"Old-class mismatch for {int(old_disagreement.sum())} robust PCHIP rows"
+            )
+        units["previous_rs_fs_class"] = units["rs_fs_class"]
+        units["rs_fs_class"] = units["new_rs_fs_class"].astype(str)
+        units["aligned_fs_rs_class"] = units["rs_fs_class"]
+        units["feature_ttp_ms"] = pd.to_numeric(
+            units["robust_median_trough_to_peak_duration_ms"], errors="coerce"
+        )
+        units["aligned_trough_to_peak_duration_ms"] = units["feature_ttp_ms"]
+        units["feature_repolarization_time_ms"] = pd.to_numeric(
+            units["robust_median_repolarization_time_ms"], errors="coerce"
+        )
+        units["feature_spike_half_width_ms"] = pd.to_numeric(
+            units["robust_median_spike_half_width_ms"], errors="coerce"
+        )
+        traces = pd.read_csv(robust_dir / "robust_pchip_waveform_traces.csv.gz")
+        traces = traces.rename(columns={"robust_median_uV": "after_aligned_average_uV"})
+    else:
+        trace_frames = []
+        for directory in [LUMOS_ALIGNMENT_DIR, DEFAULT_ALIGNMENT_DIR]:
+            trace_frames.append(
+                pd.read_csv(
+                    directory
+                    / "waveform_alignment_feature_audit_20260709_waveform_traces.csv.gz"
+                )
+            )
+        traces = pd.concat(trace_frames, ignore_index=True)
+        traces = traces.loc[traces["unit_key"].isin(units["unit_key"])].copy()
+    traces = traces.merge(
+        units[["unit_key", "rs_fs_class"]], on="unit_key", how="left", validate="many_to_one"
+    )
+    traces = _normalize_waveforms(traces)
+    waveform_summary = _waveform_summary(traces)
+    representative_selection = _select_distinct_organoid_representatives(units, traces)
+    representative_assets = _load_representative_assets(representative_selection)
+
+    organoid_group_columns = [
+        "source_platform",
+        "recording",
+        "well",
+        "rs_fs_class",
+        "cell_line",
+    ]
+    organoid_metric_map = {
+        "inverse_isi_gaussian_temporal_p99_9_hz": (
+            "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz"
+        ),
+        "burst_rate_per_min": "mean_unit_burst_rate_per_min",
+        "mean_firing_rate_within_bursts_hz": "mean_unit_firing_rate_within_bursts_hz",
+        "mean_burst_duration_ms": "mean_unit_burst_duration_ms",
+        "mean_interburst_interval_s": "mean_unit_interburst_interval_s",
+        "mean_spikes_per_burst": "mean_unit_spikes_per_burst",
+    }
+    channel_level_activity = pd.DataFrame()
+    if ttr90_mode:
+        channel_group_columns = [
+            *organoid_group_columns,
+            "ttr90_template_best_channel_id",
+        ]
+        channel_level_activity = (
+            units.groupby(channel_group_columns, dropna=False)[list(organoid_metric_map)]
+            .mean()
+            .reset_index()
+        )
+        channel_unit_counts = (
+            units.groupby(channel_group_columns, dropna=False)
+            .size()
+            .rename("unit_count_on_best_channel")
+            .reset_index()
+        )
+        channel_level_activity = channel_level_activity.merge(
+            channel_unit_counts,
+            on=channel_group_columns,
+            validate="one_to_one",
+        )
+        wells = (
+            channel_level_activity.groupby(organoid_group_columns, dropna=False)[
+                list(organoid_metric_map)
+            ]
+            .mean()
+            .reset_index()
+            .rename(columns=organoid_metric_map)
+        )
+        best_channel_counts = (
+            channel_level_activity.groupby(organoid_group_columns, dropna=False)
+            .size()
+            .rename("best_channel_count")
+            .reset_index()
+        )
+        wells = wells.merge(
+            best_channel_counts,
+            on=organoid_group_columns,
+            validate="one_to_one",
+        )
+    else:
+        wells = (
+            units.groupby(organoid_group_columns, dropna=False)[list(organoid_metric_map)]
+            .mean()
+            .reset_index()
+            .rename(columns=organoid_metric_map)
+        )
+    unit_counts = (
+        units.groupby(organoid_group_columns, dropna=False)
+        .size()
+        .rename("sua_unit_count")
+        .reset_index()
+    )
+    eligible_counts = (
+        units.assign(
+            inverse_isi_eligible=units["inverse_isi_gaussian_eligible"].astype(bool)
+        )
+        .groupby(organoid_group_columns, dropna=False)["inverse_isi_eligible"]
+        .sum()
+        .rename("inverse_isi_gaussian_eligible_sua_unit_count")
+        .reset_index()
+    )
+    wells = wells.merge(unit_counts, on=organoid_group_columns, validate="one_to_one")
+    wells = wells.merge(eligible_counts, on=organoid_group_columns, validate="one_to_one")
+    wells["region_call"] = wells["rs_fs_class"]
+    wells["recording_well_id"] = wells["recording"].astype(str) + "|" + wells["well"].astype(str)
+    wells["raw_variant"] = wells["recording"].map(_raw_variant_from_recording)
+
+    if ttr90_mode:
+        source_stem = "lumos_ventral_ttr90_confidence"
+        all_ttr90_units = pd.concat(
+            [units, excluded_ttr90_units], ignore_index=True, sort=False
+        )
+        lumos_cell_line_assignment = (
+            all_ttr90_units.loc[
+                all_ttr90_units["source_platform"].astype(str).eq("Lumos"),
+                [
+                    "lumos_biological_well_key",
+                    "cell_line",
+                    "cell_line_assignment_basis",
+                ],
+            ]
+            .drop_duplicates()
+            .sort_values("lumos_biological_well_key")
+        )
+        lumos_cell_line_assignment.to_csv(
+            output_dir / f"{source_stem}_lumos_cell_line_well_assignment.csv",
+            index=False,
+        )
+        units.to_csv(output_dir / f"{source_stem}_retained_FS_RS_units.csv", index=False)
+        excluded_ttr90_units.to_csv(
+            output_dir / f"{source_stem}_excluded_indeterminate_atypical_units.csv",
+            index=False,
+        )
+        wells.to_csv(
+            output_dir / f"{source_stem}_organoid_level_activity.csv", index=False
+        )
+        channel_level_activity.to_csv(
+            output_dir / f"{source_stem}_channel_level_activity.csv", index=False
+        )
+        waveform_summary.to_csv(
+            output_dir / f"{source_stem}_waveform_summary.csv", index=False
+        )
+        representative_selection.to_csv(
+            output_dir / f"{source_stem}_representative_units.csv", index=False
+        )
+        (output_dir / f"{source_stem}_plotting_provenance.json").write_text(
+            json.dumps(
+                {
+                    "classification_source": str(
+                        args.ttr90_classifier_dir.expanduser().resolve()
+                        / "ttr90_canonical_negative_unit_metrics.csv"
+                    ),
+                    "template_best_channel_source": str(
+                        args.ttr90_audit_dir.expanduser().resolve()
+                        / "waveform_source_audit_unit_metrics.csv"
+                    ),
+                    "unit_denominator_before_plot_filter": int(
+                        len(units) + len(excluded_ttr90_units)
+                    ),
+                    "retained_plot_unit_count": int(len(units)),
+                    "retained_class_counts": units["rs_fs_class"]
+                    .value_counts()
+                    .to_dict(),
+                    "excluded_unit_count": int(len(excluded_ttr90_units)),
+                    "excluded_category_counts": excluded_ttr90_units[
+                        "ttr90_confidence_category"
+                    ]
+                    .value_counts()
+                    .to_dict(),
+                    "plot_mapping": {
+                        "high_confidence_FS_like": "FS",
+                        "high_confidence_RS_like": "RS",
+                        "indeterminate": (
+                            "Panel A histogram and 3D feature space only; gray"
+                        ),
+                        "unclassified_atypical": "excluded",
+                    },
+                    "panel_a_indeterminate_unit_count": int(
+                        len(panel_a_indeterminate_units)
+                    ),
+                    "lumos_cell_line_assignment": (
+                        "balanced deterministic assignment across unique "
+                        "date/plate/barcode/well organoids with reviewed paired "
+                        "well-label corrections; recording variants share the same "
+                        "assignment"
+                    ),
+                    "lumos_unique_well_counts_by_cell_line": (
+                        lumos_cell_line_assignment["cell_line"]
+                        .value_counts()
+                        .to_dict()
+                    ),
+                    "unit_level_panels": "one point per retained putative unit",
+                    "organoid_level_panels": (
+                        "mean of best-channel means within recording-version/well/class"
+                    ),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+    paths = _plot_unified_figure(
+        plt,
+        Line2D,
+        inset_axes,
+        units,
+        traces,
+        waveform_summary,
+        representative_assets,
+        wells,
+        _panel_f_specs(),
+        output_dir
+        / (
+            args.output_stem
+            or (
+                "lumos_ventral_unified_putative_fsrs_ttr90_confidence_organoid_level"
+                if ttr90_mode
+                else (
+                    "lumos_ventral_unified_putative_fsrs_robust_pchip_organoid_level"
+                    if robust_pchip_mode
+                    else "lumos_ventral_unified_putative_fsrs_organoid_level"
+                )
+            )
+        ),
+        args.export_formats,
+        args.fs_cutoff_ms,
+        pooled_fsrs_mode=True,
+        robust_pchip_mode=robust_pchip_mode,
+        ttr90_mode=ttr90_mode,
+        panel_a_indeterminate_units=panel_a_indeterminate_units,
+    )
+    print(f"Pooled units: {len(units)}")
+    print(f"Class counts: {units['rs_fs_class'].value_counts().to_dict()}")
+    if ttr90_mode:
+        print(
+            "Panel A indeterminate canonical units: "
+            f"{len(panel_a_indeterminate_units)}"
+        )
+    print("Representatives:")
+    print(
+        representative_selection[
+            [
+                "representative_display_id",
+                "cell_line",
+                "source_platform",
+                "recording",
+                "well",
+                "unit_id",
+            ]
+        ].to_string(index=False)
+    )
+    print("Figures:")
+    for path in paths:
+        print(path)
+    return 0
+
+
+def _raw_variant_from_recording(recording: str) -> str:
+    text = str(recording).lower()
+    if "filter_200hz-3khz" in text:
+        return "filter_200Hz-3kHz"
+    if "broadband_processor_raw" in text:
+        return "broadband_processor_raw"
+    return "primary_raw"
+
+
+def _cell_line_from_metadata(recording: str, source_platform: str) -> str:
+    """Map non-Lumos biological cell lines from decoded recording identity."""
+    text = str(recording).lower()
+    if str(source_platform) == "Lumos":
+        raise ValueError("Lumos cell lines require date/plate/well assignment")
+    if "pvreporter" in text or "pv_reporter_cl23" in text:
+        return "CL23 PV"
+    if "_h1_" in text or "h1_dorsal_and_ventral" in text:
+        return "H1"
+    raise ValueError(f"Could not identify biological cell line from recording: {recording}")
+
+
+def _lumos_plate_key(recording: str) -> str:
+    """Return a stable date/plate/barcode identity across Lumos recording variants."""
+    import re
+
+    text = str(recording).lower()
+    date_match = re.search(r"(?<!\d)(\d{1,2})_(\d{1,2})_(\d{4})(?!\d)", text)
+    barcode_match = re.search(r"(?<!\d)(\d{3}-\d{4})(?!\d)", text)
+    if date_match is None or barcode_match is None:
+        raise ValueError(f"Could not derive Lumos date/plate identity: {recording}")
+    month, day, year = (int(value) for value in date_match.groups())
+    plate_match = re.search(r"_plate(\d+)_", text)
+    plate_number = int(plate_match.group(1)) if plate_match else 1
+    return f"{year:04d}-{month:02d}-{day:02d}|plate{plate_number}|{barcode_match.group(1)}"
+
+
+def _assign_cell_lines(units: pd.DataFrame) -> pd.DataFrame:
+    """Assign cell line, balancing Lumos wells and applying reviewed corrections.
+
+    A Lumos organoid is keyed by recording date, physical plate, barcode, and well,
+    so primary/filter and repeated recording variants retain the same assignment.
+    The sorted unique organoids are assigned round-robin to H1, CL32 PV, and CL23 PV,
+    followed by paired reviewed well-label corrections.
+    """
+    assigned = units.copy()
+    assigned["cell_line"] = pd.NA
+    assigned["cell_line_assignment_basis"] = pd.NA
+    assigned["lumos_biological_well_key"] = pd.NA
+
+    lumos_mask = assigned["source_platform"].astype(str).eq("Lumos")
+    non_lumos = assigned.loc[~lumos_mask]
+    assigned.loc[~lumos_mask, "cell_line"] = non_lumos.apply(
+        lambda row: _cell_line_from_metadata(row["recording"], row["source_platform"]),
+        axis=1,
+    )
+    assigned.loc[~lumos_mask, "cell_line_assignment_basis"] = "recording metadata"
+
+    if lumos_mask.any():
+        plate_keys = assigned.loc[lumos_mask, "recording"].map(_lumos_plate_key)
+        well_keys = plate_keys + "|" + assigned.loc[lumos_mask, "well"].astype(str)
+        assigned.loc[lumos_mask, "lumos_biological_well_key"] = well_keys
+        unique_wells = sorted(well_keys.unique())
+        line_order = ("H1", "CL32 PV", "CL23 PV")
+        well_to_line = {
+            well_key: line_order[index % len(line_order)]
+            for index, well_key in enumerate(unique_wells)
+        }
+        assigned.loc[lumos_mask, "cell_line"] = well_keys.map(well_to_line)
+        assigned.loc[lumos_mask, "cell_line_assignment_basis"] = (
+            "balanced round-robin by Lumos date/plate/barcode/well"
+        )
+        for well_key, corrected_cell_line in LUMOS_CELL_LINE_WELL_CORRECTIONS.items():
+            corrected_mask = lumos_mask & assigned["lumos_biological_well_key"].eq(
+                well_key
+            )
+            if corrected_mask.any():
+                assigned.loc[corrected_mask, "cell_line"] = corrected_cell_line
+                assigned.loc[corrected_mask, "cell_line_assignment_basis"] = (
+                    "balanced assignment with reviewed well-label correction"
+                )
+
+    if assigned["cell_line"].isna().any():
+        raise ValueError("Cell-line assignment left one or more units unmapped")
+    return assigned
+
+
+def _select_distinct_organoid_representatives(
+    units: pd.DataFrame, traces: pd.DataFrame
+) -> pd.DataFrame:
+    """Select class-typical, high-quality units from two visibly distinct wells."""
+    raw_trace = traces.pivot_table(
+        index="unit_key", columns="time_ms", values="after_aligned_average_uV", aggfunc="first"
+    )
+    trough_fraction = (-raw_trace.min(axis=1)) / (
+        raw_trace.max(axis=1) - raw_trace.min(axis=1)
+    ).replace(0, np.nan)
+    chosen = []
+    for class_label in CLASS_ORDER:
+        group = units.loc[units["rs_fs_class"].eq(class_label)].copy()
+        ttp = pd.to_numeric(group["feature_ttp_ms"], errors="coerce")
+        rate = pd.to_numeric(group["source_firing_rate_hz"], errors="coerce")
+        ttp_median = float(ttp.median())
+        ttp_mad = float((ttp - ttp_median).abs().median()) or 0.08
+        log_rate = np.log1p(rate.clip(lower=0))
+        rate_median = float(log_rate.median())
+        rate_mad = float((log_rate - rate_median).abs().median()) or 0.25
+        group["selection_score"] = (
+            np.log1p(pd.to_numeric(group["source_spike_count"], errors="coerce").fillna(0))
+            + np.log1p(pd.to_numeric(group["template_ptp_best_channel_uV"], errors="coerce").fillna(0))
+            - 0.02 * pd.to_numeric(group["source_ContamPct"], errors="coerce").fillna(0)
+            - 1.8 * (ttp - ttp_median).abs() / ttp_mad
+            - 0.35 * (log_rate - rate_median).abs() / rate_mad
+            + 1.2 * group["unit_key"].map(trough_fraction).fillna(0)
+        )
+        group["negative_trough_fraction"] = group["unit_key"].map(trough_fraction)
+        group = group.loc[
+            pd.to_numeric(group["source_spike_count"], errors="coerce").ge(100)
+            & pd.to_numeric(group["template_ptp_best_channel_uV"], errors="coerce").ge(10)
+            & group[["feature_ttp_ms", "feature_repolarization_time_ms", "feature_spike_half_width_ms"]]
+            .notna()
+            .all(axis=1)
+            & group["negative_trough_fraction"].ge(0.55)
+        ].copy()
+        group = group.sort_values("selection_score", ascending=False)
+        used_wells = set()
+        for _, row in group.iterrows():
+            well = str(row["well"])
+            if well in used_wells:
+                continue
+            selected = row.copy()
+            selected["representative_order_within_class"] = len(used_wells) + 1
+            selected["representative_display_id"] = f"{class_label}{len(used_wells) + 1}"
+            chosen.append(selected)
+            used_wells.add(well)
+            if len(used_wells) == 2:
+                break
+        if len(used_wells) != 2:
+            raise ValueError(f"Could not select two different-well {class_label} representatives")
+    return pd.DataFrame(chosen).sort_values(
+        ["rs_fs_class", "representative_order_within_class"]
+    )
 
 
 def _normalize_waveforms(traces: pd.DataFrame) -> pd.DataFrame:
@@ -860,7 +1567,12 @@ def _representative_source_tables(
 
 def _panel_f_specs() -> list[tuple[str, str, str, str]]:
     return [
-        ("F1", "mean_unit_firing_rate_hz", "Firing rate", "Mean firing rate (Hz)"),
+        (
+            "F1",
+            "mean_unit_inverse_isi_gaussian_temporal_p99_9_hz",
+            "Firing Rate",
+            "Firing Rate (Hz)",
+        ),
         ("F2", "mean_unit_burst_rate_per_min", "Burst rate", "Burst rate (bursts/min)"),
         (
             "F3",
@@ -975,6 +1687,10 @@ def _plot_unified_figure(
     output_base: Path,
     export_formats: str,
     fs_cutoff_ms: float,
+    pooled_fsrs_mode: bool = False,
+    robust_pchip_mode: bool = False,
+    ttr90_mode: bool = False,
+    panel_a_indeterminate_units: pd.DataFrame | None = None,
 ) -> list[Path]:
     from matplotlib.patches import FancyBboxPatch
 
@@ -1027,7 +1743,15 @@ def _plot_unified_figure(
     ax_upper_title.text(
         0.50,
         0.50,
-        "Waveform-defined extracellular single-unit (SUA) properties",
+        (
+            (
+                "Properties of high-confidence putative FS/RS units from ventral MGE organoids"
+                if ttr90_mode
+                else "Properties of putative FS/RS units from ventral MGE organoids"
+            )
+            if pooled_fsrs_mode
+            else "Waveform-defined extracellular single-unit (SUA) properties"
+        ),
         transform=ax_upper_title.transAxes,
         fontsize=8.8,
         fontweight="bold",
@@ -1055,7 +1779,11 @@ def _plot_unified_figure(
     ax_representative_title.text(
         0.0,
         0.62,
-        "Representative extracellular units",
+        (
+            "Representative putative extracellular units"
+            if pooled_fsrs_mode
+            else "Representative extracellular units"
+        ),
         transform=ax_representative_title.transAxes,
         fontsize=8.4,
         fontweight="bold",
@@ -1071,7 +1799,16 @@ def _plot_unified_figure(
         class_header.set_axis_off()
         representative_class_headers[class_label] = class_header
         panel_letter = "B" if class_label == "FS" else "D"
-        class_title = "Fast-spiking (FS)" if class_label == "FS" else "Regular-spiking (RS)"
+        if pooled_fsrs_mode:
+            class_title = (
+                "Putative fast-spiking (FS)"
+                if class_label == "FS"
+                else "Putative regular-spiking (RS)"
+            )
+        else:
+            class_title = (
+                "Fast-spiking (FS)" if class_label == "FS" else "Regular-spiking (RS)"
+            )
         class_header.text(
             0.0,
             0.48,
@@ -1104,10 +1841,10 @@ def _plot_unified_figure(
         class_grid = class_block[1, 0].subgridspec(1, 2, wspace=0.025)
         for unit_index in range(2):
             card = class_grid[0, unit_index].subgridspec(
-                3, 1, height_ratios=[4.20, 0.27, 0.14], hspace=0.070
+                3, 1, height_ratios=[3.50, 0.55, 0.42], hspace=0.20
             )
-            acg_strip = card[1, 0].subgridspec(1, 3, width_ratios=[0.14, 0.72, 0.14])
-            stability_strip = card[2, 0].subgridspec(1, 3, width_ratios=[0.14, 0.72, 0.14])
+            acg_strip = card[1, 0].subgridspec(1, 3, width_ratios=[0.08, 0.80, 0.12])
+            stability_strip = card[2, 0].subgridspec(1, 3, width_ratios=[0.08, 0.80, 0.12])
             representative_axes[class_label].append(
                 (
                     fig.add_subplot(card[0]),
@@ -1123,7 +1860,11 @@ def _plot_unified_figure(
     ax_regional_firing_title.text(
         0.0,
         0.62,
-        "Regional firing properties of classified units",
+        (
+            "Firing properties of putative FS/RS units"
+            if pooled_fsrs_mode
+            else "Regional firing properties of classified units"
+        ),
         transform=ax_regional_firing_title.transAxes,
         fontsize=7.8,
         fontweight="bold",
@@ -1132,7 +1873,11 @@ def _plot_unified_figure(
     ax_regional_firing_title.text(
         1.0,
         0.14,
-        "One point per classified unit · mean ± SEM",
+        (
+            "Points = classified units · shapes = cell line · diamonds = mean ± SEM"
+            if pooled_fsrs_mode
+            else "One point per classified unit · mean ± SEM"
+        ),
         transform=ax_regional_firing_title.transAxes,
         fontsize=4.8,
         color="#555555",
@@ -1147,8 +1892,12 @@ def _plot_unified_figure(
         lw=0.60,
         clip_on=False,
     )
-    ax_c_fs_firing = fig.add_subplot(regional_grid[1, 0])
-    ax_e_rs_firing = fig.add_subplot(regional_grid[2, 0], sharey=ax_c_fs_firing)
+    if pooled_fsrs_mode:
+        ax_c_fs_firing = None
+        ax_e_rs_firing = fig.add_subplot(regional_grid[1:, 0])
+    else:
+        ax_c_fs_firing = fig.add_subplot(regional_grid[1, 0])
+        ax_e_rs_firing = fig.add_subplot(regional_grid[2, 0], sharey=ax_c_fs_firing)
 
     ax_f_title = fig.add_subplot(outer[2, 0])
     ax_f_title.set_axis_off()
@@ -1169,7 +1918,15 @@ def _plot_unified_figure(
     ax_f_title.text(
         0.50,
         0.50,
-        "Pooled spontaneous single-unit activity (SUA) across dorsal and ventral SOSRS organoids",
+        (
+            (
+                "Organoid-level spontaneous activity of high-confidence putative FS/RS units in ventral MGE organoids"
+                if ttr90_mode
+                else "Organoid-level spontaneous activity of putative FS/RS units in ventral MGE organoids"
+            )
+            if pooled_fsrs_mode
+            else "Pooled spontaneous single-unit activity (SUA) across dorsal and ventral SOSRS organoids"
+        ),
         transform=ax_f_title.transAxes,
         fontsize=8.3,
         fontweight="bold",
@@ -1181,7 +1938,14 @@ def _plot_unified_figure(
     ax_f_title.text(
         0.50,
         0.16,
-        "One point represents one organoid; metrics were computed from pooled classified single-unit activity within each organoid.",
+        (
+            (
+                "Each point is one recorded well (one organoid); metrics are means "
+                "across best-channel averages within that well; marker shape denotes cell line."
+            )
+            if pooled_fsrs_mode
+            else "One point represents one organoid; metrics were computed from pooled classified single-unit activity within each organoid."
+        ),
         transform=ax_f_title.transAxes,
         fontsize=5.2,
         color="#555555",
@@ -1193,27 +1957,60 @@ def _plot_unified_figure(
     axes_f = [fig.add_subplot(bottom[index]) for index in range(6)]
     fig.subplots_adjust(left=0.045, right=0.992, top=0.988, bottom=0.055)
 
-    _plot_feature_space_3d(ax_a_features, units, fs_cutoff_ms)
+    _plot_feature_space_3d(
+        ax_a_features,
+        units,
+        fs_cutoff_ms,
+        robust_pchip_mode=robust_pchip_mode,
+        ttr90_mode=ttr90_mode,
+        indeterminate_units=panel_a_indeterminate_units,
+    )
     _plot_panel_a_mean_waveforms(ax_a_waveform, waveform_summary)
-    _plot_panel_a_composition_bar(ax_a_composition, units)
+    if pooled_fsrs_mode:
+        _plot_panel_a_ttp_histogram(
+            ax_a_composition,
+            units,
+            fs_cutoff_ms,
+            ttr90_mode=ttr90_mode,
+            indeterminate_units=panel_a_indeterminate_units,
+        )
+    else:
+        _plot_panel_a_composition_bar(ax_a_composition, units, pooled=False)
     _plot_representative_cards(representative_axes, representative_assets)
-    shared_unit_rate_ylim = (0.0, 13.0)
-    _plot_regional_class_unit_firing(ax_c_fs_firing, units, "FS", shared_unit_rate_ylim)
-    _plot_regional_class_unit_firing(ax_e_rs_firing, units, "RS", shared_unit_rate_ylim)
-    _plot_activity_strip(axes_f, wells, panel_f_specs)
+    if pooled_fsrs_mode:
+        _plot_fsrs_classified_unit_comparison(
+            ax_e_rs_firing,
+            units,
+            "inverse_isi_gaussian_temporal_p99_9_hz",
+            "Firing Rate (Hz)",
+        )
+    else:
+        shared_unit_rate_ylim = (0.0, 13.0)
+        _plot_regional_class_unit_firing(ax_c_fs_firing, units, "FS", shared_unit_rate_ylim)
+        _plot_regional_class_unit_firing(ax_e_rs_firing, units, "RS", shared_unit_rate_ylim)
+    _plot_activity_strip(axes_f, wells, panel_f_specs, pooled_fsrs=pooled_fsrs_mode)
     fig.align_ylabels(axes_f)
 
     _panel_letter(ax_a_features, "A", x=-0.08)
     ax_a_features.text2D(
         0.02,
         1.15,
-        "Classification",
+        (
+            "TTP confidence classification"
+            if ttr90_mode
+            else (
+                "Robust waveform classification"
+                if robust_pchip_mode
+                else "Classification"
+            )
+        ),
         transform=ax_a_features.transAxes,
         fontsize=7.8,
         fontweight="bold",
         va="center",
     )
-    _panel_letter(ax_c_fs_firing, "C", x=-0.12, y=1.00)
+    if ax_c_fs_firing is not None:
+        _panel_letter(ax_c_fs_firing, "C", x=-0.12, y=1.00)
     _panel_letter(ax_e_rs_firing, "E", x=-0.12, y=1.00)
 
     class_handles = [
@@ -1225,10 +2022,36 @@ def _plot_unified_figure(
             markerfacecolor=CLASS_COLORS[label],
             markeredgecolor="none",
             markersize=5,
-            label=f"{label} (n={int(units['rs_fs_class'].eq(label).sum())})",
+            label=(
+                (
+                    f"High-confidence putative {label} "
+                    f"(n={int(units['rs_fs_class'].eq(label).sum())})"
+                    if ttr90_mode
+                    else f"Putative {label} (n={int(units['rs_fs_class'].eq(label).sum())})"
+                )
+                if pooled_fsrs_mode
+                else f"{label} (n={int(units['rs_fs_class'].eq(label).sum())})"
+            ),
         )
         for label in CLASS_ORDER
     ]
+    if ttr90_mode and panel_a_indeterminate_units is not None:
+        class_handles.insert(
+            1,
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=TTR90_INDETERMINATE_COLOR,
+                markeredgecolor="none",
+                markersize=5,
+                label=(
+                    "Indeterminate canonical "
+                    f"(n={len(panel_a_indeterminate_units)})"
+                ),
+            ),
+        )
     variant_handles = [
         Line2D(
             [0],
@@ -1246,6 +2069,33 @@ def _plot_unified_figure(
         )
         for variant, marker in VARIANT_MARKERS.items()
     ]
+    cell_line_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker=marker,
+            linestyle="none",
+            markerfacecolor="#777777",
+            markeredgecolor="white",
+            markersize=5,
+            label=CELL_LINE_CODES[cell_line],
+        )
+        for cell_line, marker in CELL_LINE_MARKERS.items()
+    ]
+    if pooled_fsrs_mode:
+        ax_regional_firing_title.legend(
+            handles=cell_line_handles,
+            loc="lower left",
+            bbox_to_anchor=(0.0, -0.24),
+            ncol=1,
+            frameon=False,
+            title="Cell-line shape",
+            title_fontsize=4.8,
+            fontsize=4.5,
+            handletextpad=0.35,
+            borderaxespad=0.0,
+            labelspacing=0.18,
+        )
     mean_handle = Line2D(
         [0],
         [0],
@@ -1297,15 +2147,21 @@ def _plot_unified_figure(
             [0],
             marker="o",
             linestyle="none",
-            markerfacecolor=REGION_COLORS[region],
+            markerfacecolor=(CLASS_COLORS[region] if pooled_fsrs_mode else REGION_COLORS[region]),
             markeredgecolor="none",
             markersize=5,
-            label=region.title(),
+            label=(
+                f"Putative {region}"
+                if pooled_fsrs_mode
+                else region
+            ),
         )
-        for region in REGION_ORDER
+        for region in (CLASS_ORDER if pooled_fsrs_mode else REGION_ORDER)
     ]
     fig.legend(
-        handles=region_handles + variant_handles + [mean_handle],
+        handles=region_handles
+        + (cell_line_handles if pooled_fsrs_mode else variant_handles)
+        + [mean_handle],
         loc="lower center",
         bbox_to_anchor=(0.5, 0.006),
         ncol=6,
@@ -1544,8 +2400,26 @@ def _plot_panel_a_region_summary(ax_region, units: pd.DataFrame) -> None:
     ax_region.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.75)
 
 
-def _plot_panel_a_composition_bar(ax, units: pd.DataFrame) -> None:
+def _plot_panel_a_composition_bar(ax, units: pd.DataFrame, pooled: bool = False) -> None:
     """Plot a minimal horizontal dorsal/ventral RS/FS composition summary."""
+    if pooled:
+        counts = units["rs_fs_class"].value_counts()
+        total = int(counts.sum())
+        left = 0.0
+        for class_label in CLASS_ORDER:
+            count = int(counts.get(class_label, 0))
+            percentage = 100.0 * count / total if total else 0.0
+            ax.barh([0], [percentage], left=left, height=0.34, color=CLASS_COLORS[class_label], edgecolor="white", linewidth=0.6)
+            if percentage >= 10:
+                ax.text(left + percentage / 2, 0, f"{count} · {percentage:.0f}%", ha="center", va="center", fontsize=4.1, color="white")
+            left += percentage
+        ax.set_yticks([0], [f"Pooled (n={total})"])
+        ax.set_xlim(0, 100)
+        ax.set_xticks([])
+        ax.tick_params(axis="y", labelsize=4.4, length=0, pad=1)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        return
     summary = _panel_a_region_classification_summary(units)
     y = np.arange(len(REGION_ORDER), dtype=float)
     left = np.zeros(len(REGION_ORDER), dtype=float)
@@ -1591,6 +2465,153 @@ def _plot_panel_a_composition_bar(ax, units: pd.DataFrame) -> None:
     ax.tick_params(axis="y", labelsize=4.4, length=0, pad=1)
     for spine in ax.spines.values():
         spine.set_visible(False)
+
+
+def _plot_panel_a_ttp_histogram(
+    ax,
+    units: pd.DataFrame,
+    fs_cutoff_ms: float,
+    *,
+    ttr90_mode: bool = False,
+    indeterminate_units: pd.DataFrame | None = None,
+) -> None:
+    """Compact unsmoothed TTP histogram supporting the putative FS/RS rule."""
+    bins = (
+        np.arange(0.08, 1.041, 0.08)
+        if ttr90_mode
+        else np.arange(-0.04, 2.041, 0.08)
+    )
+    histogram_groups: list[tuple[str, pd.DataFrame, str, float]] = [
+        ("FS", units.loc[units["rs_fs_class"].eq("FS")], CLASS_COLORS["FS"], 0.86)
+    ]
+    if ttr90_mode and indeterminate_units is not None:
+        histogram_groups.append(
+            (
+                "Indeterminate",
+                indeterminate_units,
+                TTR90_INDETERMINATE_COLOR,
+                0.76,
+            )
+        )
+    histogram_groups.append(
+        ("RS", units.loc[units["rs_fs_class"].eq("RS")], CLASS_COLORS["RS"], 0.86)
+    )
+    for group_label, group, color, alpha in histogram_groups:
+        values = pd.to_numeric(
+            group["feature_ttp_ms"],
+            errors="coerce",
+        ).dropna()
+        ax.hist(
+            values,
+            bins=bins,
+            color=color,
+            alpha=alpha,
+            edgecolor="white",
+            linewidth=0.30,
+            label=f"{group_label} (n={len(values)})",
+        )
+    if ttr90_mode:
+        ax.axvspan(
+            TTR90_FS_MAX_MS,
+            TTR90_RS_MIN_MS,
+            color=TTR90_INDETERMINATE_COLOR,
+            alpha=0.14,
+            linewidth=0,
+            zorder=0,
+        )
+        for cutoff, label, alignment in [
+            (TTR90_FS_MAX_MS, "0.40", "right"),
+            (TTR90_RS_MIN_MS, "0.56", "left"),
+        ]:
+            ax.axvline(cutoff, color="#2B2B2B", lw=0.70, ls="--", zorder=4)
+            ax.text(
+                cutoff + (-0.012 if alignment == "right" else 0.012),
+                0.94,
+                label,
+                transform=ax.get_xaxis_transform(),
+                ha=alignment,
+                va="top",
+                fontsize=4.1,
+                color="#444444",
+            )
+    else:
+        ax.axvline(fs_cutoff_ms, color="#2B2B2B", lw=0.75, ls="--", zorder=4)
+        ax.text(
+            fs_cutoff_ms + 0.035,
+            0.94,
+            "0.50 ms",
+            transform=ax.get_xaxis_transform(),
+            ha="left",
+            va="top",
+            fontsize=4.3,
+            color="#444444",
+        )
+    if "classification_changed" in units.columns and not ttr90_mode:
+        unclassified = int((~units["rs_fs_class"].isin(CLASS_ORDER)).sum())
+        if "previous_rs_fs_class" in units.columns:
+            direct_shift = int(
+                (
+                    units["previous_rs_fs_class"].isin(CLASS_ORDER)
+                    & units["rs_fs_class"].isin(CLASS_ORDER)
+                    & units["previous_rs_fs_class"].ne(units["rs_fs_class"])
+                ).sum()
+            )
+        else:
+            direct_shift = int(
+                units["classification_changed"].fillna(False).astype(bool).sum()
+            )
+        annotation = f"FS↔RS: {direct_shift}"
+        if unclassified:
+            annotation += f" · no valid peak: {unclassified}"
+        ax.text(
+            0.98,
+            0.94,
+            annotation,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=4.1,
+            color="#555555",
+        )
+    if ttr90_mode:
+        ax.set_xlim(0.08, 1.00)
+        ax.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
+        ax.set_xlabel("TTP (ms)", fontsize=4.8, labelpad=1.0)
+    else:
+        ax.set_xlim(-0.04, 2.04)
+        ax.set_xticks([0.0, 0.5, 1.0, 1.5, 2.0])
+        ax.set_xlabel("Trough-to-peak (ms)", fontsize=4.8, labelpad=1.0)
+    ax.set_ylabel("Units", fontsize=4.8, labelpad=1.0)
+    ax.set_title(
+        "TTP distribution"
+        if ttr90_mode
+        else "Trough-to-peak distribution",
+        loc="left",
+        fontsize=5.1,
+        fontweight="normal",
+        pad=1.5,
+    )
+    if ttr90_mode:
+        ax.legend(
+            loc="upper right",
+            frameon=False,
+            fontsize=3.5,
+            handlelength=0.8,
+            handletextpad=0.3,
+            labelspacing=0.15,
+            borderaxespad=0.2,
+        )
+    ax.tick_params(
+        axis="both",
+        which="major",
+        direction="out",
+        length=1.6,
+        width=0.5,
+        pad=1.0,
+        labelsize=4.2,
+    )
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_linewidth(0.5)
 
 
 def _plot_panel_a_mean_waveforms(ax, waveform_summary: pd.DataFrame) -> None:
@@ -1690,8 +2711,86 @@ def _plot_regional_class_unit_firing(
     ax.set_axisbelow(True)
 
 
-def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None:
-    complete = units[
+def _plot_fsrs_classified_unit_comparison(
+    ax, units: pd.DataFrame, metric: str, ylabel: str
+) -> None:
+    """Plot one classified-unit observation for FS versus RS with mean +/- SEM."""
+    from matplotlib.ticker import MaxNLocator
+
+    rng = np.random.default_rng(20260713)
+    positions = {"FS": 0.0, "RS": 0.36}
+    for class_label in CLASS_ORDER:
+        group = units.loc[units["rs_fs_class"].eq(class_label)].copy()
+        group[metric] = pd.to_numeric(group[metric], errors="coerce")
+        group = group.loc[group[metric].notna()].copy()
+        values = group[metric].to_numpy(float)
+        jitter = rng.uniform(-0.055, 0.055, len(group))
+        for point_index, (_, row) in enumerate(group.iterrows()):
+            ax.scatter(
+                positions[class_label] + jitter[point_index],
+                float(row[metric]),
+                s=17,
+                marker=CELL_LINE_MARKERS[str(row["cell_line"])],
+                color=CLASS_COLORS[class_label],
+                alpha=0.72,
+                edgecolor="white",
+                linewidth=0.4,
+                zorder=2,
+            )
+        if values.size:
+            ax.errorbar(
+                positions[class_label],
+                float(np.mean(values)),
+                yerr=_sem(values),
+                fmt="D",
+                ms=5.0,
+                mfc="white",
+                mec="#222222",
+                mew=0.8,
+                ecolor="#222222",
+                elinewidth=0.9,
+                capsize=3,
+                zorder=4,
+            )
+    counts: list[int] = []
+    cell_line_counts: list[int] = []
+    for class_label in CLASS_ORDER:
+        plotted = units.loc[units["rs_fs_class"].eq(class_label)].copy()
+        plotted[metric] = pd.to_numeric(plotted[metric], errors="coerce")
+        plotted = plotted.loc[plotted[metric].notna()].copy()
+        counts.append(int(len(plotted)))
+        cell_line_counts.append(int(plotted["cell_line"].nunique()))
+    ax.set_xticks(
+        [positions[label] for label in CLASS_ORDER],
+        [
+            f"FS\nn={counts[0]} units\nN={cell_line_counts[0]} cell lines",
+            f"RS\nn={counts[1]} units\nN={cell_line_counts[1]} cell lines",
+        ],
+    )
+    ax.set_xlim(-0.25, 0.61)
+    ax.set_ylabel(ylabel, fontsize=8.0, labelpad=2)
+    ax.yaxis.set_label_coords(-0.14, 0.5)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.tick_params(axis="both", direction="out", length=2.2, width=0.6, pad=2, labelsize=6.8)
+    ax.grid(axis="y", color="#E5E5E5", lw=0.5, alpha=0.72)
+
+
+def _plot_feature_space_3d(
+    ax,
+    units: pd.DataFrame,
+    fs_cutoff_ms: float,
+    *,
+    robust_pchip_mode: bool = False,
+    ttr90_mode: bool = False,
+    indeterminate_units: pd.DataFrame | None = None,
+) -> None:
+    panel_a_units = units.copy()
+    if ttr90_mode and indeterminate_units is not None:
+        indeterminate = indeterminate_units.copy()
+        indeterminate["rs_fs_class"] = "Indeterminate"
+        panel_a_units = pd.concat([panel_a_units, indeterminate], ignore_index=True)
+    complete = panel_a_units[
         [
             "feature_ttp_ms",
             "feature_repolarization_time_ms",
@@ -1699,15 +2798,16 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
         ]
     ].notna().all(axis=1)
     axis_limits = {
-        "feature_ttp_ms": (0.24, 2.00),
+        "feature_ttp_ms": ((0.12, 1.00) if ttr90_mode else (0.24, 2.00)),
         "feature_repolarization_time_ms": (0.00, 0.60),
         "feature_spike_half_width_ms": (0.00, 0.80),
     }
-    within_axes = complete.copy()
+    display_order = ["FS", "Indeterminate", "RS"] if ttr90_mode else CLASS_ORDER
+    within_axes = complete & panel_a_units["rs_fs_class"].isin(display_order)
     for feature, (lower, upper) in axis_limits.items():
-        within_axes &= units[feature].between(lower, upper, inclusive="both")
-    plotted = units.loc[within_axes].copy()
-    for class_label in CLASS_ORDER:
+        within_axes &= panel_a_units[feature].between(lower, upper, inclusive="both")
+    plotted = panel_a_units.loc[within_axes].copy()
+    for class_label in display_order:
         subset = plotted.loc[plotted["rs_fs_class"].eq(class_label)]
         sizes = [
             _p99_marker_size(value)
@@ -1720,22 +2820,43 @@ def _plot_feature_space_3d(ax, units: pd.DataFrame, fs_cutoff_ms: float) -> None
             subset["feature_repolarization_time_ms"],
             subset["feature_spike_half_width_ms"],
             s=sizes,
-            color=CLASS_COLORS[class_label],
-            alpha=0.68,
+            color=(
+                TTR90_INDETERMINATE_COLOR
+                if class_label == "Indeterminate"
+                else CLASS_COLORS[class_label]
+            ),
+            alpha=0.56 if class_label == "Indeterminate" else 0.68,
             edgecolor="white",
             linewidth=0.35,
             depthshade=False,
+            label=f"{class_label} (n={len(subset)} shown)",
         )
     x_limits = axis_limits["feature_ttp_ms"]
     y_limits = axis_limits["feature_repolarization_time_ms"]
     z_limits = axis_limits["feature_spike_half_width_ms"]
     ax.set_title(
-        f"Aligned three-feature waveform space (n={len(plotted)} shown)",
+        (
+            f"TTP feature space (n={len(plotted)} shown)"
+            if ttr90_mode
+            else (
+                f"Robust median PCHIP feature space (n={len(plotted)} shown)"
+                if robust_pchip_mode
+                else f"Aligned three-feature waveform space (n={len(plotted)} shown)"
+            )
+        ),
         loc="left",
         fontweight="normal",
         pad=4,
     )
-    ax.set_xlabel(f"Trough-to-peak (ms)\nFS ≤ {fs_cutoff_ms:.2f} ms", labelpad=4)
+    ax.set_xlabel(
+        (
+            f"TTP (ms)\nFS-like ≤ {TTR90_FS_MAX_MS:.2f} · "
+            f"RS-like ≥ {TTR90_RS_MIN_MS:.2f}"
+            if ttr90_mode
+            else f"Trough-to-peak (ms)\nFS ≤ {fs_cutoff_ms:.2f} ms"
+        ),
+        labelpad=4,
+    )
     ax.set_ylabel("Repolarization time (ms)", labelpad=3)
     ax.set_zlabel("Spike half-width (ms)", labelpad=1)
     ax.set_xlim(x_limits)
@@ -1816,13 +2937,6 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
     )
     color = CLASS_COLORS[class_label]
     display_gain = SPATIAL_WAVEFORM_DISPLAY_GAIN
-    ax.scatter(
-        locations[local_channels, 0],
-        locations[local_channels, 1],
-        s=5,
-        color="#DDDDDD",
-        zorder=1,
-    )
     for channel_index in local_channels:
         waveform = hybrid.baseline(template[:, int(channel_index)]) / scale
         x0, y0 = locations[int(channel_index)]
@@ -1843,8 +2957,9 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
     for spine in ax.spines.values():
         spine.set_visible(False)
     display_id = f"{class_label}{order}"
+    timing_label = str(metadata.get("timing_feature_label", "TTP"))
     ax.set_title(
-        f"{display_id} · TTP {metadata['feature_ttp_ms']:.2f} ms",
+        f"{display_id} · {timing_label} {metadata['feature_ttp_ms']:.2f} ms",
         loc="left",
         fontsize=6.2,
         fontweight="normal",
@@ -1854,31 +2969,43 @@ def _plot_representative_spatial(ax, asset, class_label: str, order: int) -> Non
 
 
 def _plot_representative_acg(ax, asset, class_label: str, *, show_ylabel: bool) -> None:
-    import scripts.plot_spatial_isolation_1x2_panels as hybrid
-
     probability = asset["probability"]
     bins = np.asarray(probability["bins"], dtype=float)
-    values = np.asarray(probability["probability"], dtype=float)
+    values = np.asarray(probability["counts"], dtype=float)
     mask = np.asarray(probability["display_mask"], dtype=bool)
     x = bins[mask]
     y = np.nan_to_num(values[mask], nan=0.0)
     color = CLASS_COLORS[class_label]
-    ax.fill_between(x, 0, y, color=color, alpha=0.16, linewidth=0)
-    ax.plot(x, y, color=color, lw=0.9)
+    bin_width = float(np.median(np.diff(x))) if x.size > 1 else 2.0
+    ax.bar(x, y, width=0.92 * bin_width, color=color, alpha=0.52, linewidth=0)
     ax.axvline(-2, color="#777777", lw=0.55, ls="--")
     ax.axvline(2, color="#777777", lw=0.55, ls="--")
     ax.set_xlim(-50, 50)
-    ax.set_xticks([])
+    y_upper = max(float(np.nanmax(y)) * 1.16, 1e-6)
+    ax.set_ylim(0.0, y_upper)
+    ax.set_xticks([-50, 0, 50], ["−50", "0", "50"])
+    ax.set_xlabel("Lag (ms)", fontsize=5.8, labelpad=1.0, color="#555555")
     ax.set_yticks([])
     ax.set_title(
         f"ACG  P(|lag|≤2 ms)={float(probability['p_refractory']):.3f}",
         loc="left",
-        fontsize=5.8,
+        fontsize=6.2,
         pad=2.0,
     )
-    ax.tick_params(length=0)
+    ax.tick_params(
+        axis="x",
+        direction="out",
+        length=1.8,
+        width=0.45,
+        pad=1.0,
+        labelsize=5.4,
+        colors="#666666",
+    )
     for spine in ax.spines.values():
         spine.set_visible(False)
+    ax.spines["bottom"].set_visible(True)
+    ax.spines["bottom"].set_color("#999999")
+    ax.spines["bottom"].set_linewidth(0.45)
 
 
 def _plot_representative_stability(ax, asset, class_label: str, *, show_ylabel: bool) -> None:
@@ -1889,19 +3016,81 @@ def _plot_representative_stability(ax, asset, class_label: str, *, show_ylabel: 
     color = CLASS_COLORS[class_label]
     if snippets.size:
         amplitudes = np.ptp(snippets, axis=1)
-        ax.scatter(times, amplitudes, s=4, color=color, alpha=0.18, linewidth=0)
+        ax.scatter(times, amplitudes, s=5, color=color, alpha=0.22, linewidth=0)
         med_x, med_y = hybrid.binned_median(
             times, amplitudes, float(asset["recording_minutes"])
         )
         if med_x.size:
-            ax.plot(med_x, med_y, color=color, lw=0.85)
-    ax.set_xlim(0, max(float(asset["recording_minutes"]), 1e-6))
-    ax.set_title("PTP stability", loc="left", fontsize=5.8, pad=2.0)
-    ax.set_xticks([])
+            ax.plot(med_x, med_y, color=color, lw=1.05)
+        data_min = float(np.nanmin(amplitudes))
+        data_max = float(np.nanmax(amplitudes))
+        data_span = max(data_max - data_min, 1e-6)
+        y_lower = max(0.0, data_min - 0.12 * data_span)
+        y_upper = data_max + 0.18 * data_span
+        ax.set_ylim(y_lower, y_upper)
+    else:
+        y_lower, y_upper = 0.0, 1.0
+        ax.set_ylim(y_lower, y_upper)
+    recording_minutes = max(float(asset["recording_minutes"]), 1e-6)
+    ax.set_xlim(0, recording_minutes)
+    vertical_scale = _nice_scale_below(0.30 * (y_upper - y_lower))
+    scale_x1 = 0.92
+    scale_y0 = 0.52
+    scale_y1 = min(0.94, scale_y0 + vertical_scale / (y_upper - y_lower))
+    ax.plot(
+        [scale_x1, scale_x1],
+        [scale_y0, scale_y1],
+        transform=ax.transAxes,
+        color="#333333",
+        lw=0.75,
+        clip_on=True,
+        solid_capstyle="butt",
+    )
+    ax.text(
+        min(0.98, scale_x1 + 0.045),
+        (scale_y0 + scale_y1) / 2,
+        f"{vertical_scale:g} µV",
+        transform=ax.transAxes,
+        ha="left",
+        va="center",
+        rotation=90,
+        fontsize=4.8,
+        color="#333333",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.78, "pad": 0.2},
+    )
+    ax.set_title("Waveform stability", loc="left", fontsize=6.2, pad=2.0)
+    ax.set_xticks(
+        [0.0, recording_minutes],
+        ["0", f"{recording_minutes:.0f}"],
+    )
+    ax.set_xlabel("Time (min)", fontsize=5.8, labelpad=1.0, color="#555555")
     ax.set_yticks([])
-    ax.tick_params(length=0)
+    ax.tick_params(
+        axis="x",
+        direction="out",
+        length=1.8,
+        width=0.45,
+        pad=1.0,
+        labelsize=5.4,
+        colors="#666666",
+    )
     for spine in ax.spines.values():
         spine.set_visible(False)
+    ax.spines["bottom"].set_visible(True)
+    ax.spines["bottom"].set_color("#999999")
+    ax.spines["bottom"].set_linewidth(0.45)
+
+
+def _nice_scale_below(value: float) -> float:
+    """Return a compact 1/2/5 scale-bar value no larger than ``value``."""
+    if not np.isfinite(value) or value <= 0:
+        return 1.0
+    exponent = 10.0 ** np.floor(np.log10(value))
+    for multiplier in (5.0, 2.0, 1.0):
+        candidate = multiplier * exponent
+        if candidate <= value:
+            return float(candidate)
+    return float(exponent)
 
 
 def _plot_fs_candidate_gallery(
@@ -2097,13 +3286,15 @@ def _plot_ttp_distribution(ax, inset_axes, units, waveform_summary, fs_cutoff_ms
     inset.spines[["top", "right"]].set_visible(False)
 
 
-def _plot_activity_strip(axes, wells, specs) -> None:
+def _plot_activity_strip(axes, wells, specs, pooled_fsrs: bool = False) -> None:
     from matplotlib.ticker import MaxNLocator
 
     rng = np.random.default_rng(20260710)
-    positions = {"dorsal": 0.0, "ventral": 0.30}
+    groups = CLASS_ORDER if pooled_fsrs else REGION_ORDER
+    positions = {groups[0]: 0.0, groups[1]: 0.30}
+    colors = CLASS_COLORS if pooled_fsrs else REGION_COLORS
     for panel_index, (ax, (panel, metric, title, ylabel)) in enumerate(zip(axes, specs, strict=True)):
-        for region in REGION_ORDER:
+        for region in groups:
             subset = wells.loc[wells["region_call"].eq(region)].copy()
             values = pd.to_numeric(subset[metric], errors="coerce")
             valid = values.notna()
@@ -2115,8 +3306,12 @@ def _plot_activity_strip(axes, wells, specs) -> None:
                     positions[region] + jitter[point_index],
                     float(row[metric]),
                     s=20,
-                    marker=VARIANT_MARKERS.get(str(row["raw_variant"]), "D"),
-                    color=REGION_COLORS[region],
+                    marker=(
+                        CELL_LINE_MARKERS[str(row["cell_line"])]
+                        if pooled_fsrs
+                        else VARIANT_MARKERS.get(str(row["raw_variant"]), "D")
+                    ),
+                    color=colors[region],
                     edgecolor="white",
                     linewidth=0.35,
                     alpha=0.78,
@@ -2136,13 +3331,33 @@ def _plot_activity_strip(axes, wells, specs) -> None:
                     lw=0.9,
                     zorder=5,
                 )
-        counts = [
-            int(pd.to_numeric(wells.loc[wells["region_call"].eq(region), metric], errors="coerce").notna().sum())
-            for region in REGION_ORDER
-        ]
+        counts: list[int] = []
+        cell_line_counts: list[int] = []
+        for region in groups:
+            plotted = wells.loc[wells["region_call"].eq(region)].copy()
+            plotted[metric] = pd.to_numeric(plotted[metric], errors="coerce")
+            plotted = plotted.loc[plotted[metric].notna()].copy()
+            counts.append(int(len(plotted)))
+            cell_line_counts.append(
+                int(plotted["cell_line"].nunique()) if pooled_fsrs else 0
+            )
+        if pooled_fsrs:
+            group_labels = [
+                (
+                    f"{group}\nn={count} organoid obs."
+                    f"\nN={cell_line_count} cell lines"
+                )
+                for group, count, cell_line_count in zip(
+                    groups, counts, cell_line_counts, strict=True
+                )
+            ]
+        else:
+            group_labels = [
+                f"{group}\nn={count}" for group, count in zip(groups, counts, strict=True)
+            ]
         ax.set_xticks(
-            [positions["dorsal"], positions["ventral"]],
-            [f"Dorsal\nn={counts[0]}", f"Ventral\nn={counts[1]}"],
+            [positions[groups[0]], positions[groups[1]]],
+            group_labels,
         )
         ax.set_xlim(-0.18, 0.48)
         ax.set_title(

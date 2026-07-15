@@ -1,0 +1,18 @@
+SLURM_JOB_ID=53522496
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714
+Traceback (most recent call last):
+  File "/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/scripts/reformat_lumos_ventral_ttr90_final_figure.py", line 1395, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/scripts/reformat_lumos_ventral_ttr90_final_figure.py", line 1276, in main
+    paths = _build_figure(
+            ^^^^^^^^^^^^^^
+  File "/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/scripts/reformat_lumos_ventral_ttr90_final_figure.py", line 824, in _build_figure
+    _plot_c01_view3_feature_space(ax_feature, waveform_metrics)
+  File "/home/elcrespo/Desktop/githubprojects/axion_mea_spiketurnpike/scripts/reformat_lumos_ventral_ttr90_final_figure.py", line 363, in _plot_c01_view3_feature_space
+    ax.tick_params(axis="all", which="major", labelsize=5.8, pad=0.8, width=0.55)
+  File "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort/lib/python3.11/site-packages/mpl_toolkits/mplot3d/axes3d.py", line 1810, in tick_params
+    _api.check_in_list(['x', 'y', 'z', 'both'], axis=axis)
+  File "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort/lib/python3.11/site-packages/matplotlib/_api/__init__.py", line 129, in check_in_list
+    raise ValueError(msg)
+ValueError: 'all' is not a valid value for axis; supported values are 'x', 'y', 'z', 'both'

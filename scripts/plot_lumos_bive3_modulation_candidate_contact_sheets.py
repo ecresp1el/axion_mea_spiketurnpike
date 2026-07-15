@@ -30,7 +30,7 @@ CLASS_COLORS = {"positive": "#D1495B", "negative": "#3568A8"}
 POPULATION_CLASS_COLORS = {
     "positive": "#D1495B",
     "negative": "#3568A8",
-    "non_modulated": "#59636F",
+    "non_modulated": "#111111",
 }
 CONDITION_COLORS = {"opsin": "#D1495B", "no_opsin": "#4C78A8"}
 CONDITION_LABELS = {"opsin": "BiVe3 Opsin", "no_opsin": "No Opsin"}
@@ -130,6 +130,24 @@ def main() -> int:
         condition_population_payloads,
         population_output_dir,
         minimum_baseline_rate_hz=args.minimum_baseline_rate_hz,
+    )
+    _render_final_p1_submission_figure(
+        plt,
+        condition_population_payloads,
+        waveforms,
+        command_trace,
+        population_output_dir,
+        minimum_baseline_rate_hz=args.minimum_baseline_rate_hz,
+    )
+    _render_final_p1_submission_figure(
+        plt,
+        condition_population_payloads,
+        waveforms,
+        command_trace,
+        population_output_dir,
+        minimum_baseline_rate_hz=args.minimum_baseline_rate_hz,
+        output_stem="final_opto_figs_with_unit_psths",
+        show_unit_psths=True,
     )
     candidate_table = pd.DataFrame(candidate_rows)
 
@@ -819,6 +837,477 @@ def _render_condition_population_figures(
             facecolor="white",
         )
         plt.close(figure)
+
+
+def _render_final_p1_submission_figure(
+    plt,
+    payloads,
+    waveforms,
+    command_trace,
+    output_dir,
+    *,
+    minimum_baseline_rate_hz,
+    output_stem="final_opto_figs",
+    show_unit_psths=False,
+):
+    target = "first_pulse_50"
+    classes = ["positive", "negative", "non_modulated"]
+    conditions = ["opsin", "no_opsin"]
+    p1_payloads = {
+        item["condition"]: item
+        for item in payloads
+        if item["target"] == target
+    }
+    grouped = {}
+    summaries = {}
+    for condition in conditions:
+        payload = p1_payloads[condition]
+        for modulation_class in classes:
+            units = []
+            for unit in payload["units"]:
+                metric = unit["metric"]
+                unit_class = (
+                    "positive"
+                    if metric.positive_unrestricted
+                    else "negative"
+                    if metric.negative_unrestricted
+                    else "non_modulated"
+                )
+                if unit_class == modulation_class:
+                    units.append(unit)
+            grouped[(condition, modulation_class)] = units
+            if units:
+                raw_matrix = np.asarray(
+                    [unit["raw_psth"] for unit in units], dtype=float
+                )
+                gaussian_matrix = np.asarray(
+                    [unit["gaussian_psth"] for unit in units], dtype=float
+                )
+                summaries[(condition, modulation_class)] = {
+                    "raw_mean": raw_matrix.mean(axis=0),
+                    "gaussian_mean": gaussian_matrix.mean(axis=0),
+                    "gaussian_sem": (
+                        gaussian_matrix.std(axis=0, ddof=1)
+                        / np.sqrt(len(gaussian_matrix))
+                        if len(gaussian_matrix) > 1
+                        else np.zeros(gaussian_matrix.shape[1], dtype=float)
+                    ),
+                }
+    time_ms = p1_payloads["opsin"]["time_ms"]
+    psth_upper = max(
+        float(
+            np.max(
+                summary["gaussian_mean"] + summary["gaussian_sem"]
+            )
+        )
+        for summary in summaries.values()
+    )
+    required_command_columns = {
+        "recording",
+        "time_ms",
+        "command_intensity",
+        "maximum_command_intensity",
+    }
+    missing_command_columns = required_command_columns - set(
+        command_trace.columns
+    )
+    if missing_command_columns:
+        raise ValueError(
+            "Command trace lacks required columns: "
+            f"{sorted(missing_command_columns)}"
+        )
+    led_trace = command_trace.loc[
+        command_trace["time_ms"].between(*DISPLAY_WINDOW_MS)
+    ].copy()
+    led_trace["normalized_command"] = np.divide(
+        led_trace["command_intensity"].to_numpy(float),
+        led_trace["maximum_command_intensity"].to_numpy(float),
+        out=np.zeros(len(led_trace), dtype=float),
+        where=led_trace["maximum_command_intensity"].to_numpy(float) > 0,
+    )
+    led_trace = (
+        led_trace.groupby("time_ms", as_index=False)["normalized_command"]
+        .mean()
+        .sort_values("time_ms")
+    )
+    led_time_ms = led_trace["time_ms"].to_numpy(float)
+    led_normalized = led_trace["normalized_command"].to_numpy(float)
+    led_dt_ms = float(np.median(np.diff(led_time_ms)))
+    led_sigma_ms = 0.25
+    led_smoothed = gaussian_filter1d(
+        led_normalized,
+        sigma=led_sigma_ms / led_dt_ms,
+        mode="nearest",
+    )
+    led_smoothed = np.clip(led_smoothed, 0.0, 1.0)
+    psth_axis_upper = max(psth_upper * 1.25, 1.0)
+    led_baseline_y = psth_axis_upper * 0.89
+    led_amplitude_y = psth_axis_upper * 0.075
+    waveform_summaries = {}
+    waveform_observation_ids = waveforms["unit_observation_id"].astype(str)
+    available_ids = set(waveform_observation_ids)
+    for condition in conditions:
+        for modulation_class in classes:
+            units = grouped[(condition, modulation_class)]
+            if not units:
+                continue
+            selected_ids = {
+                str(unit["metric"].observation_id) for unit in units
+            }
+            missing_ids = selected_ids - available_ids
+            if missing_ids:
+                raise ValueError(
+                    "Missing waveform traces for "
+                    f"{condition}/{modulation_class}: {sorted(missing_ids)}"
+                )
+            complete_ids = set()
+            complete_organoids = set()
+            for unit in units:
+                metric = unit["metric"]
+                observation_id = str(metric.observation_id)
+                trace = waveforms.loc[
+                    waveform_observation_ids.eq(observation_id)
+                ].sort_values("aligned_time_ms")
+                waveform_values = trace["normalized_waveform"].to_numpy(float)
+                if not np.isfinite(waveform_values).all():
+                    continue
+                complete_ids.add(observation_id)
+                complete_organoids.add(
+                    (str(metric.recording), str(metric.well))
+                )
+            if not complete_ids:
+                raise ValueError(
+                    "No complete waveform traces remain for "
+                    f"{condition}/{modulation_class}"
+                )
+            selected_waveforms = waveforms.loc[
+                waveform_observation_ids.isin(complete_ids)
+            ]
+            summary = (
+                selected_waveforms.groupby("aligned_time_ms")[
+                    "normalized_waveform"
+                ]
+                .mean()
+                .rename("mean")
+                .reset_index()
+            )
+            waveform_summaries[(condition, modulation_class)] = {
+                "summary": summary,
+                "complete_ids": complete_ids,
+                "n_complete": len(complete_ids),
+                "n_total": len(units),
+                "n_organoids": len(complete_organoids),
+            }
+    waveform_min = min(
+        float(payload["summary"]["mean"].min())
+        for payload in waveform_summaries.values()
+    )
+    waveform_max = max(
+        float(payload["summary"]["mean"].max())
+        for payload in waveform_summaries.values()
+    )
+    waveform_pad = max((waveform_max - waveform_min) * 0.08, 0.05)
+
+    figure = plt.figure(figsize=(18.0, 8.6))
+    outer_grid = figure.add_gridspec(
+        2,
+        3,
+        left=0.075,
+        right=0.99,
+        bottom=0.10,
+        top=0.82,
+        wspace=0.20,
+        hspace=0.46,
+        height_ratios=[1.0, 1.0],
+    )
+    for column, modulation_class in enumerate(classes):
+        class_position = outer_grid[0, column].get_position(figure)
+        opsin_count = (
+            waveform_summaries[("opsin", modulation_class)]["n_complete"]
+            if show_unit_psths
+            and grouped[("opsin", modulation_class)]
+            else len(grouped[("opsin", modulation_class)])
+        )
+        no_opsin_count = (
+            waveform_summaries[("no_opsin", modulation_class)]["n_complete"]
+            if show_unit_psths
+            and grouped[("no_opsin", modulation_class)]
+            else len(grouped[("no_opsin", modulation_class)])
+        )
+        figure.text(
+            (class_position.x0 + class_position.x1) / 2,
+            0.85,
+            (
+                f"{modulation_class.replace('_', ' ').title()}\n"
+                f"BiVe3 n={opsin_count} · "
+                f"No Opsin n={no_opsin_count}"
+            ),
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            fontweight="bold",
+            color=POPULATION_CLASS_COLORS[modulation_class],
+        )
+    for condition_index, condition in enumerate(conditions):
+        row_position = outer_grid[condition_index, 0].get_position(figure)
+        figure.text(
+            0.022,
+            (row_position.y0 + row_position.y1) / 2,
+            CONDITION_LABELS[condition],
+            rotation=90,
+            ha="center",
+            va="center",
+            fontsize=12,
+            fontweight="bold",
+            color=CONDITION_COLORS[condition],
+        )
+        for column, modulation_class in enumerate(classes):
+            units = grouped[(condition, modulation_class)]
+            display_units = units
+            if show_unit_psths and units:
+                complete_ids = waveform_summaries[
+                    (condition, modulation_class)
+                ]["complete_ids"]
+                display_units = [
+                    unit
+                    for unit in units
+                    if str(unit["metric"].observation_id) in complete_ids
+                ]
+            cell_grid = outer_grid[condition_index, column].subgridspec(
+                1,
+                2,
+                width_ratios=[3.5, 1.3],
+                wspace=0.12,
+            )
+            psth_axis = figure.add_subplot(cell_grid[0, 0])
+            waveform_axis = (
+                figure.add_subplot(cell_grid[0, 1])
+                if units
+                else None
+            )
+            class_color = POPULATION_CLASS_COLORS[modulation_class]
+            if not units:
+                psth_axis.set_facecolor("#FAFAFA")
+                psth_axis.set_xticks([])
+                psth_axis.set_yticks([])
+                for spine in psth_axis.spines.values():
+                    spine.set_color("#D1D5DB")
+                    spine.set_linewidth(0.7)
+                psth_axis.text(
+                    0.5,
+                    0.5,
+                    (
+                        "No eligible P1 units\n"
+                        f"at baseline ≥{minimum_baseline_rate_hz:g} Hz\n"
+                        "n = 0"
+                    ),
+                    transform=psth_axis.transAxes,
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                    color=class_color,
+                    fontweight="bold",
+                    linespacing=1.45,
+                )
+                continue
+            psth_axis.axvline(
+                0.0,
+                color="#8A4B08",
+                ls="--",
+                lw=1.0,
+                alpha=0.9,
+                zorder=7,
+            )
+            psth_axis.set_xlim(*DISPLAY_WINDOW_MS)
+            psth_axis.set_ylim(0, psth_axis_upper)
+            if show_unit_psths:
+                gaussian_matrix = np.asarray(
+                    [unit["gaussian_psth"] for unit in display_units],
+                    dtype=float,
+                )
+                summary = {
+                    "gaussian_mean": gaussian_matrix.mean(axis=0),
+                    "gaussian_sem": (
+                        gaussian_matrix.std(axis=0, ddof=1)
+                        / np.sqrt(len(gaussian_matrix))
+                        if len(gaussian_matrix) > 1
+                        else np.zeros(gaussian_matrix.shape[1], dtype=float)
+                    ),
+                }
+            else:
+                summary = summaries.get((condition, modulation_class))
+            if show_unit_psths:
+                individual_alpha = min(
+                    0.20,
+                    0.90 / np.sqrt(max(len(display_units), 1)),
+                )
+                for unit in display_units:
+                    psth_axis.plot(
+                        time_ms,
+                        unit["gaussian_psth"],
+                        color=class_color,
+                        lw=0.65,
+                        alpha=individual_alpha,
+                        zorder=1,
+                    )
+            psth_axis.plot(
+                time_ms,
+                summary["gaussian_mean"],
+                color=class_color,
+                lw=2.25 if show_unit_psths else 2.0,
+                zorder=4,
+            )
+            psth_axis.fill_between(
+                time_ms,
+                summary["gaussian_mean"] - summary["gaussian_sem"],
+                summary["gaussian_mean"] + summary["gaussian_sem"],
+                color=class_color,
+                alpha=0.10 if show_unit_psths else 0.18,
+                lw=0,
+                zorder=2,
+            )
+            psth_axis.plot(
+                led_time_ms,
+                led_baseline_y + led_amplitude_y * led_smoothed,
+                color="#D48806",
+                lw=1.35,
+                zorder=6,
+                solid_capstyle="round",
+            )
+            psth_axis.text(
+                DISPLAY_WINDOW_MS[1] - 0.5,
+                led_baseline_y + led_amplitude_y * 1.10,
+                "LED analog signal",
+                ha="right",
+                va="bottom",
+                fontsize=6.4,
+                fontweight="bold",
+                color="#9A5B00",
+                zorder=8,
+            )
+            psth_axis.text(
+                0.02,
+                0.94,
+                f"n={len(display_units)}",
+                transform=psth_axis.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9,
+                fontweight="bold",
+                color=class_color,
+            )
+            if condition_index == 0 and column == 0:
+                psth_axis.annotate(
+                    "Stimulus onset",
+                    xy=(0.0, psth_upper * 0.78),
+                    xytext=(9.0, psth_upper * 0.96),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    color="#8A4B08",
+                    arrowprops={
+                        "arrowstyle": "-|>",
+                        "color": "#8A4B08",
+                        "lw": 0.9,
+                    },
+                )
+            if waveform_axis is not None:
+                waveform_payload = waveform_summaries[
+                    (condition, modulation_class)
+                ]
+                waveform_summary = waveform_payload["summary"]
+                waveform_axis.set_facecolor("#FAFAFA")
+                waveform_axis.axhline(
+                    0.0, color="#D1D5DB", lw=0.55, zorder=0
+                )
+                waveform_axis.axvline(
+                    0.0, color="#9CA3AF", lw=0.55, ls=":", zorder=0
+                )
+                waveform_axis.plot(
+                    waveform_summary["aligned_time_ms"],
+                    waveform_summary["mean"],
+                    color=class_color,
+                    lw=2.0,
+                    zorder=4,
+                    solid_capstyle="round",
+                )
+                waveform_axis.set_title(
+                    (
+                        "Mean waveform\n"
+                        f"{waveform_payload['n_complete']}/{waveform_payload['n_total']} complete · "
+                        f"{waveform_payload['n_organoids']} organoids"
+                    ),
+                    loc="left",
+                    fontsize=6.5,
+                    fontweight="bold",
+                    color=class_color,
+                    pad=1.5,
+                )
+                waveform_axis.set_xlim(-0.82, 1.62)
+                waveform_axis.set_ylim(
+                    waveform_min - waveform_pad,
+                    waveform_max + waveform_pad,
+                )
+                waveform_axis.set_xticks([0.0, 1.0])
+                waveform_axis.set_yticks([-1.0, 0.0])
+                waveform_axis.tick_params(
+                    axis="both", labelsize=5.2, length=1.8, pad=1.2
+                )
+                waveform_axis.set_xlabel("ms from trough", fontsize=5.4, labelpad=1)
+                waveform_axis.set_ylabel("normalized", fontsize=5.4, labelpad=1)
+                for spine in waveform_axis.spines.values():
+                    spine.set_color("#9CA3AF")
+                    spine.set_linewidth(0.55)
+            psth_axis.set_ylabel("Firing rate (Hz)")
+            psth_axis.set_xlabel("Time from exact P1 onset (ms)")
+            _clean_axis(psth_axis)
+
+    figure.text(
+        0.50,
+        0.035,
+        "Organoid ID = recording × well, mean waveform shown as inset",
+        ha="center",
+        va="bottom",
+        fontsize=7.3,
+        color="#6B7280",
+    )
+
+    figure.suptitle(
+        "P1 population responses by modulation class and opsin condition",
+        x=0.06,
+        y=0.985,
+        ha="left",
+        fontsize=15,
+        fontweight="bold",
+    )
+    figure.text(
+        0.06,
+        0.925,
+        (
+            f"Baseline ≥{minimum_baseline_rate_hz:g} Hz · 50 P1 trials/unit · display −10 to +45 ms · "
+            "population mean Gaussian PSTH (σ=1.5 ms) ± SEM · dashed line and arrow mark stimulus onset · "
+            "unit observations are not deduplicated across recordings"
+            + (
+                " · faint traces are the underlying individual-unit PSTHs"
+                " from the complete-waveform subset shown in each inset"
+                if show_unit_psths
+                else ""
+            )
+        ),
+        fontsize=8.6,
+        color="#4B5563",
+    )
+    for suffix, kwargs in [
+        ("png", {"dpi": 300}),
+        ("pdf", {}),
+    ]:
+        figure.savefig(
+            output_dir / f"{output_stem}.{suffix}",
+            bbox_inches="tight",
+            facecolor="white",
+            **kwargs,
+        )
+    plt.close(figure)
 
 
 def _render_contact_sheets(

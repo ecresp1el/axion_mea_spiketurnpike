@@ -1,0 +1,16 @@
+SLURM_JOB_ID=53506812
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL
+TTR90_CLASSIFIER_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/ttr90_canonical_negative_classifier
+Pooled units: 97
+Class counts: {'FS': 73, 'RS': 24}
+Panel A indeterminate canonical units: 55
+Representatives:
+representative_display_id cell_line source_platform                                                                                                                                                    recording well  unit_id
+                      FS1   CL32 PV           Lumos                                                        step1_nonlfp_th5_20260708_2_25_2026_129-8447_test(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None   C1        2
+                      FS2   CL32 PV           Lumos                       step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_6_18_2026_plate2_129-8445_129-8445_ventral_sosrs_2_opsin(000)_filter_200Hz-3kHz   D6        5
+                      RS1        H1        CytoView step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None   B1        2
+                      RS2   CL23 PV        CytoView step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz   A2       12
+Figures:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/lumos_ventral_unified_putative_fsrs_ttr90_confidence_organoid_level.png
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/lumos_ventral_unified_putative_fsrs_ttr90_confidence_organoid_level.pdf
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/lumos_ventral_unified_putative_fsrs_ttr90_confidence_organoid_level.svg

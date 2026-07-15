@@ -1023,7 +1023,9 @@ Output directory:
 This is the only output location for this plotting pipeline. It is overwritten
 atomically on each successful run and contains figure files only (`.png` and
 `.pdf`); no CSV, JSON, README, manifest, or intermediate output is written
-there. The former development-output directory has been removed.
+there. Candidate sheets remain at the folder root. All population figures are
+in the figure-only `Population Panels/` subfolder. The former
+development-output directory has been removed.
 
 Principal review files:
 
@@ -1110,7 +1112,7 @@ high-firing units and displayed examples do not receive extra weight. The plots
 show the mean raw 1-ms unit PSTH, mean Gaussian-smoothed unit PSTH
 (`sigma=1.5 ms`), and SEM across unit PSTHs.
 
-Population figures in `FINAL FIGS`:
+Population figures in `FINAL FIGS/Population Panels`:
 
 ```text
 first_pulse_50_population_raster_psth_by_modulation_class.pdf
@@ -1118,3 +1120,92 @@ first_pulse_50_population_raster_psth_by_modulation_class.png
 all_pulses_250_population_raster_psth_by_modulation_class.pdf
 all_pulses_250_population_raster_psth_by_modulation_class.png
 ```
+
+Matched condition-level population panels are also generated from every unit
+observation retained at baseline `>=1 Hz`, independent of modulation class:
+
+```text
+first_pulse_50_population_raster_psth_opsin_vs_no_opsin.pdf
+first_pulse_50_population_raster_psth_opsin_vs_no_opsin.png
+all_pulses_250_population_raster_psth_opsin_vs_no_opsin.pdf
+all_pulses_250_population_raster_psth_opsin_vs_no_opsin.png
+```
+
+Condition-panel population sizes and displayed raster rows are:
+
+```text
+P1 / BiVe3 Opsin:   157 units; 1,520 /  7,850 trials shown
+P1 / No Opsin:        9 units;    35 /    450 trials shown
+All-250 / BiVe3:    219 units; 9,584 / 54,750 trials shown
+All-250 / No Opsin:  21 units;   612 /  5,250 trials shown
+```
+
+The condition-level PSTHs use all trials, construct each unit PSTH first, and
+then average units equally within condition. Raster trial filtering remains a
+display-only choice.
+
+The compact submission-style P1 comparison is saved in the same folder as:
+
+```text
+final_opto_figs.pdf
+final_opto_figs.png
+final_opto_figs_with_unit_psths.pdf
+final_opto_figs_with_unit_psths.png
+```
+
+It is a single condition-by-class figure with two major rows (BiVe3 Opsin and
+No Opsin) and three columns (positive, negative, and non-modulated). Each
+populated cell contains only its Gaussian-smoothed (`sigma=1.5 ms`) population
+PSTH mean and unit-level SEM. Rasters, raw PSTH traces, baseline/response
+shading, and light-duration bands are omitted. A vertical dashed line marks
+exact stimulus onset, with a single arrow label in the first panel. At baseline
+`>=1 Hz`, the P1 class counts are BiVe3
+`4 positive / 6 negative / 147 non-modulated` and No Opsin `0 / 0 / 9`. Empty
+No-Opsin positive and negative cells are shown explicitly as `n=0` rather than
+silently omitted. Compact trough-aligned, trough-normalized best-PTP-channel
+waveforms are placed in dedicated sidecar inset axes beside every populated
+PSTH, so they never cover the PSTH data; the former standalone bottom waveform
+row has been removed. Each inset shows only the mean of the complete waveform
+traces, with no individual traces and no waveform SEM band. Insets are present
+for BiVe3 positive, negative, and non-modulated units and for No-Opsin
+non-modulated units. The No-Opsin positive and negative cells remain empty
+because their eligible population is `n=0`. One positive trace, `U0073` from C6 primary raw
+(Organoid 3), is excluded from the waveform display and waveform mean because
+its stored waveform is truncated at `+0.28 ms` after the trough (`28/61` finite
+samples). Complete-waveform counts are BiVe3 positive `3/4`, BiVe3 negative
+`6/6`, BiVe3 non-modulated `102/147`, and No-Opsin non-modulated `8/9`.
+This is a waveform-display quality exclusion only: `U0073` remains
+in the quantitative modulation classification and the positive population
+PSTH, so the P1 counts remain `4 / 6 / 147`.
+
+For this display only, the figure assigns `Organoid 1`, `Organoid 2`, and so on
+from the exact tuple `(recording, well)`. Filter-specific recording names keep
+the primary-raw and `200 Hz-3 kHz` versions as separate observations. The displayed
+positive waveform sources are Organoid 2/C6/filter, Organoid 4/E5/primary, and
+Organoid 10/B4/filter; Organoid 3/C6/primary is the truncated trace noted above.
+The negative waveform sources are Organoid
+1/B5/filter, Organoid 5/D6/filter, Organoid 6/E5/filter, Organoid 7/D6/primary,
+Organoid 8/E5/primary, and Organoid 9/B5/filter from a separate recording.
+These display labels do not deduplicate or otherwise alter the quantitative
+P1 modulation-class analysis.
+
+Class colors are fixed throughout this figure: positive is red, negative is
+blue, and non-modulated is black. The bottom annotation is
+`Organoid ID = recording × well, mean waveform shown as inset`.
+
+Every populated PSTH also carries the same pooled analog LED command trace in
+a reserved band at the top of the firing-rate axis. Per-recording command
+intensity is divided by its recorded maximum, recordings are averaged on the
+shared `0.1 ms` time grid, and the display trace is Gaussian-smoothed with
+`sigma=0.25 ms`. Its arbitrary display height is identical in all panels and
+is explicitly labeled `LED analog signal`; it is not interpreted against the
+firing-rate y-axis.
+
+`final_opto_figs` remains the clean population mean +/- SEM version.
+`final_opto_figs_with_unit_psths` is a companion rendering restricted to the
+complete-waveform N reported in each sidecar: BiVe3 positive `n=3`, BiVe3
+negative `n=6`, BiVe3 non-modulated `n=102`, and No-Opsin non-modulated `n=8`.
+Each included unit's Gaussian-smoothed PSTH is drawn as a faint class-colored
+trace, and both the heavier population mean and lower-opacity SEM are
+recomputed from that exact subset. The waveform sidecars, class colors, and LED
+analog trace are otherwise identical between the two files.

@@ -2305,3 +2305,35 @@ stderr: 0 bytes
 output:
 .../cytoview_unified_rsfs_activity_figure_20260710_20260710_150346/
 ```
+
+### Representative ACG/PTP readability and scale-bar pass
+
+The representative-unit cards now allocate substantially more vertical height
+to both the probability ACG and sampled spike-PTP stability strips. Additional
+vertical space separates the two strips, and their centered plotting width was
+expanded. Each ACG now has a lower-right `20 ms` horizontal scale and a
+right-margin probability scale. Each PTP-stability strip has a lower-right time
+scale (up to `2 min`) and a right-margin amplitude scale in microvolts. The
+right-side vertical bars sit outside the plotted data rather than obscuring it.
+
+The analysis hierarchy is unchanged and should be described explicitly:
+
+- panels C/E: one point per classified unit, with regional mean +/- SEM;
+- panels F-K: one point per recording-version/well organoid, after pooling the
+  retained classified SUA metrics within that well, with regional mean +/- SEM.
+
+Therefore the upper and lower firing summaries are not expected to match: they
+use different observational units and weighting. The bottom row is indeed the
+well/organoid-level summary; it is not a second unit- or channel-level view.
+
+Updated proof render:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/
+step1_nonlfp_th5_v5_ground_truth_latest/
+cytoview_unified_rsfs_activity_figure_20260710_20260713_140324/
+```
+
+The ACG, decompressed PTP-stability, C/E classified-unit, and F-K well-level
+source tables are identical to the prior `20260710_151120` render; this pass is
+display-only.

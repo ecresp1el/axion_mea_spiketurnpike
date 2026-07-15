@@ -1,0 +1,112 @@
+SLURM_JOB_ID=53506009
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/cytoview_dorsal_ventral_TTR90_FSRS_activity_comparison
+[1/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B1/postprocessed/block0_None_recording1.zarr (1 units)
+[2/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (4 units)
+[3/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B3/postprocessed/block0_None_recording1.zarr (1 units)
+[4/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_broadband_processor_raw/B1/postprocessed/block0_None_recording1.zarr (1 units)
+[5/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (1 units)
+[6/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (2 units)
+[7/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (1 units)
+[8/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B1/postprocessed/block0_None_recording1.zarr (2 units)
+[9/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/A3/postprocessed/block0_None_recording1.zarr (2 units)
+[10/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz/A1/postprocessed/block0_None_recording1.zarr (2 units)
+[11/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz/A3/postprocessed/block0_None_recording1.zarr (1 units)
+[12/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (3 units)
+[13/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B1/postprocessed/block0_None_recording1.zarr (4 units)
+[14/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B2/postprocessed/block0_None_recording1.zarr (4 units)
+[15/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/A2/postprocessed/block0_None_recording1.zarr (1 units)
+[16/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/A3/postprocessed/block0_None_recording1.zarr (2 units)
+[17/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/A2/postprocessed/block0_None_recording1.zarr (1 units)
+[18/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/A3/postprocessed/block0_None_recording1.zarr (1 units)
+[19/19] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/A2/postprocessed/block0_None_recording1.zarr (2 units)
+{
+  "generated_at": "2026-07-14T12:01:47",
+  "unit_count": 36,
+  "unit_counts": {
+    "dorsal_FS": 11,
+    "dorsal_RS": 2,
+    "ventral_FS": 11,
+    "ventral_RS": 12
+  },
+  "organoid_class_observation_counts": {
+    "dorsal_FS": 6,
+    "dorsal_RS": 2,
+    "ventral_FS": 5,
+    "ventral_RS": 8
+  },
+  "aggregation": "unit metrics averaged within best-template channel and class; channel means then averaged within recording/well organoid and class",
+  "processing_versions": "non-LFP recording versions retained as separate observations",
+  "p999_method": {
+    "source": "recomputed from spike times",
+    "gaussian_sigma_ms": 50.0,
+    "evaluation_bin_ms": 1.0,
+    "minimum_spikes": 30
+  },
+  "figures": [
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/cytoview_dorsal_ventral_TTR90_FSRS_activity_comparison/cytoview_dv_ttr90_fsrs_activity_comparison.png",
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/cytoview_dorsal_ventral_TTR90_FSRS_activity_comparison/cytoview_dv_ttr90_fsrs_activity_comparison.pdf",
+    "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/cytoview_dorsal_ventral_TTR90_FSRS_activity_comparison/cytoview_dv_ttr90_fsrs_activity_comparison.svg"
+  ]
+}
+
+Group summary:
+                                metric               metric_label metric_unit  region rs_fs_class  organoid_observation_count       mean       sem     median        q25        q75
+                 legacy_firing_rate_hz        Overall firing rate          Hz  dorsal          FS                           6   0.672091  0.164662   0.474590   0.414766   0.822457
+                 legacy_firing_rate_hz        Overall firing rate          Hz  dorsal          RS                           2   1.574278  0.620008   1.574278   1.264274   1.884282
+                 legacy_firing_rate_hz        Overall firing rate          Hz ventral          FS                           5   1.422883  0.287079   1.337741   0.991001   1.371901
+                 legacy_firing_rate_hz        Overall firing rate          Hz ventral          RS                           8   3.162451  0.839731   2.251417   1.607457   3.649460
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz  dorsal          FS                           6  14.073460  2.004439  12.409582  11.562112  13.201280
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz  dorsal          RS                           2  32.358162 22.648267  32.358162  21.034028  43.682295
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz ventral          FS                           5  18.273031  2.937641  16.224405  16.200610  21.506074
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz ventral          RS                           8  30.360319  6.852443  24.948993  12.634665  50.512914
+                    burst_rate_per_min                 Burst rate  bursts/min  dorsal          FS                           6   0.898644  0.368159   0.634766   0.471630   0.996399
+                    burst_rate_per_min                 Burst rate  bursts/min  dorsal          RS                           2   6.408973  6.276741   6.408973   3.270602   9.547344
+                    burst_rate_per_min                 Burst rate  bursts/min ventral          FS                           5   3.303581  1.071777   3.305785   2.975207   3.305785
+                    burst_rate_per_min                 Burst rate  bursts/min ventral          RS                           8   9.423888  3.368510   6.398319   1.318214  17.597988
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz  dorsal          FS                           5  21.895869  1.287546  22.048610  20.807788  23.320587
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz  dorsal          RS                           2  23.145118  3.272304  23.145118  21.508966  24.781271
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz ventral          FS                           5  26.404255  1.323263  25.927307  24.522500  26.091355
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz ventral          RS                           7  27.962668  2.220670  28.898412  24.618467  29.473833
+                mean_burst_duration_ms             Burst duration          ms  dorsal          FS                           5 178.894544 12.416843 176.215385 161.146667 199.776000
+                mean_burst_duration_ms             Burst duration          ms  dorsal          RS                           2 248.694054 97.734054 248.694054 199.827027 297.561081
+                mean_burst_duration_ms             Burst duration          ms ventral          FS                           5 147.692156  5.364719 152.081333 145.403043 155.621203
+                mean_burst_duration_ms             Burst duration          ms ventral          RS                           7 221.993347 23.694523 237.222921 165.337701 264.217690
+            mean_interburst_interval_s       Inter-burst interval           s  dorsal          FS                           5  73.359253 14.499566  71.549659  70.098920  98.931472
+            mean_interburst_interval_s       Inter-burst interval           s  dorsal          RS                           1   4.182958       NaN   4.182958   4.182958   4.182958
+            mean_interburst_interval_s       Inter-burst interval           s ventral          FS                           4  26.689006  6.409026  21.948410  20.028826  28.608591
+            mean_interburst_interval_s       Inter-burst interval           s ventral          RS                           7  18.080937  7.862280   9.691111   4.629482  22.144999
+                 mean_spikes_per_burst               Spikes/burst      spikes  dorsal          FS                           5   3.777179  0.195426   3.758333   3.666667   4.066667
+                 mean_spikes_per_burst               Spikes/burst      spikes  dorsal          RS                           2   5.783784  2.783784   5.783784   4.391892   7.175676
+                 mean_spikes_per_burst               Spikes/burst      spikes ventral          FS                           5   3.783207  0.276112   3.736254   3.559783   3.920000
+                 mean_spikes_per_burst               Spikes/burst      spikes ventral          RS                           7   6.416452  1.062727   6.432584   3.877469   8.531367
+
+Comparisons:
+                                metric               metric_label metric_unit           comparison    group_a    group_b  group_a_n  group_b_n  group_a_median  group_b_median  mann_whitney_u  p_value  fdr_bh_q
+                 legacy_firing_rate_hz        Overall firing rate          Hz      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          6          2        0.474590        1.574278             1.0 0.142857  0.500000
+                 legacy_firing_rate_hz        Overall firing rate          Hz     ventral_FS_vs_RS ventral_FS ventral_RS          5          8        1.337741        2.251417             7.0 0.065268  0.380952
+                 legacy_firing_rate_hz        Overall firing rate          Hz FS_dorsal_vs_ventral  dorsal_FS ventral_FS          6          5        0.474590        1.337741             5.0 0.082251  0.380952
+                 legacy_firing_rate_hz        Overall firing rate          Hz RS_dorsal_vs_ventral  dorsal_RS ventral_RS          2          8        1.574278        2.251417             4.0 0.400000  0.800000
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          6          2       12.409582       32.358162             6.0 1.000000  1.000000
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz     ventral_FS_vs_RS ventral_FS ventral_RS          5          8       16.224405       24.948993            14.0 0.435120  0.812225
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz FS_dorsal_vs_ventral  dorsal_FS ventral_FS          6          5       12.409582       16.224405             9.0 0.329004  0.717949
+inverse_isi_gaussian_temporal_p99_9_hz Smoothed inverse-ISI P99.9          Hz RS_dorsal_vs_ventral  dorsal_RS ventral_RS          2          8       32.358162       24.948993             7.0 0.888889  0.957265
+                    burst_rate_per_min                 Burst rate  bursts/min      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          6          2        0.634766        6.408973             5.0 0.857143  0.957265
+                    burst_rate_per_min                 Burst rate  bursts/min     ventral_FS_vs_RS ventral_FS ventral_RS          5          8        3.305785        6.398319            16.0 0.607914  0.957265
+                    burst_rate_per_min                 Burst rate  bursts/min FS_dorsal_vs_ventral  dorsal_FS ventral_FS          6          5        0.634766        3.305785             5.0 0.082139  0.380952
+                    burst_rate_per_min                 Burst rate  bursts/min RS_dorsal_vs_ventral  dorsal_RS ventral_RS          2          8        6.408973        6.398319             6.0 0.711111  0.957265
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          5          2       22.048610       23.145118             4.0 0.857143  0.957265
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz     ventral_FS_vs_RS ventral_FS ventral_RS          5          7       25.927307       28.898412            14.0 0.638889  0.957265
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz FS_dorsal_vs_ventral  dorsal_FS ventral_FS          5          5       22.048610       25.927307             2.0 0.031746  0.380952
+     mean_firing_rate_within_bursts_hz                  MFR/Burst          Hz RS_dorsal_vs_ventral  dorsal_RS ventral_RS          2          7       23.145118       28.898412             2.0 0.222222  0.622222
+                mean_burst_duration_ms             Burst duration          ms      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          5          2      176.215385      248.694054             4.0 0.857143  0.957265
+                mean_burst_duration_ms             Burst duration          ms     ventral_FS_vs_RS ventral_FS ventral_RS          5          7      152.081333      237.222921             3.0 0.017677  0.380952
+                mean_burst_duration_ms             Burst duration          ms FS_dorsal_vs_ventral  dorsal_FS ventral_FS          5          5      176.215385      152.081333            21.0 0.095238  0.380952
+                mean_burst_duration_ms             Burst duration          ms RS_dorsal_vs_ventral  dorsal_RS ventral_RS          2          7      248.694054      237.222921             8.0 0.888889  0.957265
+            mean_interburst_interval_s       Inter-burst interval           s      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          5          1       71.549659        4.182958             5.0 0.333333  0.717949
+            mean_interburst_interval_s       Inter-burst interval           s     ventral_FS_vs_RS ventral_FS ventral_RS          4          7       21.948410        9.691111            20.0 0.315152  0.717949
+            mean_interburst_interval_s       Inter-burst interval           s FS_dorsal_vs_ventral  dorsal_FS ventral_FS          5          4       71.549659       21.948410            18.0 0.063492  0.380952
+            mean_interburst_interval_s       Inter-burst interval           s RS_dorsal_vs_ventral  dorsal_RS ventral_RS          1          7        4.182958        9.691111             2.0 0.750000  0.957265
+                 mean_spikes_per_burst               Spikes/burst      spikes      dorsal_FS_vs_RS  dorsal_FS  dorsal_RS          5          2        3.758333        5.783784             5.0 1.000000  1.000000
+                 mean_spikes_per_burst               Spikes/burst      spikes     ventral_FS_vs_RS ventral_FS ventral_RS          5          7        3.736254        6.432584             9.0 0.202020  0.622222
+                 mean_spikes_per_burst               Spikes/burst      spikes FS_dorsal_vs_ventral  dorsal_FS ventral_FS          5          5        3.758333        3.736254            14.0 0.841270  0.957265
+                 mean_spikes_per_burst               Spikes/burst      spikes RS_dorsal_vs_ventral  dorsal_RS ventral_RS          2          7        5.783784        6.432584             5.0 0.666667  0.957265

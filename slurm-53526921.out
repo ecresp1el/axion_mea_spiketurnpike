@@ -1,0 +1,15 @@
+SLURM_JOB_ID=53526921
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714
+Selected representative units:
+rs_fs_class source_platform well  unit_id  ttr90_ms  acg_refractory_probability
+         FS           Lumos   B6        0  0.289134                         0.0
+         RS        CytoView   A3        5  0.771820                         0.0
+Figures:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714/lumos_ventral_putative_fsrs_ttr90_reformatted_FINAL.png
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714/lumos_ventral_putative_fsrs_ttr90_reformatted_FINAL.pdf
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714/lumos_ventral_putative_fsrs_ttr90_reformatted_FINAL.svg
+Waveform metric sources:
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714/lumos_ventral_putative_fsrs_ttr90_reformatted_FINAL_all_unit_waveform_metrics.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714/lumos_ventral_putative_fsrs_ttr90_reformatted_FINAL_waveform_metric_dictionary.csv
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/ventral_MGE_putative_FS_RS_TTR90_PCHIP_040_056_FINAL/reformatted_histogram_best_units_activity_grid_20260714/lumos_ventral_putative_fsrs_ttr90_reformatted_FINAL_all_waveform_metrics_pairwise_matrix.svg

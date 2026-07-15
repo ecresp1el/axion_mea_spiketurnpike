@@ -1,0 +1,479 @@
+SLURM_JOB_ID=53504318
+SOURCE_UNIT_METRICS=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_isi2ms_le3pct_20260710_071723/cytoview_dv_sua_spontaneous_activity_20260710_unit_metrics.csv
+OUTPUT_DIR=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL
+EXPECTED_UNIT_COUNT=74
+{
+  "generated_at": "2026-07-14T11:41:13",
+  "source_unit_metrics": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/jobs/step1_nonlfp_th5_v5_ground_truth_latest/cytoview_dv_sua_spontaneous_activity_20260710_template_ptp_ge10uV_isi2ms_le3pct_20260710_071723/cytoview_dv_sua_spontaneous_activity_20260710_unit_metrics.csv",
+  "source_sha256": "4f7668fb1809788eac9ebf42cad456bc7bb2bf1bf3213b158b28cf21c5d95f6b",
+  "region": "dorsal",
+  "unit_count": 74,
+  "recording_count": 9,
+  "recording_well_count": 16,
+  "selection": "exact region_call match; no additional unit exclusions",
+  "output_roster": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/roster/cytoview_dorsal_unit_roster.csv"
+}
+[1/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (2 roster units)
+[2/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B1/postprocessed/block0_None_recording1.zarr (1 roster units)
+[3/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (12 roster units)
+[4/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B3/postprocessed/block0_None_recording1.zarr (13 roster units)
+[5/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_broadband_processor_raw/B1/postprocessed/block0_None_recording1.zarr (5 roster units)
+[6/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_broadband_processor_raw/B2/postprocessed/block0_None_recording1.zarr (1 roster units)
+[7/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (5 roster units)
+[8/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (3 roster units)
+[9/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B1/postprocessed/block0_None_recording1.zarr (4 roster units)
+[10/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B2/postprocessed/block0_None_recording1.zarr (1 roster units)
+[11/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (5 roster units)
+[12/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B2/postprocessed/block0_None_recording1.zarr (2 roster units)
+[13/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (8 roster units)
+[14/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B1/postprocessed/block0_None_recording1.zarr (6 roster units)
+[15/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B2/postprocessed/block0_None_recording1.zarr (2 roster units)
+[16/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B3/postprocessed/block0_None_recording1.zarr (4 roster units)
+
+Transition summary:
+classification_transition  unit_count
+                   FS->FS           5
+                   FS->RS           1
+         FS->unclassified           4
+                   RS->FS           2
+                   RS->RS          39
+         RS->unclassified          23
+Changed units: 30/74
+Metrics: /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/classification_audit/robust_pchip_unit_metrics.csv
+Traces: /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/classification_audit/robust_pchip_waveform_traces.csv.gz
+Provenance: /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/classification_audit/robust_pchip_provenance.json
+[1/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (2 units)
+[2/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_133-1555_h1_dorsal_and_ventral_exp17_3(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B1/postprocessed/block0_None_recording1.zarr (1 units)
+[3/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (12 units)
+[4/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_h1_134-0150_h1_dorsal_and_ventral_exp17_2(001)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B3/postprocessed/block0_None_recording1.zarr (13 units)
+[5/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_broadband_processor_raw/B1/postprocessed/block0_None_recording1.zarr (5 units)
+[6/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_broadband_processor_raw/B2/postprocessed/block0_None_recording1.zarr (1 units)
+[7/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (5 units)
+[8/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (3 units)
+[9/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B1/postprocessed/block0_None_recording1.zarr (4 units)
+[10/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp_None/B2/postprocessed/block0_None_recording1.zarr (1 units)
+[11/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B1/postprocessed/block0_None_recording1.zarr (5 units)
+[12/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B2/postprocessed/block0_None_recording1.zarr (2 units)
+[13/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_filter_200Hz-3kHz/B3/postprocessed/block0_None_recording1.zarr (8 units)
+[14/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B1/postprocessed/block0_None_recording1.zarr (6 units)
+[15/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B2/postprocessed/block0_None_recording1.zarr (2 units)
+[16/16] /nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/results/aind/step1_nonlfp_th5_20260708_incoming_manny4tbum_20260706_5_28_26_pvreporter_134-0150_pv_reporter_cl23_dorsal_and_ventral_exp17_2_round2(000)_primary_Neural_Broadband_hp_0.1_Hz_IIR_lp/B3/postprocessed/block0_None_recording1.zarr (4 units)
+
+Failure modes among strict-unclassified units:
+                          failure_mode  unit_count
+  rescued_valid_peak_with_aligned_mean           1
+         snippet_truncated_before_peak           0
+           waveform_monotonic_recovery           5
+        flat_recovery_no_local_maximum           0
+candidate_peak_below_rebound_threshold           2
+                peak_at_right_boundary           0
+              multiple_competing_peaks           0
+            positive_polarity_waveform          19
+                     alignment_failure           0
+         template_snippet_disagreement           0
+                                 other           0
+
+Summary:
+{
+  "unit_count": 74,
+  "strict_unclassified_count": 27,
+  "failure_mode_counts_for_strict_unclassified": {
+    "rescued_valid_peak_with_aligned_mean": 1,
+    "snippet_truncated_before_peak": 0,
+    "waveform_monotonic_recovery": 5,
+    "flat_recovery_no_local_maximum": 0,
+    "candidate_peak_below_rebound_threshold": 2,
+    "peak_at_right_boundary": 0,
+    "multiple_competing_peaks": 0,
+    "positive_polarity_waveform": 19,
+    "alignment_failure": 0,
+    "template_snippet_disagreement": 0,
+    "other": 0
+  },
+  "window": {
+    "nbefore_values": [
+      12
+    ],
+    "nafter_values": [
+      25
+    ],
+    "total_sample_values": [
+      37
+    ],
+    "minimum_available_after_trough_ms": 1.5199999999999998,
+    "minimum_available_after_aligned_mean_trough_ms": 1.44,
+    "below_1ms_count": 0,
+    "below_1_5ms_count": 0,
+    "aligned_mean_below_1ms_count": 0,
+    "aligned_mean_below_1_5ms_count": 15,
+    "aligned_mean_full_1_2ms_search_plus_edge_guard_available_count": 74,
+    "strict_unclassified_rising_at_final_sample": 1,
+    "strict_unclassified_rising_at_final_sample_by_representation": {
+      "template": 5,
+      "unaligned_mean": 5,
+      "integer_aligned_mean": 1,
+      "fractional_aligned_mean": 1,
+      "fractional_aligned_median": 2,
+      "fractional_aligned_trimmed_mean": 1
+    }
+  },
+  "channel_and_polarity": {
+    "channel_axis_mismatch_count": 0,
+    "template_vs_mean_best_channel_differs_count": 0,
+    "template_vs_median_best_channel_differs_count": 0,
+    "positive_polarity_count": 30,
+    "aligned_mean_positive_polarity_count": 30,
+    "strict_unclassified_aligned_mean_positive_polarity_count": 19,
+    "template_vs_mean_best_channel_differs_percent": 0.0,
+    "template_vs_median_best_channel_differs_percent": 0.0,
+    "analyzer_sparsity_present_count": 74,
+    "recording_class_names": [
+      "spikeinterface.core.binaryfolder.BinaryFolderRecording"
+    ]
+  },
+  "alignment": {
+    "median_fractional_alignment_correlation": 0.9405041587660958,
+    "units_with_any_gt1_sample_crosscorr_integer_difference": 63,
+    "units_with_gt1_sample_difference_for_gt10pct_snippets": 8
+  },
+  "template_vs_snippet": {
+    "median_template_aligned_mean_correlation": 0.9990454868219361,
+    "median_template_aligned_mean_nrmse": 0.013815003817816874,
+    "median_template_aligned_median_correlation": 0.9980380529363246,
+    "median_template_aligned_median_nrmse": 0.02249467777244385,
+    "high_template_mean_disagreement_count": 1,
+    "template_has_peak_mean_does_not_count": 2,
+    "mean_has_peak_template_does_not_count": 1,
+    "template_and_mean_both_lack_peak_count": 42
+  },
+  "representation_outcomes": {
+    "all_representations": {
+      "template": {
+        "valid_peak_count": 31,
+        "class_counts": {
+          "FS": 2,
+          "RS": 29,
+          "unclassified": 43
+        },
+        "strict_unclassified_valid_peak_count": 1,
+        "transition_counts_from_original_labels": {
+          "FS\u2192FS": 1,
+          "FS\u2192unclassified": 9,
+          "RS\u2192FS": 1,
+          "RS\u2192RS": 29,
+          "RS\u2192unclassified": 34
+        },
+        "changed_count_including_unclassified": 44,
+        "direct_FS_RS_switcher_count": 1
+      },
+      "unaligned_mean": {
+        "valid_peak_count": 31,
+        "class_counts": {
+          "FS": 2,
+          "RS": 29,
+          "unclassified": 43
+        },
+        "strict_unclassified_valid_peak_count": 1,
+        "transition_counts_from_original_labels": {
+          "FS\u2192FS": 1,
+          "FS\u2192unclassified": 9,
+          "RS\u2192FS": 1,
+          "RS\u2192RS": 29,
+          "RS\u2192unclassified": 34
+        },
+        "changed_count_including_unclassified": 44,
+        "direct_FS_RS_switcher_count": 1
+      },
+      "integer_aligned_mean": {
+        "valid_peak_count": 32,
+        "class_counts": {
+          "FS": 1,
+          "RS": 31,
+          "unclassified": 42
+        },
+        "strict_unclassified_valid_peak_count": 1,
+        "transition_counts_from_original_labels": {
+          "FS\u2192FS": 1,
+          "FS\u2192unclassified": 9,
+          "RS\u2192RS": 31,
+          "RS\u2192unclassified": 33
+        },
+        "changed_count_including_unclassified": 42,
+        "direct_FS_RS_switcher_count": 0
+      },
+      "fractional_aligned_mean": {
+        "valid_peak_count": 30,
+        "class_counts": {
+          "FS": 1,
+          "RS": 29,
+          "unclassified": 44
+        },
+        "strict_unclassified_valid_peak_count": 1,
+        "transition_counts_from_original_labels": {
+          "FS\u2192FS": 1,
+          "FS\u2192unclassified": 9,
+          "RS\u2192RS": 29,
+          "RS\u2192unclassified": 35
+        },
+        "changed_count_including_unclassified": 44,
+        "direct_FS_RS_switcher_count": 0
+      },
+      "fractional_aligned_median": {
+        "valid_peak_count": 30,
+        "class_counts": {
+          "FS": 2,
+          "RS": 28,
+          "unclassified": 44
+        },
+        "strict_unclassified_valid_peak_count": 1,
+        "transition_counts_from_original_labels": {
+          "FS\u2192FS": 1,
+          "FS\u2192unclassified": 9,
+          "RS\u2192FS": 1,
+          "RS\u2192RS": 28,
+          "RS\u2192unclassified": 35
+        },
+        "changed_count_including_unclassified": 45,
+        "direct_FS_RS_switcher_count": 1
+      },
+      "fractional_aligned_trimmed_mean": {
+        "valid_peak_count": 30,
+        "class_counts": {
+          "FS": 1,
+          "RS": 29,
+          "unclassified": 44
+        },
+        "strict_unclassified_valid_peak_count": 1,
+        "transition_counts_from_original_labels": {
+          "FS\u2192FS": 1,
+          "FS\u2192unclassified": 9,
+          "RS\u2192RS": 29,
+          "RS\u2192unclassified": 35
+        },
+        "changed_count_including_unclassified": 44,
+        "direct_FS_RS_switcher_count": 0
+      }
+    },
+    "strict_unclassified_rescued_by_aligned_mean": 1,
+    "strict_unclassified_rescued_by_trimmed_mean": 1,
+    "lost_only_when_using_median": 2,
+    "strict_unclassified_lost_only_when_using_median": 0,
+    "strict_unclassified_requires_polarity_or_orientation_review": 19,
+    "strict_unclassified_rescued_by_any_representation_after_polarity_priority": 1,
+    "strict_unclassified_valid_only_under_integer_or_unaligned_representation": 0,
+    "mean_valid_median_invalid_all_units": 2,
+    "trimmed_mean_valid_arithmetic_mean_invalid_all_units": 0,
+    "genuinely_unmeasurable_after_all_checks": 11,
+    "strict_unclassified_genuinely_unmeasurable_after_all_checks": 7
+  },
+  "signal_processing": {
+    "snippet_source": "persisted random_spikes selections from each SortingAnalyzer",
+    "baseline_operation": "constant per-channel median subtraction from the pre-spike samples; this changes waveform offset but not peak or trough timing",
+    "additional_filtering_during_audit": false,
+    "non_LFP_processing_variant_breakdown": {
+      "broadband_processor_raw": {
+        "unit_count": 6,
+        "strict_unclassified_count": 2,
+        "strict_unclassified_rescued_by_aligned_mean": 0,
+        "strict_unclassified_rescued_by_trimmed_mean": 0,
+        "strict_unclassified_polarity_or_orientation_review": 2,
+        "strict_unclassified_rising_at_final_sample": 0,
+        "strict_unclassified_genuinely_unmeasurable": 0,
+        "template_vs_mean_best_channel_differs_count": 0
+      },
+      "filter_200Hz-3kHz": {
+        "unit_count": 37,
+        "strict_unclassified_count": 10,
+        "strict_unclassified_rescued_by_aligned_mean": 0,
+        "strict_unclassified_rescued_by_trimmed_mean": 0,
+        "strict_unclassified_polarity_or_orientation_review": 10,
+        "strict_unclassified_rising_at_final_sample": 0,
+        "strict_unclassified_genuinely_unmeasurable": 0,
+        "template_vs_mean_best_channel_differs_count": 0
+      },
+      "primary_hp0.1_IIR_lp": {
+        "unit_count": 12,
+        "strict_unclassified_count": 6,
+        "strict_unclassified_rescued_by_aligned_mean": 0,
+        "strict_unclassified_rescued_by_trimmed_mean": 0,
+        "strict_unclassified_polarity_or_orientation_review": 3,
+        "strict_unclassified_rising_at_final_sample": 1,
+        "strict_unclassified_genuinely_unmeasurable": 3,
+        "template_vs_mean_best_channel_differs_count": 0
+      },
+      "primary_hp0.1_IIR_lp_None": {
+        "unit_count": 19,
+        "strict_unclassified_count": 9,
+        "strict_unclassified_rescued_by_aligned_mean": 1,
+        "strict_unclassified_rescued_by_trimmed_mean": 1,
+        "strict_unclassified_polarity_or_orientation_review": 4,
+        "strict_unclassified_rising_at_final_sample": 0,
+        "strict_unclassified_genuinely_unmeasurable": 4,
+        "template_vs_mean_best_channel_differs_count": 0
+      }
+    },
+    "pchip_role": "continuous landmark estimation after waveform aggregation only; not an increase in acquisition sampling rate"
+  },
+  "config": {
+    "sampling_frequency_hz": 12500.0,
+    "fs_cutoff_ms": 0.5,
+    "dense_step_ms": 0.005,
+    "search_start_after_trough_ms": 0.08,
+    "search_end_after_trough_ms": 1.2,
+    "edge_guard_ms": 0.08,
+    "min_recovery_fraction": 0.25,
+    "min_prominence_fraction": 0.03,
+    "min_prominence_uV": 0.25,
+    "trimmed_fraction_each_tail": 0.1,
+    "rising_edge_min_slope_uV_per_ms": 0.5,
+    "alignment_failure_correlation": 0.5,
+    "template_disagreement_correlation": 0.8,
+    "template_disagreement_nrmse": 0.5,
+    "competing_peak_prominence_ratio": 0.8,
+    "random_seed": 20260714
+  },
+  "generated_at": "2026-07-14T11:43:47",
+  "outputs": {
+    "unit_metrics": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/waveform_source_audit/waveform_source_audit_unit_metrics.csv",
+    "representations": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/waveform_source_audit/waveform_source_audit_representations.csv.gz",
+    "failure_mode_counts": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/waveform_source_audit/waveform_source_audit_failure_mode_counts.csv",
+    "diagnostic_selection": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/waveform_source_audit/waveform_source_audit_diagnostic_selection.csv",
+    "diagnostic_pdf": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/waveform_source_audit/waveform_source_audit_diagnostics.pdf"
+  }
+}
+{
+  "unit_denominator": 74,
+  "fs_cutoff_ms_applied_for_requested_comparison": 0.5,
+  "morphology_counts": {
+    "canonical_negative_trough": 44,
+    "positive_first_atypical": 28,
+    "positive_dominant_post_trough_atypical": 2
+  },
+  "canonical_negative_trough_count": 44,
+  "positive_first_or_atypical_unclassified_count": 30,
+  "valid_90pct_crossing_count_within_canonical_group": 44,
+  "class_counts_same_unit_denominator": {
+    "raw_discrete_global_peak": {
+      "FS": 1,
+      "RS": 43,
+      "unclassified": 30
+    },
+    "pchip_global_peak": {
+      "FS": 1,
+      "RS": 43,
+      "unclassified": 30
+    },
+    "ttr90": {
+      "FS": 25,
+      "RS": 19,
+      "unclassified": 30
+    }
+  },
+  "ttr90_confidence_category_counts_same_unit_denominator": {
+    "sampling_limited_borderline": 31,
+    "unclassified_atypical": 30,
+    "high_confidence_FS_like": 11,
+    "high_confidence_RS_like": 2
+  },
+  "ttr90_confidence_anchors_ms": {
+    "high_confidence_FS_like_maximum_inclusive": 0.4,
+    "sampling_limited_borderline_interval": ">0.40 and <0.64",
+    "raw_sampling_equivalent_borderline_bins_ms": [
+      0.48,
+      0.56
+    ],
+    "high_confidence_RS_like_minimum_inclusive": 0.64
+  },
+  "previously_strict_unclassified": {
+    "unit_count": 27,
+    "canonical_negative_trough_count": 8,
+    "newly_measurable_by_ttr90_count": 8,
+    "ttr90_FS_count": 0,
+    "ttr90_RS_count": 8,
+    "remaining_unclassified_count": 19,
+    "confidence_category_counts": {
+      "unclassified_atypical": 19,
+      "sampling_limited_borderline": 6,
+      "high_confidence_RS_like": 2
+    }
+  },
+  "pchip_global_peak_to_ttr90_direct_transitions": [
+    {
+      "from_label": "FS",
+      "to_label": "FS",
+      "unit_count": 1
+    },
+    {
+      "from_label": "RS",
+      "to_label": "FS",
+      "unit_count": 24
+    },
+    {
+      "from_label": "RS",
+      "to_label": "RS",
+      "unit_count": 19
+    },
+    {
+      "from_label": "unclassified",
+      "to_label": "unclassified",
+      "unit_count": 30
+    }
+  ],
+  "timing_summary_canonical_ms": {
+    "raw_discrete_trough_to_global_peak_ms": {
+      "median": 0.8,
+      "q25": 0.6400000000000001,
+      "q75": 0.96
+    },
+    "pchip_trough_to_global_peak_ms": {
+      "median": 0.8,
+      "q25": 0.6400000000000001,
+      "q75": 0.96
+    },
+    "ttr90_ms": {
+      "median": 0.4718779884942792,
+      "q25": 0.40019123810960844,
+      "q75": 0.5539428350416615
+    }
+  },
+  "cutoff_transfer_assessment": {
+    "eligible_canonical_unit_count": 44,
+    "direct_cutoff_ms": 0.5,
+    "direct_cutoff_agreement_with_pchip_global_peak_class": 0.45454545454545453,
+    "direct_cutoff_confusion_against_pchip_global_peak": {
+      "FS_to_FS": 1,
+      "FS_to_RS": 0,
+      "RS_to_FS": 24,
+      "RS_to_RS": 19
+    },
+    "best_empirical_ttr90_threshold_to_match_pchip_global_peak_ms": 0.26019321354089553,
+    "best_empirical_threshold_balanced_accuracy": 1.0,
+    "best_empirical_threshold_accuracy": 1.0,
+    "best_empirical_threshold_confusion": {
+      "FS_to_FS": 1,
+      "FS_to_RS": 0,
+      "RS_to_FS": 0,
+      "RS_to_RS": 43
+    },
+    "median_pchip_peak_minus_ttr90_ms": 0.3283516489083833,
+    "comparison_note": "The direct 0.5-ms TTR90 split is retained as a separate sensitivity comparison. The primary TTR90 interpretation uses the supplied confidence anchors of <=0.40 ms and >=0.64 ms."
+  },
+  "config": {
+    "sampling_frequency_hz": 12500.0,
+    "fs_cutoff_ms": 0.5,
+    "dense_step_ms": 0.005,
+    "central_trough_radius_ms": 0.4,
+    "post_window_start_ms": 0.08,
+    "post_window_end_ms": 1.2,
+    "rebound_fraction": 0.9,
+    "high_confidence_fs_max_ms": 0.4,
+    "high_confidence_rs_min_ms": 0.64
+  },
+  "generated_at": "2026-07-14T11:43:57",
+  "outputs": {
+    "unit_metrics": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_unit_metrics.csv",
+    "dense_pchip_traces": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_pchip_traces.csv.gz",
+    "transitions": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_transitions.csv",
+    "overlays_pdf": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/FINAL FIG 2/Population Panels/dorsal_forebrain_putative_FS_RS_TTR90_classifier_FINAL/ttr90_canonical_negative_classifier/ttr90_canonical_negative_overlays.pdf"
+  }
+}
