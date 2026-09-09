@@ -13,13 +13,67 @@ if str(SRC_ROOT) not in sys.path:
 
 from axion_mea.spontaneous_activity import (  # noqa: E402
     BurstDetectionParameters,
+    count_burst_episodes,
+    detect_negative_threshold_events,
     detect_bursts,
+    mean_pairwise_spike_time_tiling_coefficient,
+    spike_time_tiling_coefficient,
     summarize_smoothed_inverse_isi_rate,
     summarize_unit_activity,
 )
 
 
 class SpontaneousActivityTests(unittest.TestCase):
+    def test_count_burst_episodes_consolidates_gaps_below_minimum(self) -> None:
+        parameters = BurstDetectionParameters()
+        spikes = np.asarray(
+            [0.0, 0.05, 0.10, 1.0, 1.05, 1.10, 3.1, 3.15, 3.20]
+        )
+        events = detect_bursts(spikes, parameters)
+
+        self.assertEqual(len(events), 3)
+        self.assertEqual(
+            count_burst_episodes(events, min_interburst_interval_ms=2000.0),
+            2,
+        )
+
+    def test_negative_threshold_detector_uses_local_minima_and_refractory_period(self) -> None:
+        trace = np.zeros(30, dtype=float)
+        trace[[5, 7, 20]] = [-6.0, -8.0, -7.0]
+        events = detect_negative_threshold_events(
+            trace,
+            sampling_frequency_hz=1000.0,
+            threshold_uV=-5.0,
+            refractory_period_ms=5.0,
+        )
+
+        self.assertEqual(events.tolist(), [7, 20])
+
+    def test_sttc_is_one_for_identical_spike_trains(self) -> None:
+        spikes = np.asarray([0.2, 1.0, 2.7, 4.9])
+        value = spike_time_tiling_coefficient(spikes, spikes.copy(), 5.0)
+
+        self.assertTrue(np.isclose(value, 1.0))
+
+    def test_sttc_is_symmetric_and_empty_pairs_are_undefined(self) -> None:
+        spikes_a = np.asarray([0.2, 1.0, 2.7, 4.9])
+        spikes_b = np.asarray([0.22, 1.04, 3.5])
+        ab = spike_time_tiling_coefficient(spikes_a, spikes_b, 5.0)
+        ba = spike_time_tiling_coefficient(spikes_b, spikes_a, 5.0)
+
+        self.assertTrue(np.isclose(ab, ba))
+        self.assertTrue(np.isnan(spike_time_tiling_coefficient(spikes_a, np.asarray([]), 5.0)))
+
+    def test_mean_pairwise_sttc_reports_contributing_pairs(self) -> None:
+        spikes = np.asarray([0.2, 1.0, 2.7, 4.9])
+        value, pair_count = mean_pairwise_spike_time_tiling_coefficient(
+            [spikes, spikes.copy(), np.asarray([])],
+            5.0,
+        )
+
+        self.assertEqual(pair_count, 1)
+        self.assertTrue(np.isclose(value, 1.0))
+
     def test_smoothed_inverse_isi_rate_requires_minimum_spikes(self) -> None:
         summary = summarize_smoothed_inverse_isi_rate(
             np.linspace(0.0, 2.8, 29),

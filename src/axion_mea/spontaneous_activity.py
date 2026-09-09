@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,137 @@ class BurstEvent:
 
     def to_dict(self) -> dict[str, int | float]:
         return asdict(self)
+
+
+def detect_negative_threshold_events(
+    trace_uV: np.ndarray,
+    sampling_frequency_hz: float,
+    threshold_uV: float,
+    *,
+    refractory_period_ms: float = 1.0,
+) -> np.ndarray:
+    """Detect negative local minima below a voltage threshold.
+
+    This is a channel-level multiunit event detector, not spike sorting. The
+    returned integer sample indices are separated by at least the requested
+    refractory period.
+    """
+
+    trace = np.asarray(trace_uV, dtype=float)
+    if trace.ndim != 1:
+        raise ValueError("trace_uV must be one-dimensional")
+    if not np.isfinite(trace).all():
+        raise ValueError("trace_uV contains non-finite values")
+    if not np.isfinite(sampling_frequency_hz) or sampling_frequency_hz <= 0:
+        raise ValueError("sampling_frequency_hz must be finite and > 0")
+    if not np.isfinite(threshold_uV):
+        raise ValueError("threshold_uV must be finite")
+    if not np.isfinite(refractory_period_ms) or refractory_period_ms <= 0:
+        raise ValueError("refractory_period_ms must be finite and > 0")
+    refractory_samples = max(
+        1,
+        int(round(refractory_period_ms / 1000.0 * sampling_frequency_hz)),
+    )
+    peaks, _ = find_peaks(
+        -trace,
+        height=-float(threshold_uV),
+        distance=refractory_samples,
+    )
+    return peaks.astype(np.int64, copy=False)
+
+
+def spike_time_tiling_coefficient(
+    spike_times_a_s: np.ndarray,
+    spike_times_b_s: np.ndarray,
+    recording_duration_s: float,
+    *,
+    coincidence_window_ms: float = 50.0,
+) -> float:
+    """Return the pairwise spike-time tiling coefficient (STTC).
+
+    STTC measures spike-time synchrony while correcting for the fraction of
+    the recording covered by coincidence windows. Empty spike trains do not
+    define a pairwise synchrony value and return ``nan``.
+    """
+
+    spikes_a = _validated_spike_times(spike_times_a_s)
+    spikes_b = _validated_spike_times(spike_times_b_s)
+    if not np.isfinite(recording_duration_s) or recording_duration_s <= 0:
+        raise ValueError("recording_duration_s must be finite and > 0")
+    if not np.isfinite(coincidence_window_ms) or coincidence_window_ms <= 0:
+        raise ValueError("coincidence_window_ms must be finite and > 0")
+    if spikes_a.size == 0 or spikes_b.size == 0:
+        return np.nan
+    if spikes_a[0] < 0 or spikes_b[0] < 0:
+        raise ValueError("spike times must be >= 0")
+    if spikes_a[-1] > recording_duration_s or spikes_b[-1] > recording_duration_s:
+        raise ValueError("spike times must not exceed recording_duration_s")
+
+    delta_s = coincidence_window_ms / 1000.0
+    pa = _fraction_spikes_within_delta(spikes_a, spikes_b, delta_s)
+    pb = _fraction_spikes_within_delta(spikes_b, spikes_a, delta_s)
+    ta = _fraction_time_tiled(spikes_a, recording_duration_s, delta_s)
+    tb = _fraction_time_tiled(spikes_b, recording_duration_s, delta_s)
+    terms = []
+    for proportion, tiled in ((pa, tb), (pb, ta)):
+        denominator = 1.0 - proportion * tiled
+        if np.isclose(denominator, 0.0):
+            terms.append(1.0 if np.isclose(proportion, 1.0) else np.nan)
+        else:
+            terms.append((proportion - tiled) / denominator)
+    return float(np.nanmean(terms)) if np.isfinite(terms).any() else np.nan
+
+
+def mean_pairwise_spike_time_tiling_coefficient(
+    spike_trains_s: list[np.ndarray],
+    recording_duration_s: float,
+    *,
+    coincidence_window_ms: float = 50.0,
+) -> tuple[float, int]:
+    """Return mean pairwise STTC and the number of contributing unit pairs."""
+
+    values = []
+    for index, spikes_a in enumerate(spike_trains_s):
+        for spikes_b in spike_trains_s[index + 1 :]:
+            value = spike_time_tiling_coefficient(
+                spikes_a,
+                spikes_b,
+                recording_duration_s,
+                coincidence_window_ms=coincidence_window_ms,
+            )
+            if np.isfinite(value):
+                values.append(value)
+    return (_mean_or_nan(np.asarray(values, dtype=float)), len(values))
+
+
+def count_burst_episodes(
+    burst_events: list[BurstEvent],
+    *,
+    min_interburst_interval_ms: float,
+) -> int:
+    """Count burst episodes after consolidating closely spaced raw bursts.
+
+    Each accepted ISI-defined burst starts a new episode only when its start is
+    at least ``min_interburst_interval_ms`` after the end of the current
+    episode. This leaves the accepted bursts themselves unchanged, so their
+    individual durations can still be summarized independently.
+    """
+
+    if not np.isfinite(min_interburst_interval_ms) or min_interburst_interval_ms < 0:
+        raise ValueError("min_interburst_interval_ms must be finite and >= 0")
+    if not burst_events:
+        return 0
+
+    minimum_gap_s = min_interburst_interval_ms / 1000.0
+    episode_count = 1
+    episode_end_s = float(burst_events[0].end_time_s)
+    for event in burst_events[1:]:
+        if float(event.start_time_s) - episode_end_s >= minimum_gap_s:
+            episode_count += 1
+            episode_end_s = float(event.end_time_s)
+        else:
+            episode_end_s = max(episode_end_s, float(event.end_time_s))
+    return episode_count
 
 
 def summarize_smoothed_inverse_isi_rate(
@@ -221,6 +353,42 @@ def _validated_spike_times(spike_times_s: np.ndarray) -> np.ndarray:
     if spikes.size > 1 and np.any(np.diff(spikes) < 0):
         raise ValueError("spike_times_s must be sorted")
     return spikes
+
+
+def _fraction_spikes_within_delta(
+    source_spikes: np.ndarray,
+    target_spikes: np.ndarray,
+    delta_s: float,
+) -> float:
+    insertion = np.searchsorted(target_spikes, source_spikes)
+    right = np.minimum(insertion, target_spikes.size - 1)
+    left = np.maximum(insertion - 1, 0)
+    distance = np.minimum(
+        np.abs(source_spikes - target_spikes[left]),
+        np.abs(source_spikes - target_spikes[right]),
+    )
+    return float(np.mean(distance <= delta_s))
+
+
+def _fraction_time_tiled(
+    spikes: np.ndarray,
+    recording_duration_s: float,
+    delta_s: float,
+) -> float:
+    starts = np.maximum(0.0, spikes - delta_s)
+    stops = np.minimum(recording_duration_s, spikes + delta_s)
+    covered_s = 0.0
+    current_start = float(starts[0])
+    current_stop = float(stops[0])
+    for start, stop in zip(starts[1:], stops[1:], strict=True):
+        if start <= current_stop:
+            current_stop = max(current_stop, float(stop))
+        else:
+            covered_s += current_stop - current_start
+            current_start = float(start)
+            current_stop = float(stop)
+    covered_s += current_stop - current_start
+    return float(covered_s / recording_duration_s)
 
 
 def _mean_or_nan(values: np.ndarray) -> float:
