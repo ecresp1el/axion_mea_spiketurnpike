@@ -148,6 +148,57 @@ is suitable for conversion and preparation but not GPU spike sorting. After
 sorting, retain the Kilosort spike times/clusters alongside that readiness
 manifest and join spike times to `events.csv` for stimulus-locked analyses.
 
+## Great Lakes staging status
+
+On 2026-09-15, the complete standardized sorter-input archive was transferred
+from the Mac to Great Lakes. The transfer contains 114 validated recordings
+(about 100 GiB): 59-channel lossless int32 binaries, per-recording geometry and
+event tables, preparation manifests, and the archive-level ledger.
+
+Great Lakes input root:
+
+```text
+/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/mcs_sorting_inputs
+```
+
+The Mac's bundled rsync is an older version and does not support
+`--info=progress2` or necessarily `--append-verify`. The compatible, resumable
+command used for staging was:
+
+```bash
+rsync -aH -P \
+  --exclude='*.int16.bin' \
+  '/Volumes/MannySSD/final_chemogenetics_raw_data_2026/mcs_sorting_inputs/' \
+  'elcrespo@greatlakes.arc-ts.umich.edu:/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/mcs_sorting_inputs/'
+```
+
+`-P` retains partial files and reports progress. The excluded int16 file is a
+failed pilot artifact; all 114 validated sorter binaries are `.int32.bin`.
+
+Before scheduling GPU sorting, verify the transfer on Great Lakes:
+
+```bash
+INPUT_ROOT=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/mcs_sorting_inputs
+find "$INPUT_ROOT" -name '*.int32.bin' | wc -l
+python - <<'PY'
+import csv
+from pathlib import Path
+p = Path('/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/mcs_sorting_inputs/sorting_input_manifest.csv')
+latest = {}
+for row in csv.DictReader(p.open()):
+    latest[row['source_h5_path']] = row
+assert len(latest) == 114
+assert all(row['status'] in {'prepared', 'already_validated'} for row in latest.values())
+print('114 manifest rows and validated statuses')
+PY
+```
+
+The next implementation task is a Great Lakes Slurm-array wrapper around
+`run_mcs_kilosort.py`: one 59-channel recording per GPU task, with inputs read
+from this staging root, output written below `results/kilosort/mcs_60mea200`,
+and an append-only job-status ledger. Start with one canary recording, inspect
+its Kilosort output and event alignment, then submit the remaining recordings.
+
 ## Direct-reader contract
 
 The direct reader supports Multi Channel Suite `.msrd` files with
