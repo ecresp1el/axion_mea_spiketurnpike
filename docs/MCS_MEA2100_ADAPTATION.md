@@ -1,0 +1,174 @@
+# Multi Channel Systems MEA2100 intake
+
+The Axion project builder cannot consume Multi Channel Systems (MCS) exports
+directly: Axion starts with detected spike CSVs and an Axion `.raw` stimulus
+file, while MCS stores continuous amplifier counts and event streams in HDF5.
+This repository now has a separate, read-only MCS preparation path.
+
+The repository also directly reads the legacy Multi Channel Suite v17 `.msrd`
+format found in this archive. It follows its linked blocks of uncompressed
+little-endian 32-bit samples and hardware-event records; no Windows conversion
+tool is required.
+
+## What was verified in the supplied data
+
+`353.1/2021-06-22T15-23-26McsRecording.h5` is an MCS `60MEA200/30iR`
+recording with 60 stored channels (59 electrodes and `Ref`), 10 kHz sampling,
+and 618.4 s of continuous data. Its MCS event stream records five `STG 1
+Single Pulse Start` events at 299.3519, 299.3621, 299.3723, 299.3825, and
+299.3927 seconds from the first recorded sample.
+
+The same recording's legacy `.msrd` file was independently decoded and matched
+the HDF5 sample values, channel order, sampling rate, and ten hardware event
+records. The legacy reader therefore provides a path when an HDF5 sidecar is
+missing or corrupt.
+
+The full archive audit found 118 legacy acquisitions. Of the 99 recordings in
+the three primary experimental groups, 95 are ready for direct binary export.
+Three are unreadable and one is a 1.9 KB incomplete file. The separate `MEA
+2023` collection has 19 directly readable acquisitions.
+
+## Inspect first
+
+```bash
+python run_mcs_h5_prepare.py \
+  --input-h5 '/Volumes/MannySSD/final_chemogenetics_raw_data_2026/MANNY MEAs chemogenetics/Actuators & Effectors/Stim 1/353.1/2021-06-22T15-23-26McsRecording.h5'
+```
+
+For a legacy acquisition, substitute `--input-msrd` for `--input-h5`:
+
+```bash
+python run_mcs_h5_prepare.py \
+  --input-msrd '/path/to/McsRecording.msrd'
+```
+
+## Geometry
+
+The archive uses the MCS `60MEA200/30iR` layout. It has an 8×8 grid at 200 µm
+pitch; the four corners are absent and `Ref` is the non-signal reference site.
+Numeric MCS labels encode the row and column, so channel `47` has `x=1400 µm`
+and `y=800 µm`. Sorting excludes `Ref`; `channels.csv` and analysis HDF5 both
+retain the 59 signal-site coordinates.
+
+## Write an analysis HDF5 copy
+
+```bash
+python run_mcs_h5_prepare.py \
+  --input-msrd '/path/to/McsRecording.msrd' \
+  --output-dir /path/to/derived/recording \
+  --export-h5
+```
+
+This writes `McsRecording.analysis.h5` with unchanged int32 trace counts,
+MCS-style analog/event stream paths, channel metadata, and
+`Geometry/ChannelGeometry`. It is an analysis export created by this repository,
+not a claim that MCS DataManager generated the file.
+
+To convert every source marked ready by the archive audit, preserving its group
+and condition hierarchy and validating each written HDF5 file, run:
+
+```bash
+python scripts/convert_mcs_msrd_archive.py \
+  --readiness-csv audit-output/mcs_sorting_readiness.csv \
+  --output-root /Volumes/MannySSD/final_chemogenetics_raw_data_2026/mcs_msrd_analysis_h5
+```
+
+The batch creates a resumable `conversion_manifest.csv`. It uses uncompressed,
+chunked HDF5 so all int32 counts are copied without scaling or compression
+loss. Each file is written to a temporary `.partial` file and renamed only
+after closing successfully.
+
+This only prints metadata: channel order, sampling rate, duration, integer to
+volt conversion, and event times relative to recording start.
+
+## Explicit export for spike sorting
+
+```bash
+python run_mcs_h5_prepare.py \
+  --input-msrd '/path/to/McsRecording.msrd' \
+  --output-dir /path/to/derived/mcs_353_1 \
+  --export-binary
+```
+
+The output is `mcs_signal_channels.int16.bin`, sample-major (time × channel)
+and ready for a sorter; `Ref` is excluded. `channels.csv` provides the
+standard 200 um grid inferred from MCS labels such as `47` (row 4, column 7),
+and `events.csv` preserves the hardware event times. The JSON manifest retains
+the MCS scale (`ConversionFactor × 10^Exponent` volts per integer count).
+
+This export is intentionally not fed to the Axion CSV response pipeline. The
+next analysis stage should run spike sorting on the continuous binary, then
+normalize sorter output and MCS `events.csv` into a platform-neutral spike/event
+table for spontaneous and stimulus-locked analyses.
+
+## Archive-wide spike-sorting handoff
+
+The completed HDF5 conversion is the fixed input boundary for sorting. The
+conversion manifest records which sources were losslessly copied and validated;
+the next command reads only its successful rows and writes one identical sorter
+input contract per recording:
+
+```bash
+python scripts/prepare_mcs_sorting_inputs.py \
+  --conversion-manifest /Volumes/MannySSD/final_chemogenetics_raw_data_2026/mcs_msrd_analysis_h5/conversion_manifest.csv \
+  --output-root /Volumes/MannySSD/final_chemogenetics_raw_data_2026/mcs_sorting_inputs
+```
+
+For every recording this creates, under the same experimental-group and
+condition hierarchy:
+
+- `mcs_signal_channels.int32.bin`: continuous sample-major trace matrix
+  (`time × 59 channels`), with `Ref` excluded;
+- `channels.csv`: the channel order and 60MEA200 x/y coordinates used for the
+  sorter probe;
+- `events.csv`: original hardware events in seconds from recording start; and
+- `mcs_preparation_manifest.json`: sample count, 10 kHz sampling frequency,
+  binary layout, channel count, event count, source HDF5 path, and volts/count
+  metadata. The source counts exceed the signed-int16 range, so int32 is used
+  to retain every raw value without clipping or rescaling; Kilosort accepts
+  int32 input when the readiness manifest's dtype is used.
+
+`sorting_input_manifest.csv` is the archive-level progress ledger. It is
+append-only and resumable: completed sources are checked for the expected binary
+size before being marked `already_validated`; failed exports are recorded rather
+than silently skipped.
+
+Prepare an individual binary for Kilosort4 without sorting it:
+
+```bash
+python run_mcs_kilosort.py \
+  --input-dir /Volumes/MannySSD/final_chemogenetics_raw_data_2026/mcs_sorting_inputs/<group>/<condition>/<recording> \
+  --output-dir /path/to/kilosort_runs/<recording>
+```
+
+This writes `mcs_kilosort_ready_manifest.json` with the 59-channel probe,
+10 kHz sampling frequency, binary dimensions, and Kilosort settings. Add
+`--run` only on a CUDA-capable Linux machine with Kilosort4 installed; this Mac
+is suitable for conversion and preparation but not GPU spike sorting. After
+sorting, retain the Kilosort spike times/clusters alongside that readiness
+manifest and join spike times to `events.csv` for stimulus-locked analyses.
+
+## Direct-reader contract
+
+The direct reader supports Multi Channel Suite `.msrd` files with
+`FileVersion=17`, the format in this archive. It reads the embedded ASCII
+recording index, follows per-channel `FPosNextID` links through raw little-endian
+int32 blocks, and reads stimulation event links in the same file. It validates
+that all channels have the same sample count before export. It does not modify
+the `.msrd`, `.msrs`, XML, or HDF5 source files.
+
+This is not a generic decoder for every historical MCS file version. The audit
+marks any other or structurally incomplete input as blocked rather than guessing
+at trace boundaries.
+
+## Audit an archive before conversion
+
+```bash
+python scripts/audit_mcs_sorting_readiness.py \
+  --data-root '/Volumes/MannySSD/final_chemogenetics_raw_data_2026/MANNY MEAs chemogenetics' \
+  --output-csv audit-output/mcs_sorting_readiness.csv
+```
+
+The audit writes one row per legacy `.msrd` acquisition and performs direct
+format validation. It distinguishes readable raw input from an unreadable or
+implausibly small legacy data file. It never changes the source archive.

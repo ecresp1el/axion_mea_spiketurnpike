@@ -4,6 +4,9 @@ Source-of-truth documentation for how this repository turns Axion Maestro Pro ex
 
 This README is intentionally constrained to what the current code actually does. If a statement below is not supported by the active Python files under `src/axion_mea/`, it should be treated as a bug in the documentation.
 
+Multi Channel Systems MEA2100 HDF5 recordings use a distinct continuous-trace
+preparation route; see `docs/MCS_MEA2100_ADAPTATION.md`.
+
 ## One Command
 
 ```bash
@@ -90,6 +93,10 @@ sbatch slurm/run_kilosort_well.sbatch
 Kilosort4 requires a continuous row-major per-well binary trace plus a probe
 geometry. The Axion spike-list CSVs and `.spk` files remain useful downstream
 products, but they are not raw continuous traces for spike sorting.
+
+For Multi Channel Systems 60MEA200 recordings, use the separate documented
+route: legacy `.msrd` → validated analysis HDF5 → 59-channel sorter binary and
+probe → Kilosort4. See [MCS MEA2100 adaptation](docs/MCS_MEA2100_ADAPTATION.md).
 
 Default input:
 
