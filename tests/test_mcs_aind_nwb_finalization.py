@@ -60,6 +60,7 @@ class McsNwbFinalizationTests(unittest.TestCase):
         analyzer = si.create_sorting_analyzer(sorting, recording, sparse=False)
         analyzer.compute("random_spikes", max_spikes_per_unit=3, seed=0)
         analyzer.compute("templates", operators=["average", "std"], ms_before=1, ms_after=2, n_jobs=1, progress_bar=False)
+        analyzer.compute("unit_locations", method="center_of_mass")
         analyzer.save_as(format="zarr", folder=results / "postprocessed" / "recording1.zarr")
         means = analyzer.get_extension("templates").get_templates()
         stds = analyzer.get_extension("templates").get_templates(operator="std")
@@ -75,10 +76,16 @@ class McsNwbFinalizationTests(unittest.TestCase):
         nwbfile.units = Units(name="units", waveform_rate=float(fs), waveform_unit="volts", resolution=1.0 / fs)
         nwbfile.add_unit_column(name="ks_unit_id", description="SI unit ID")
         nwbfile.add_unit_column(name="original_cluster_id", description="Original Kilosort cluster")
+        for name in ("estimated_x", "estimated_y", "estimated_z", "depth"):
+            nwbfile.add_unit_column(name=name, description="Estimated position in micrometers")
+        locations = analyzer.get_extension("unit_locations").get_data()
         for index, unit in enumerate(sorting.unit_ids):
             nwbfile.add_unit(spike_times=sorting.get_unit_spike_train(unit) / fs,
                              waveform_mean=means[index], waveform_sd=stds[index],
-                             ks_unit_id=int(unit), original_cluster_id=int(unit + 100))
+                             ks_unit_id=int(unit), original_cluster_id=int(unit + 100),
+                             estimated_x=round(float(locations[index, 0]), 2),
+                             estimated_y=round(float(locations[index, 1]), 2), estimated_z=0.,
+                             depth=round(float(locations[index, 1]), 2))
         nwb_path = results / "nwb" / "recording.nwb"
         with NWBZarrIO(path=str(nwb_path), mode="w") as io:
             io.write(nwbfile)
@@ -115,6 +122,18 @@ class McsNwbFinalizationTests(unittest.TestCase):
                 finalize(results, inputs, source_h5, apply=True)
             self.assertFalse((results / "repro").exists())
             self.assertEqual(read_subject(original), MOCK_SUBJECT)
+
+    def test_recovered_prefix_is_not_presented_as_complete_acquisition(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            inputs, results, source_h5, _, _ = self.build_fixture(Path(tmp))
+            manifest_path = inputs / "mcs_recording_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest.update(recording_completeness="recovered_prefix", recovery_report="source_recovery_report.json")
+            manifest_path.write_text(json.dumps(manifest))
+            report = finalize(results, inputs, source_h5, apply=False)
+            self.assertEqual(report["recording_completeness"], "recovered_prefix")
+            self.assertIn("recovered continuous prefix of 0.1 seconds", report["corrected_notes"])
+            self.assertIn("absent events do not establish absence of stimulation", report["corrected_notes"])
 
     def test_preserves_subject_metadata_that_is_not_exact_mock(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
@@ -163,6 +182,57 @@ class McsNwbFinalizationTests(unittest.TestCase):
             self.assertEqual(report["source_time"]["evidence_origin"], "persisted_source_time_audit")
             self.assertIn("Data", report["source_time"]["h5_temporal_attributes"])
             self.assertTrue((results / "repro/source_time_evidence.json").exists())
+
+    def test_unknown_geometry_preserves_nominal_coordinates_not_physical_claims(self):
+        for pitch in (100, 200):
+            with self.subTest(nominal_pitch=pitch):
+                self.check_unknown_geometry(pitch)
+
+    def check_unknown_geometry(self, pitch):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            inputs, results, source_h5, nwb_path, means = self.build_fixture(Path(tmp), channel_count=60, pitch=pitch)
+            manifest_path = inputs / "mcs_recording_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest.update(geometry_status="staged_unverified", configured_mea_name=None, pitch_um=None,
+                            sorting_pitch_um=pitch, source_xml=None, source_msrd=None)
+            manifest_path.write_text(json.dumps(manifest))
+            source_h5.unlink()
+            original = zarr.open_group(str(nwb_path), mode="r")
+            original_coordinates = {f"{group}/{name}": original[f"{group}/{name}"][:]
+                for group, names in (("general/extracellular_ephys/electrodes", ("rel_x", "rel_y")),
+                                     ("units", ("estimated_x", "estimated_y", "estimated_z", "depth")))
+                for name in names}
+            report = finalize(results, inputs, apply=True)
+            self.assertFalse(report["after"]["geometry"]["physical_geometry_verified"])
+            self.assertTrue(report["after"]["geometry"]["nominal_coordinates_preserved"])
+            self.assertIn("Physical electrode geometry is unknown", report["corrected_notes"])
+            self.assertIn(f"assumed nominal pitch {pitch}", report["corrected_notes"])
+            corrected = zarr.open_group(str(nwb_path), mode="r")
+            for path, original_values in original_coordinates.items():
+                group, name = path.rsplit("/", 1)
+                self.assertTrue(np.isnan(corrected[path][:]).all())
+                nominal = corrected[f"{group}/sorting_nominal_{name}"]
+                np.testing.assert_array_equal(nominal[:], original_values)
+                self.assertIn("not verified physical micrometers", nominal.attrs["description"])
+            np.testing.assert_allclose(corrected["units/waveform_mean"][:], means * 1e-6, rtol=1e-6)
+            self.assertEqual(finalize(results, inputs, apply=True)["status"], "already_corrected")
+            with NWBZarrIO(path=str(nwb_path), mode="r", load_namespaces=True) as io:
+                nwbfile = io.read()
+                self.assertTrue(np.isnan(nwbfile.units["estimated_x"][:]).all())
+                self.assertIn("sorting_nominal_rel_x", nwbfile.electrodes.colnames)
+            modified = zarr.open_group(str(nwb_path), mode="r+")
+            modified["units/sorting_nominal_estimated_x"][0] += 10
+            with self.assertRaisesRegex(ValueError, "differs from analyzer unit localization"):
+                finalize(results, inputs, apply=False)
+
+    def test_analyzer_unit_localization_drift_is_rejected(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            inputs, results, source_h5, nwb_path, _ = self.build_fixture(Path(tmp))
+            original = zarr.open_group(str(nwb_path), mode="r+")
+            original["units/estimated_y"][0] += 1
+            with self.assertRaisesRegex(ValueError, "differs from analyzer unit localization"):
+                finalize(results, inputs, source_h5, apply=True)
+            self.assertFalse((results / "repro").exists())
 
 
 if __name__ == "__main__":

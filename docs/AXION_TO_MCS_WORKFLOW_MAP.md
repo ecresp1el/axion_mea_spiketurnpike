@@ -10,6 +10,13 @@ one complete MCS recording entered the established AIND route; see the
 current status, exact paths, adaptations and validation. Phenotype cutoffs,
 drug-response statistics and final figures are outside this adaptation task.
 
+Later user direction explicitly includes usable signals even when acquisition
+metadata is missing. The [archive batch note](MCS_BATCH_RUN_20260917.md) supersedes
+strict metadata-only exclusions below: unverified computational geometry is
+flagged, short recordings are attempted with documented overrides, and a recovered
+105-second prefix is labeled partial. Historical audit counts below describe the
+original 114 staged recordings, not the subsequent recovery.
+
 The processing unit changes from **one well extracted from a multiwell Axion
 recording** to **one complete MCS recording of a single MEA**. This removes well
 selection and plate splitting. It does not remove the need for calibration,

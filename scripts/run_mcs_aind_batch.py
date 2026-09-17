@@ -45,8 +45,21 @@ def key_for(recording_id: str) -> str:
     return hashlib.sha256(recording_id.encode()).hexdigest()[:20]
 
 
+def preserve_input_snapshot(inputs: Path, destination: Path) -> None:
+    for source in inputs.rglob('*'):
+        target = destination / source.relative_to(inputs)
+        if source.is_file():
+            if target.exists():
+                if target.read_bytes() != source.read_bytes():
+                    raise ValueError(f'Saved input provenance differs from current input: {target}')
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+
+
 def snapshot_code(destination: Path) -> None:
-    scripts = ['run_mcs_aind_batch.py', 'prepare_mcs_aind_recording.py',
+    scripts = ['run_mcs_aind_batch.py', 'audit_mcs_batch_sources.py', 'recover_mcs_msrd_prefix.py',
+               'prepare_mcs_aind_recording.py',
                'validate_mcs_aind_output.py', 'finalize_mcs_aind_recording.py',
                'finalize_mcs_aind_nwb.py', 'cleanup_mcs_h5.py', 'monitor_aind_run.sh']
     for directory in ('scripts', 'slurm', 'config'):
@@ -60,6 +73,11 @@ def snapshot_code(destination: Path) -> None:
                  'aind_axion_cytoview6_params_th5_kilosort_preproc_DRAFT.json'):
         shutil.copy2(ROOT / 'config' / name, destination / 'config' / name)
     shutil.copytree(ROOT / 'src', destination / 'src', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    for name, arguments in (('source_git_commit.txt', ['rev-parse', 'HEAD']),
+                            ('source_git_status.txt', ['status', '--short'])):
+        provenance = subprocess.run(['git', '-C', str(ROOT), *arguments],
+                                    check=True, text=True, capture_output=True)
+        (destination / name).write_text(provenance.stdout)
     hashes = {p.relative_to(destination).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in destination.rglob('*') if p.is_file()}
     write_json(destination.parent / 'code_sha256.json', hashes)
@@ -90,7 +108,8 @@ def completed_run(project: Path, recording_id: str) -> dict | None:
 
 
 def prepare_batch(source_index: Path, batch_dir: Path, project: Path, run_id: str,
-                  concurrency: int, delete_h5: bool) -> dict:
+                  concurrency: int, delete_h5: bool, *, allow_staged_geometry: bool = False,
+                  allow_short_recordings: bool = False) -> dict:
     from prepare_mcs_aind_recording import prepare
     if concurrency not in range(1, 5):
         raise ValueError('Use 1-4 concurrent parent jobs to leave room for nested AIND tasks')
@@ -118,7 +137,8 @@ def prepare_batch(source_index: Path, batch_dir: Path, project: Path, run_id: st
             if existing:
                 row.update(existing)
             elif source['status'] == 'ready':
-                options = {}
+                options = {'allow_staged_geometry': allow_staged_geometry,
+                           'allow_short_recording': allow_short_recordings}
                 if not source.get('source_xml') and source.get('source_msrd'):
                     options['source_msrd'] = Path(source['source_msrd'])
                 prepared = prepare(Path(source['input_dir']),
@@ -132,6 +152,17 @@ def prepare_batch(source_index: Path, batch_dir: Path, project: Path, run_id: st
             else:
                 records.append(row)
                 continue
+            manifest = read_json(Path(row['input_dir']) / 'mcs_recording_manifest.json')
+            row.update(geometry_status=manifest.get('geometry_status', 'source_verified'),
+                       sorting_pitch_um=manifest.get('sorting_pitch_um', manifest.get('pitch_um')),
+                       short_recording_policy=manifest.get('short_recording_policy', 'standard_duration'),
+                       source_review_warning=manifest.get('source_review_warning'),
+                       recording_completeness=manifest.get('recording_completeness', 'complete_staged_recording'),
+                       recovery_report=manifest.get('recovery_report'),
+                       configured_mea_name=manifest.get('configured_mea_name'), pitch_um=manifest.get('pitch_um'))
+            if (row['geometry_status'] != 'source_verified' or not manifest.get('source_h5_cleanup_allowed', True)) and row.get('source_h5'):
+                row['retained_h5_cleanup_disabled'] = row.pop('source_h5')
+                row['cleanup_note'] = 'H5 retained: preparation explicitly disallows source cleanup'
             evidence = source.get('source_time_evidence_json')
             if evidence and Path(evidence).is_file():
                 target = Path(row['input_dir']) / 'source_time_evidence.json'
@@ -146,6 +177,16 @@ def prepare_batch(source_index: Path, batch_dir: Path, project: Path, run_id: st
     eligible = sorted((row for row in records if row['status'] == 'prepared'),
                       key=lambda row: (not row.get('reuse_completed'), row.get('channel_count') != 60,
                                        not bool(row.get('source_h5')), row['recording_id']))
+    # Exercise completed reuse, verified geometry, unknown geometry and a short input early.
+    first = [row for row in eligible if row.get('reuse_completed')]
+    for predicate in (
+            lambda row: not row.get('reuse_completed') and row['geometry_status'] == 'source_verified',
+            lambda row: row['geometry_status'] == 'staged_unverified' and row['duration_s'] >= 30,
+            lambda row: row['duration_s'] < 30):
+        representative = next((row for row in eligible if predicate(row)), None)
+        if representative and representative not in first:
+            first.append(representative)
+    eligible = first + [row for row in eligible if row not in first]
     tasks = []
     for row in eligible:
         row['task_index'] = len(tasks)
@@ -154,6 +195,7 @@ def prepare_batch(source_index: Path, batch_dir: Path, project: Path, run_id: st
             'run_id': run_id, 'batch_dir': str(batch_dir), 'code_root': str(code),
             'source_index': str(source_index), 'concurrency': concurrency,
             'delete_validated_local_h5': delete_h5, 'allowed_h5_root': str(DEFAULT_RAW),
+            'allow_staged_geometry': allow_staged_geometry, 'allow_short_recordings': allow_short_recordings,
             'backup_status': 'User reports source copies are backed up elsewhere; backup storage not independently inspected.',
             'records': records, 'tasks': tasks}
     write_json(batch_dir / 'batch_manifest.json', plan)
@@ -174,6 +216,9 @@ def refresh(batch_dir: Path, scheduler: bool = False) -> dict:
               'scheduler_state', 'scheduler_exit', 'results_dir', 'input_dir', 'source_h5',
               'source_xml', 'source_msrd', 'source_time_evidence_json', 'reuse_completed',
               'duration_s', 'channel_count', 'configured_mea_name', 'pitch_um', 'cleanup_note', 'rejected_h5',
+              'geometry_status', 'sorting_pitch_um', 'short_recording_policy', 'source_review_warning',
+              'retained_h5_cleanup_disabled',
+              'recording_completeness', 'recovery_report',
               'unit_count', 'spike_count', 'kilosort_label_counts', 'h5_cleanup_status',
               'deleted_bytes', 'h5_cleanup_ledger', 'updated_utc']
     with (batch_dir / 'ledger.lock').open('a') as lock:
@@ -192,9 +237,19 @@ def refresh(batch_dir: Path, scheduler: bool = False) -> dict:
                 row.update(scheduler_state=state, scheduler_exit=exit_code)
                 if state.split()[0] in {'FAILED', 'TIMEOUT', 'CANCELLED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'PREEMPTED'}:
                     if row['status'] not in {'failed', 'cleanup_failed', 'completed'}:
-                        row.update(status='failed', reason=f'Scheduler {state} exit {exit_code}; input retained')
+                        row.update(status='failed', reason=f'Scheduler {state} exit {exit_code}; inspect recording and cleanup status')
                 elif state == 'COMPLETED' and row['status'] not in {'completed', 'cleanup_failed', 'failed'}:
-                    row.update(status='failed', reason='Job ended without a validated completion record; input retained')
+                    row.update(status='failed', reason='Job ended without a validated completion record; inspect cleanup status')
+            if row.get('source_h5') and row.get('results_dir') and row.get('stage') == 'h5_cleanup':
+                source_path = str(Path(row['source_h5']).resolve())
+                identity = hashlib.sha256((row['recording_id'] + '\n' + source_path).encode()).hexdigest()
+                deletion_path = Path(row['results_dir']) / 'repro/h5_cleanup' / identity / 'deleted.json'
+                if deletion_path.is_file():
+                    deletion = read_json(deletion_path)
+                    if (deletion.get('status') == 'deleted' and deletion.get('recording_id') == row['recording_id']
+                            and deletion.get('source_h5') == source_path):
+                        row.update(h5_cleanup_status='deleted_confirmed_from_ledger',
+                                   deleted_bytes=deletion['deleted_bytes'], h5_cleanup_ledger=str(deletion_path.parent))
             rows.append({name: row.get(name, '') for name in fields})
         summary = {'updated_utc': now(), 'recordings': len(rows), 'tasks': len(plan['tasks']),
                    'concurrency': plan['concurrency'], 'statuses': dict(Counter(row['status'] for row in rows)),
@@ -224,7 +279,8 @@ def submit(batch_dir: Path) -> dict:
             raise ValueError('No eligible tasks in this batch')
         command = ['sbatch', '--parsable', f"--array=0-{len(plan['tasks'])-1}%{plan['concurrency']}",
                    f'--output={batch_dir}/logs/mcs-%A_%a.out', f'--error={batch_dir}/logs/mcs-%A_%a.err',
-                   f'--export=ALL,MCS_BATCH_DIR={batch_dir}', str(Path(plan['code_root']) / 'slurm/run_mcs_aind_batch.sbatch')]
+                   f'--export=ALL,MCS_BATCH_DIR={batch_dir},MCS_BATCH_SUMMARY_ONLY=0',
+                   str(Path(plan['code_root']) / 'slurm/run_mcs_aind_batch.sbatch')]
         write_json(batch_dir / 'submission_intent.json', {'command': command, 'created_utc': now()})
         result = subprocess.run(command, check=True, text=True, capture_output=True)
         job_id = result.stdout.strip().split(';')[0]
@@ -286,17 +342,21 @@ def worker(batch_dir: Path, task_index: int) -> int:
             if not row.get('reuse_completed'):
                 subprocess.run(['bash', str(code / 'slurm/run_aind_nwb_well.sbatch')],
                                check=True, env=environment, cwd=code)
-            trace = list(csv.DictReader((results / 'nextflow/trace.txt').open(), delimiter='\t'))
+            with (results / 'nextflow/trace.txt').open(newline='') as handle:
+                trace = list(csv.DictReader(handle, delimiter='\t'))
             if len(trace) != 11 or any(r['status'] != 'COMPLETED' or r['exit'] != '0' for r in trace):
                 raise ValueError('Expected all 11 AIND stages to complete successfully before finalization')
             repro = results / 'repro'
             repro.mkdir(exist_ok=True)
-            shutil.copytree(inputs, repro / 'mcs_input', dirs_exist_ok=True)
+            preserve_input_snapshot(inputs, repro / 'mcs_input')
             for name in ('events.csv', 'channels.csv'):
                 shutil.copy2(inputs / name, results / name)
+            verification_code = repro / 'batch_verification' / plan['run_id']
+            verification_code.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(batch_dir / 'code_sha256.json', verification_code / 'code_sha256.json')
             for name in ('prepare_mcs_aind_recording.py', 'finalize_mcs_aind_recording.py',
                          'finalize_mcs_aind_nwb.py', 'validate_mcs_aind_output.py', 'cleanup_mcs_h5.py'):
-                shutil.copy2(code / 'scripts' / name, repro / name)
+                shutil.copy2(code / 'scripts' / name, verification_code / name)
             manifest = read_json(inputs / 'mcs_recording_manifest.json')
             update('durable_recording')
             if not (results / 'durable_recording_report.json').exists():
@@ -315,6 +375,28 @@ def worker(batch_dir: Path, task_index: int) -> int:
             if validation['status'] != 'passed':
                 raise ValueError('Independent validation did not pass; H5 retained')
             stats = validation['stages']['curated']
+            if not (results / 'README.md').exists():
+                (results / 'README.md').write_text(
+                    '# MCS Single-MEA Sorting\n\n'
+                    f"Recording: `{row['recording_id']}`\n\n"
+                    f"Run: `{manifest['sorting_run_id']}`. Kilosort4 with the established TH5 profile; "
+                    'single-MEA channel order, reference exclusion and calibration.\n\n'
+                    f"Geometry status: `{manifest.get('geometry_status', 'source_verified')}`. "
+                    'Unverified geometry is a computational assumption, not measured physical spacing. '
+                    'See the recording manifest for source evidence and any short-duration adjustments.\n\n'
+                    f"Recording completeness: `{manifest.get('recording_completeness', 'complete_staged_recording')}`. "
+                    'A recovered prefix contains only the documented intact part of an incomplete original.\n\n'
+                    f"Validated output: {stats['unit_count']} units, {stats['spike_count']} spikes. "
+                    f"Kilosort labels: `{json.dumps(stats['kilosort_label_counts'], sort_keys=True)}`. "
+                    'Technical validation is not manual curation or a claim that all units are good.\n\n'
+                    '- `validation_summary.json`: input, output and event checks.\n'
+                    '- `channels.csv` and `events.csv`: recording-specific metadata; events are not inferred treatments.\n'
+                    '- `preprocessed/` and `durable_recording_report.json`: retained recording and checksums.\n'
+                    '- `nwb/` and `repro/nwb_finalization_report.json`: corrected NWB output.\n'
+                    '- `repro/mcs_input/`: acquisition metadata, parameters and provenance.\n'
+                    '- `repro/h5_cleanup/`: source metadata and deletion proof, when H5 cleanup occurred.\n\n'
+                    f"Batch ledger: `{batch_dir / 'recordings.csv'}`\n"
+                )
             update('validated', unit_count=stats['unit_count'], spike_count=stats['spike_count'],
                    kilosort_label_counts=stats['kilosort_label_counts'])
             if plan['delete_validated_local_h5'] and row.get('source_h5'):
@@ -327,7 +409,8 @@ def worker(batch_dir: Path, task_index: int) -> int:
                 update('complete', 'completed', h5_cleanup_status=cleanup['status'],
                        deleted_bytes=int(cleanup['deleted_bytes']), h5_cleanup_ledger=cleanup['ledger'])
             else:
-                cleanup_status = 'retained_rejected_h5' if row.get('rejected_h5') else 'no_local_h5'
+                cleanup_status = ('retained_cleanup_disabled' if row.get('retained_h5_cleanup_disabled') else
+                                  'retained_rejected_h5' if row.get('rejected_h5') else 'no_local_h5')
                 update('complete', 'completed', h5_cleanup_status=cleanup_status if not row.get('source_h5') else 'retained', deleted_bytes=0)
             return 0
         except Exception as exc:
@@ -348,6 +431,8 @@ def main() -> int:
     p.add_argument('--run-id', required=True)
     p.add_argument('--concurrency', type=int, default=2)
     p.add_argument('--delete-validated-h5', action='store_true')
+    p.add_argument('--allow-staged-geometry', action='store_true')
+    p.add_argument('--allow-short-recordings', action='store_true')
     for name in ('submit', 'status', 'worker'):
         p = commands.add_parser(name)
         p.add_argument('--batch-dir', type=Path, required=True)
@@ -359,7 +444,9 @@ def main() -> int:
     batch = args.batch_dir.expanduser().resolve()
     if args.command == 'prepare':
         result = prepare_batch(args.source_index.resolve(), batch, args.project_root.resolve(),
-                               args.run_id, args.concurrency, args.delete_validated_h5)
+                               args.run_id, args.concurrency, args.delete_validated_h5,
+                               allow_staged_geometry=args.allow_staged_geometry,
+                               allow_short_recordings=args.allow_short_recordings)
     elif args.command == 'submit':
         result = submit(batch)
     elif args.command == 'status':

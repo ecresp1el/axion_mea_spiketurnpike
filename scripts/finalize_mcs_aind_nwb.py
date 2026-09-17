@@ -12,6 +12,7 @@ import shutil
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import h5py
 import numpy as np
@@ -23,6 +24,8 @@ from numcodecs import VLenUTF8
 
 MOCK_SUBJECT = {"age": "P50D", "description": "this is a mock mouse.", "sex": "F", "subject_id": "subject"}
 NOTE_MARKER = "MCS export provenance correction:"
+ELECTRODE_COORDINATES = ("rel_x", "rel_y", "rel_z", "x", "y", "z")
+UNIT_COORDINATES = ("estimated_x", "estimated_y", "estimated_z", "depth")
 
 
 def json_value(value):
@@ -125,6 +128,93 @@ def read_subject(root) -> dict | None:
     return {key: scalar_text(root["general/subject"][key]) for key in root["general/subject"].array_keys()}
 
 
+def geometry_metadata(manifest: dict) -> dict:
+    status = manifest.get("geometry_status", "source_verified")
+    if status not in {"source_verified", "staged_unverified"}:
+        raise ValueError(f"Unknown MCS geometry status: {status}")
+    if status == "staged_unverified":
+        pitch = float(manifest["sorting_pitch_um"])
+        if (manifest.get("pitch_um") is not None or manifest.get("configured_mea_name") is not None
+                or not np.isfinite(pitch) or pitch <= 0):
+            raise ValueError("Unverified geometry must identify only a finite positive nominal sorting grid")
+    return {"geometry_status": status, "physical_geometry_verified": status == "source_verified",
+            "pitch_um": manifest.get("pitch_um"), "configured_mea_name": manifest.get("configured_mea_name"),
+            "sorting_pitch_um": manifest.get("sorting_pitch_um", manifest.get("pitch_um"))}
+
+
+def coordinate_tables(root):
+    return ((root["general/extracellular_ephys/electrodes"], ELECTRODE_COORDINATES),
+            (root["units"], UNIT_COORDINATES))
+
+
+def obscure_unverified_physical_coordinates(root, nominal_pitch: float) -> dict:
+    """Preserve the computational coordinates without labeling them as physical positions."""
+    preserved = {}
+    for table, coordinates in coordinate_tables(root):
+        columns = list(table.attrs["colnames"])
+        for name in coordinates:
+            if name not in table:
+                continue
+            original = table[name]
+            values = original[:]
+            nominal_name = f"sorting_nominal_{name}"
+            if nominal_name in table:
+                raise ValueError(f"Unexpected pre-existing nominal coordinate column: {nominal_name}")
+            nominal = table.create_dataset(nominal_name, data=values, chunks=original.chunks, compressor=original.compressor)
+            nominal.attrs.update({**original.attrs.asdict(), "object_id": str(uuid4()),
+                                  "description": f"Original {name} in computational coordinates using assumed nominal pitch {nominal_pitch:g}; not verified physical micrometers."})
+            columns.append(nominal_name)
+            preserved[f"{table.path}/{name}"] = {"nominal_column": nominal_name,
+                "original_values": [float(value) if np.isfinite(value) else None for value in values]}
+            attrs = original.attrs.asdict()
+            if not np.issubdtype(original.dtype, np.floating):
+                original = table.create_dataset(name, data=np.full(values.shape, np.nan), overwrite=True)
+                attrs["zarr_dtype"] = "float64"
+            else:
+                original[:] = np.nan
+            attrs["description"] = f"Unknown physical coordinate; see {nominal_name} for unverified computational coordinates."
+            original.attrs.update(attrs)
+        table.attrs["colnames"] = columns
+    return preserved
+
+
+def compare_geometry(root, analyzer, channels: list[dict], manifest: dict, ids, *, require_finalized: bool) -> dict:
+    metadata = geometry_metadata(manifest)
+    unknown = not metadata["physical_geometry_verified"]
+    electrodes = root["general/extracellular_ephys/electrodes"]
+    positions = np.asarray([[float(row["x_um"]), float(row["y_um"])] for row in channels])
+    corrected = unknown and any(name.startswith("sorting_nominal_") for name in electrodes.array_keys())
+    if unknown and require_finalized and not corrected:
+        raise ValueError("NWB still presents unverified nominal electrode positions as physical coordinates")
+    for table, coordinates in coordinate_tables(root):
+        for name in coordinates:
+            if name not in table:
+                continue
+            nominal_name = f"sorting_nominal_{name}"
+            if corrected and (nominal_name not in table or nominal_name not in table.attrs["colnames"]
+                              or not np.isnan(table[name][:]).all()):
+                raise ValueError(f"Unverified physical coordinate {table.path}/{name} is not explicitly unknown with preserved nominal values")
+            if not unknown and nominal_name in table:
+                raise ValueError("Verified geometry unexpectedly contains unverified nominal coordinate columns")
+    prefix = "sorting_nominal_" if corrected else ""
+    observed_positions = np.column_stack([electrodes[f"{prefix}rel_x"][:], electrodes[f"{prefix}rel_y"][:]])
+    if len(electrodes["id"]) != len(channels) or observed_positions.shape != positions.shape or not np.allclose(observed_positions, positions):
+        raise ValueError("NWB electrode geometry/order differs from prepared MCS channel map")
+    locations = analyzer.get_extension("unit_locations")
+    location_checks = []
+    if locations is not None:
+        expected = locations.get_data()[analyzer.sorting.ids_to_indices(ids)]
+        for name, dimension in (("estimated_x", 0), ("estimated_y", 1), ("estimated_z", 2), ("depth", 1)):
+            if name in root["units"] and dimension < expected.shape[1]:
+                observed = root["units"][f"{prefix}{name}"][:]
+                # The AIND exporter rounds unit-localization coordinates to two decimals.
+                if not np.allclose(observed, expected[:, dimension], rtol=0, atol=0.00501, equal_nan=True):
+                    raise ValueError(f"NWB {name} differs from analyzer unit localization")
+                location_checks.append(name)
+    return {**metadata, "nominal_coordinates_preserved": corrected,
+            "physical_coordinate_fields_unknown": corrected, "analyzer_unit_location_columns_checked": location_checks}
+
+
 def compare_nwb(root, sorting, analyzer, channels: list[dict], manifest: dict, *, require_volts: bool) -> dict:
     """Reconcile all units, spike times and waveforms before any output is replaced."""
     units = root["units"]
@@ -150,11 +240,7 @@ def compare_nwb(root, sorting, analyzer, channels: list[dict], manifest: dict, *
         if np.any(observed < 0) or np.any(observed >= duration):
             raise ValueError(f"NWB spike times exceed source bounds for unit {unit}")
         start = int(stop)
-    electrodes = root["general/extracellular_ephys/electrodes"]
-    positions = np.asarray([[float(row["x_um"]), float(row["y_um"])] for row in channels])
-    observed_positions = np.column_stack([electrodes["rel_x"][:], electrodes["rel_y"][:]])
-    if len(electrodes["id"]) != len(channels) or observed_positions.shape != positions.shape or not np.allclose(observed_positions, positions):
-        raise ValueError("NWB electrode geometry/order differs from prepared MCS channel map")
+    geometry = compare_geometry(root, analyzer, channels, manifest, ids, require_finalized=require_volts)
     if not analyzer.return_in_uV:
         raise ValueError("Analyzer waveforms are not calibrated in microvolts")
     if not np.array_equal(analyzer.channel_ids, analyzer.recording.channel_ids):
@@ -183,7 +269,7 @@ def compare_nwb(root, sorting, analyzer, channels: list[dict], manifest: dict, *
     return {"unit_count": len(ids), "spike_count": len(times), "sampling_frequency_hz": fs,
             "electrode_count": len(channels), "ks_unit_ids": ids.tolist(),
             "all_unit_spike_trains_match": True, "all_original_cluster_ids_match": True,
-            "electrode_geometry_matches": True, "waveforms": waveform_checks}
+            "electrode_geometry_matches": True, "geometry": geometry, "waveforms": waveform_checks}
 
 
 def verify_pynwb(path: Path, expected_unit_count: int, removed_mock: bool) -> None:
@@ -259,12 +345,22 @@ def finalize(results_dir: Path, input_dir: Path, source_h5: Path | None = None, 
         + ("The exact AIND mock Subject was removed; biological subject metadata is unassigned. " if removed_mock else "")
         + ("No local source H5 was available for source-clock inspection; the nominal time comes from the original filename. "
            if source_time["h5_evidence_status"] == "unavailable" else "")
+        + (f"This is a recovered continuous prefix of {manifest['sample_count'] / manifest['sampling_frequency_hz']:g} seconds "
+           "from an incomplete original recording, not the complete acquisition. Missing tail samples were not invented. "
+           "Hardware event evidence is limited to the retained prefix; absent events do not establish absence of stimulation. "
+           if manifest.get("recording_completeness") == "recovered_prefix" else "")
+        + (f"Physical electrode geometry is unknown. Sorting used source channel-label grid topology with assumed nominal pitch {float(before['geometry']['sorting_pitch_um']):g}; "
+           "these computational coordinates are not verified physical micrometers. Electrode and unit physical coordinate fields "
+           "are NaN; sorting_nominal_* columns preserve the exact computational coordinates used by sorting and localization. "
+           if not before["geometry"]["physical_geometry_verified"] else "")
         + "Original export and correction evidence are preserved in the result repro directory."
     )
     notes = f"{original_notes}\n\n{note}" if original_notes else note
     report = {
         "status": "planned", "nwb_path": str(nwb_path), "input_dir": str(input_dir),
         "original_nwb_backup": str(backup_path),
+        "recording_completeness": manifest.get("recording_completeness", "complete_staged_recording"),
+        "recovery_report": manifest.get("recovery_report"),
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_time": source_time, "original_subject": subject, "removed_exact_mock_subject": removed_mock,
         "original_notes": original_notes, "original_session_start_time": original_session_time,
@@ -287,6 +383,9 @@ def finalize(results_dir: Path, input_dir: Path, source_h5: Path | None = None, 
         corrected = zarr.open_group(str(staging), mode="r+")
         if removed_mock:
             del corrected["general/subject"]
+        if not before["geometry"]["physical_geometry_verified"]:
+            report["unverified_geometry_coordinate_corrections"] = obscure_unverified_physical_coordinates(
+                corrected, float(before["geometry"]["sorting_pitch_um"]))
         for name, check in before["waveforms"].items():
             if check["scale_to_apply"] != 1:
                 corrected["units"][name][:] = corrected["units"][name][:] * check["scale_to_apply"]

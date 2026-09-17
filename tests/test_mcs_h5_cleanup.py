@@ -147,6 +147,18 @@ class McsH5CleanupTests(unittest.TestCase):
             self.cleanup(apply=True)
         self.assertTrue(self.h5.is_file())
 
+    def test_unverified_geometry_and_disabled_cleanup_refused_before_source_paths(self) -> None:
+        for overrides, message in (({"geometry_status": "staged_unverified"}, "source-verified geometry"),
+                                   ({"source_h5_cleanup_allowed": False}, "explicitly disabled")):
+            with self.subTest(overrides=overrides):
+                write_json(self.input_dir / "mcs_recording_manifest.json",
+                           {**self.manifest, **overrides, "source_xml": None})
+                with self.assertRaisesRegex(ValueError, message):
+                    cleanup_tool.verify_outputs(self.results, self.input_dir)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.cleanup(apply=True)
+                self.assertTrue(self.h5.is_file())
+
     def test_foreign_report_and_failed_pipeline_refuse_cleanup(self) -> None:
         path = self.results / "validation_summary.json"
         write_json(path, {**self.validation, "results_dir": str(self.root / "other_run")})

@@ -44,6 +44,13 @@ def same_path(value, expected: Path) -> bool:
     return bool(value) and Path(value).expanduser().resolve() == expected.resolve()
 
 
+def check_cleanup_allowed(manifest: dict) -> None:
+    require(manifest.get("geometry_status", "source_verified") == "source_verified",
+            "H5 cleanup requires source-verified geometry")
+    require(manifest.get("source_h5_cleanup_allowed", True) is True,
+            "H5 cleanup is explicitly disabled for this recording")
+
+
 def json_value(value):
     if isinstance(value, np.ndarray):
         return json_value(value.tolist())
@@ -57,6 +64,7 @@ def json_value(value):
 
 
 def candidate_path(source_h5: Path, allowed_root: Path, manifest: dict, input_dir: Path) -> Path:
+    check_cleanup_allowed(manifest)
     candidate = source_h5.expanduser().absolute()
     allowed_root = allowed_root.expanduser().resolve()
     require(allowed_root != Path("/"), "The filesystem root cannot be an H5 cleanup root")
@@ -120,6 +128,7 @@ def fresh_output_validation(results_dir: Path, input_dir: Path) -> dict:
 def verify_outputs(results_dir: Path, input_dir: Path) -> tuple[dict, dict]:
     manifest = read_json(input_dir / "mcs_recording_manifest.json")
     require(manifest.get("analysis_kind") == "mcs_aind_single_mea_recording", "Not a prepared single-MEA MCS run")
+    check_cleanup_allowed(manifest)
     require(same_path(manifest.get("results_dir"), results_dir), "Input manifest belongs to different results")
     for path in (results_dir / "mcs_recording_manifest.json", results_dir / "repro/mcs_input/mcs_recording_manifest.json"):
         saved = read_json(path)

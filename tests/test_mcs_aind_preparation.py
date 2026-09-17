@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import gc
 import importlib.util
 import json
 import tempfile
@@ -146,6 +147,74 @@ class McsAindPreparationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "truncated"):
                 adapter.inspect_input(self.input_dir, None, msrd)
 
+    def test_staged_geometry_requires_opt_in_and_does_not_invent_physical_pitch(self) -> None:
+        self.fixture("60MEA100/10")
+        inspected = adapter.inspect_input(self.input_dir, None, allow_staged_geometry=True)
+        self.assertEqual(inspected["geometry_status"], "staged_unverified")
+        self.assertIsNone(inspected["model"])
+        self.assertIsNone(inspected["pitch_um"])
+        self.assertIsNone(inspected["contact_radius_um"])
+        self.assertEqual(inspected["sorting_pitch_um"], 200)
+        self.assertEqual(len(inspected["channels"]), 60)
+        self.assertIn("physical", inspected["source_review_warning"])
+        channels_path = self.input_dir / "channels.csv"
+        channels = adapter.read_csv(channels_path)
+        channels[0]["x_um"] = "1401"
+        write_csv(channels_path, channels, list(channels[0]))
+        with self.assertRaisesRegex(ValueError, "consistent nominal"):
+            adapter.inspect_input(self.input_dir, None, allow_staged_geometry=True)
+
+    def test_staged_fallback_keeps_invalid_original_warning(self) -> None:
+        self.fixture()
+        msrd = self.project / (self.input_dir.name + ".msrd")
+        with patch.object(adapter, "inspect_original_msrd", side_effect=ValueError("truncated source")):
+            inspected = adapter.inspect_input(self.input_dir, None, msrd, allow_staged_geometry=True)
+        self.assertEqual(inspected["geometry_status"], "staged_unverified")
+        self.assertIn("truncated source", inspected["source_review_warning"])
+
+    def test_short_override_changes_only_duration_and_necessary_batch_size(self) -> None:
+        template_path = REPO_ROOT / "config/aind_axion_cytoview6_params_th5_kilosort_preproc_DRAFT.json"
+        for samples, expected_batch in ((13000, 6500), (19000, 15000), (217000, 15000)):
+            prep = self.fixture()
+            prep["sample_count"] = samples
+            self.manifest_path.write_text(json.dumps(prep))
+            binary = self.input_dir / "mcs_signal_channels.int32.bin"
+            with binary.open("wb") as handle:
+                handle.truncate(samples * prep["n_chan_bin"] * 4)
+            with self.assertRaisesRegex(ValueError, "established"):
+                adapter.prepare(self.input_dir, self.source_xml, self.project, f"strict-{samples}", template_path)
+            result = adapter.prepare(self.input_dir, None, self.project, f"short-{samples}", template_path,
+                                     allow_staged_geometry=True, allow_short_recording=True)
+            params = json.loads(Path(result["params_file"]).read_text())
+            manifest = json.loads((Path(result["input_dir"]) / "mcs_recording_manifest.json").read_text())
+            sorter = params["spikesorting"]["kilosort4"]["sorter"]
+            self.assertEqual(sorter["batch_size"], expected_batch)
+            self.assertEqual((sorter["Th_universal"], sorter["Th_learned"], sorter["nt"], sorter["n_templates"]), (5, 8, 31, 6))
+            self.assertEqual(params["preprocessing"]["min_preprocessing_duration"], 0)
+            self.assertFalse(manifest["source_h5_cleanup_allowed"])
+            self.assertIsNone(manifest["pitch_um"])
+            self.assertEqual(manifest["sorting_pitch_um"], 200)
+            self.assertEqual(result["short_recording_policy"], "explicit_attempt_below_established_minimum")
+
+    def test_partial_recovery_report_and_warning_are_retained(self) -> None:
+        prep = self.fixture()
+        source_report = self.project / "recovery.json"
+        source_report.write_text(json.dumps({"recording_completeness": "recovered_prefix", "source_retained": True}))
+        prep.update(recording_completeness="recovered_prefix", recovery_report=str(source_report),
+                    source_review_warning="Recovered prefix only; incomplete tail omitted")
+        self.manifest_path.write_text(json.dumps(prep))
+        template = json.loads((REPO_ROOT / "config/aind_axion_cytoview6_params_th5_kilosort_preproc_DRAFT.json").read_text())
+        template["preprocessing"]["min_preprocessing_duration"] = 0
+        template_path = self.project / "partial-template.json"
+        template_path.write_text(json.dumps(template))
+        result = adapter.prepare(self.input_dir, self.source_xml, self.project, "partial", template_path)
+        manifest = json.loads((Path(result["input_dir"]) / "mcs_recording_manifest.json").read_text())
+        self.assertEqual(manifest["recording_completeness"], "recovered_prefix")
+        self.assertEqual(Path(manifest["recovery_report"]).name, "source_recovery_report.json")
+        self.assertEqual(Path(manifest["recovery_report"]).read_bytes(), source_report.read_bytes())
+        self.assertEqual(manifest["source_review_warning"], prep["source_review_warning"])
+        self.assertFalse(manifest["source_h5_cleanup_allowed"])
+
     def test_xml_recording_and_sampling_rate_must_match(self) -> None:
         self.fixture()
         wrong = self.project / "anotherRecordingMEA21000.xml"
@@ -222,6 +291,8 @@ class McsAindPreparationTests(unittest.TestCase):
         self.assertEqual(before, {path: path.read_bytes() for path in source_paths})
         with self.assertRaises(FileExistsError):
             adapter.prepare(self.input_dir, self.source_xml, self.project, "test-th5", template_path)
+        del traces, recording
+        gc.collect()
 
 
 if __name__ == "__main__":

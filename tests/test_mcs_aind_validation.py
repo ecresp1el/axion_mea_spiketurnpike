@@ -98,11 +98,20 @@ class McsAindValidationTests(unittest.TestCase):
     def test_60_channel_100um_fixture_with_distinct_gains_and_rate(self):
         self.check_durable_fixture(60, 100, 20000)
 
-    def check_durable_fixture(self, channel_count, pitch, fs):
+    def test_unverified_59_and_60_channel_grids_do_not_claim_physical_pitch(self):
+        for channel_count, pitch in ((59, 200), (60, 200), (60, 100)):
+            with self.subTest(channel_count=channel_count, pitch=pitch):
+                self.check_durable_fixture(channel_count, pitch, 10000, unverified=True)
+
+    def check_durable_fixture(self, channel_count, pitch, fs, unverified=False):
         # Use local storage so open NumPy memmaps do not leave NFS deletion markers.
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             inputs, manifest, reader, positions = make_input_fixture(root, channel_count, pitch, fs)
+            if unverified:
+                manifest.update(geometry_status="staged_unverified", configured_mea_name=None, pitch_um=None,
+                                sorting_pitch_um=pitch, source_xml=None, source_msrd=None)
+                (inputs / "mcs_recording_manifest.json").write_text(json.dumps(manifest))
             results = root / "results"
             results.mkdir()
             params = {
@@ -132,6 +141,10 @@ class McsAindValidationTests(unittest.TestCase):
             self.assertEqual(len(report["input"]["gain_uv_per_count"]), channel_count)
             np.testing.assert_allclose(report["input"]["gain_uv_per_count"], reader["gain_to_uV"])
             self.assertEqual(report["input"]["events"]["event_count"], 1)
+            self.assertEqual(report["input"]["physical_geometry_verified"], not unverified)
+            if unverified:
+                self.assertIsNone(report["input"]["pitch_um"])
+                self.assertTrue(any("Physical MEA geometry is unknown" in warning for warning in report["warnings"]))
             self.assertEqual(report["cleanup"]["removed_unit_ids"], [11])
             self.assertEqual(report["stages"]["curated"]["spike_count"], 3)
             self.assertEqual(len(rows), 2)
@@ -186,6 +199,31 @@ class McsAindValidationTests(unittest.TestCase):
             report = {}
             verify_input(inputs, {"job_dispatch": {"spikeinterface_info": {"reader_kwargs": reader}}}, report)
             self.assertEqual(report["input"]["events"]["event_count"], 0)
+
+    def test_unverified_geometry_rejects_physical_claims_and_nominal_grid_drift(self):
+        for corruption in ("physical_pitch", "model", "sorting_pitch", "position", "gain", "reference"):
+            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+                inputs, manifest, reader, _ = make_input_fixture(Path(tmp))
+                manifest.update(geometry_status="staged_unverified", configured_mea_name=None, pitch_um=None, sorting_pitch_um=200)
+                if corruption == "physical_pitch":
+                    manifest["pitch_um"] = 200
+                elif corruption == "model":
+                    manifest["configured_mea_name"] = "60MEA200/30iR"
+                elif corruption == "sorting_pitch":
+                    manifest["sorting_pitch_um"] = 100
+                else:
+                    with (inputs / "channels.csv").open(newline="") as handle:
+                        rows = list(csv.DictReader(handle))
+                    name, value = {"position": ("x_um", 999), "gain": ("gain_uv_per_count", 1),
+                                   "reference": ("channel_label", "Ref")}[corruption]
+                    rows[0][name] = value
+                    with (inputs / "channels.csv").open("w", newline="") as handle:
+                        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                        writer.writeheader()
+                        writer.writerows(rows)
+                (inputs / "mcs_recording_manifest.json").write_text(json.dumps(manifest))
+                with self.assertRaises(ValueError):
+                    verify_input(inputs, {"job_dispatch": {"spikeinterface_info": {"reader_kwargs": reader}}}, {})
 
 
 if __name__ == "__main__":

@@ -181,14 +181,27 @@ def verify_input(input_dir: Path, params: dict, report: dict):
         raise ValueError("MCS adapter requires 59 or 60 lossless int32 signal channels")
     if manifest["binary_layout"] != "sample_major_row_major":
         raise ValueError("Input binary must be sample-major")
-    model = re.fullmatch(r"60MEA(100|200)/(10|30)(iR)?", manifest["configured_mea_name"])
-    if model is None or float(model[1]) != float(manifest["pitch_um"]):
-        raise ValueError("Configured MCS model and electrode pitch disagree")
+    geometry_status = manifest.get("geometry_status", "source_verified")
+    if geometry_status == "source_verified":
+        model = re.fullmatch(r"60MEA(100|200)/(10|30)(iR)?", manifest["configured_mea_name"] or "")
+        if model is None or float(model[1]) != float(manifest["pitch_um"]):
+            raise ValueError("Configured MCS model and electrode pitch disagree")
+        sorting_pitch = float(manifest.get("sorting_pitch_um", manifest["pitch_um"]))
+        if sorting_pitch != float(manifest["pitch_um"]):
+            raise ValueError("Verified physical and sorting electrode pitches disagree")
+    elif geometry_status == "staged_unverified":
+        model = None
+        sorting_pitch = float(manifest["sorting_pitch_um"])
+        if (manifest.get("configured_mea_name") is not None or manifest.get("pitch_um") is not None
+                or not np.isfinite(sorting_pitch) or sorting_pitch <= 0):
+            raise ValueError("Unverified geometry must have no physical model/pitch and declare a finite positive nominal sorting grid")
+    else:
+        raise ValueError(f"Unknown MCS geometry status: {geometry_status}")
     source_labels = manifest["channel_labels"]
     if len(source_labels) != 60 or int(manifest["channel_count_in_file"]) != len(source_labels):
         raise ValueError("Source channel labels do not describe the configured 60-contact MEA")
     expected_indices = [index for index, label in enumerate(source_labels) if label.lower() != "ref"]
-    if len(expected_indices) != channel_count or (channel_count == 59) != bool(model[3]):
+    if len(expected_indices) != channel_count or (model is not None and (channel_count == 59) != bool(model[3])):
         raise ValueError("Configured MEA reference and exported signal-channel count disagree")
     if len(channels) != channel_count or len({row["channel_label"] for row in channels}) != channel_count:
         raise ValueError("Channel map is incomplete or has duplicate electrode labels")
@@ -199,7 +212,7 @@ def verify_input(input_dir: Path, params: dict, report: dict):
         raise ValueError("Source stream indices are not unique")
     if stream_indices != expected_indices or [row["channel_label"] for row in channels] != [source_labels[i] for i in expected_indices]:
         raise ValueError("Channel mapping or order differs from source labels/reference exclusion")
-    geometry = mcs_60mea200_geometry(tuple(row["channel_label"] for row in channels), pitch_um=float(model[1]))
+    geometry = mcs_60mea200_geometry(tuple(row["channel_label"] for row in channels), pitch_um=sorting_pitch)
     expected_positions = [[row["x_um"], row["y_um"]] for row in geometry]
     positions = [[float(row["x_um"]), float(row["y_um"])] for row in channels]
     if not np.allclose(positions, expected_positions, rtol=0, atol=1e-9):
@@ -256,6 +269,8 @@ def verify_input(input_dir: Path, params: dict, report: dict):
         "channel_count": channel_count, "dtype": str(dtype), "binary_bytes": expected_bytes,
         "gain_uv_per_count": expected_gain.tolist(), "calibration_windows": windows,
         "configured_mea_name": manifest.get("configured_mea_name"), "pitch_um": manifest.get("pitch_um"),
+        "geometry_status": geometry_status, "sorting_pitch_um": sorting_pitch,
+        "physical_geometry_verified": geometry_status == "source_verified",
         "reference_channel_excluded": channel_count == 59,
         "original_preparation_sidecar_verified": source_prep_path.exists(), "events": events,
     }
@@ -293,6 +308,8 @@ def validate(results_dir: Path, input_dir: Path, params_path: Path) -> tuple[dic
     try:
         params = read_json(params_path)
         raw_recording, channels, sample_count, fs, windows = verify_input(input_dir, params, report)
+        if not report["input"]["physical_geometry_verified"]:
+            report["warnings"].append(f"Physical MEA geometry is unknown; sorting uses an explicitly assumed nominal {report['input']['sorting_pitch_um']:g}-coordinate grid, not verified micrometers")
         if (results_dir / "repro/mcs_input/events.csv").exists():
             copied_events = results_dir / "repro/mcs_input/events.csv"
             if hashlib.sha256(copied_events.read_bytes()).hexdigest() != report["input"]["events"]["sha256"]:

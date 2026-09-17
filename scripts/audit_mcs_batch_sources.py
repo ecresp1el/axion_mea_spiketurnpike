@@ -182,7 +182,8 @@ def nominal_time(stem: str) -> str | None:
 
 
 def audit(staged_root: Path, source_roots: list[Path], readiness_csv: Path, output_dir: Path,
-          minimum_duration: float = 30.0) -> dict:
+          minimum_duration: float = 30.0, *, allow_staged_geometry: bool = False,
+          allow_short_recordings: bool = False) -> dict:
     index = index_sources(source_roots)
     output_dir.mkdir(parents=True, exist_ok=True)
     evidence_root = output_dir / "source_evidence"
@@ -274,8 +275,31 @@ def audit(staged_root: Path, source_roots: list[Path], readiness_csv: Path, outp
                 reasons.append("source_msrd_full_validation_failed:" + str(exc))
         if h5_failed and not row.get("source_msrd_fully_inspected"):
             reasons.append("all_matching_h5_failed_validation")
+        try:
+            checked = inspect_input(input_dir, Path(row["source_xml"]) if row["source_xml"] else None,
+                                    Path(row["source_msrd"]) if row["source_msrd"] and not row["source_xml"] else None,
+                                    allow_staged_geometry=allow_staged_geometry)
+            row.update(geometry_status=checked["geometry_status"], configured_mea_name=checked["model"],
+                       pitch_um=checked["pitch_um"], sorting_pitch_um=checked["sorting_pitch_um"],
+                       source_review_warning=checked["source_review_warning"],
+                       source_h5_cleanup_allowed=checked["geometry_status"] == "source_verified")
+            if allow_staged_geometry and checked["geometry_status"] == "staged_unverified":
+                waived = [reason for reason in reasons if reason == "source_xml_missing"
+                          or reason.startswith("source_msrd_full_validation_failed:")]
+                reasons = [reason for reason in reasons if reason not in waived]
+                row["waived_source_blockers"] = waived
+        except Exception as exc:
+            if allow_staged_geometry:
+                reasons.append("staged_input_invalid:" + str(exc))
         if duration < minimum_duration:
-            reasons.append(f"duration_below_{minimum_duration:g}s_workflow_minimum")
+            if not allow_short_recordings:
+                reasons.append(f"duration_below_{minimum_duration:g}s_workflow_minimum")
+            elif prep["sample_count"] < 4 * 31:
+                reasons.append("too_few_samples_for_two_waveform_padded_batches")
+            row["short_recording_policy"] = ("explicit_attempt_below_established_minimum"
+                                              if allow_short_recordings else "blocked_by_established_minimum")
+        else:
+            row["short_recording_policy"] = "established_minimum"
         row["status"] = "blocked" if reasons else "ready"
         row["reason"] = "; ".join(reasons)
         row["eligibility"] = row["status"]
@@ -283,6 +307,11 @@ def audit(staged_root: Path, source_roots: list[Path], readiness_csv: Path, outp
         row["cleanup_note"] = ("Rejected HDF5 copies must be retained" if row["rejected_h5"] else
                                "Only selected validated HDF5 may be considered after completed output validation"
                                if row["source_h5"] else "No local HDF5 available")
+        if row.get("geometry_status") == "staged_unverified":
+            row["cleanup_note"] = "No HDF5 deletion permitted for staged-geometry fallback"
+        evidence["geometry_status"] = row.get("geometry_status")
+        evidence["source_review_warning"] = row.get("source_review_warning")
+        evidence["short_recording_policy"] = row["short_recording_policy"]
         evidence["preflight_status"] = row["status"]
         evidence["preflight_reason"] = row["reason"]
         evidence_path = evidence_root / (hashlib.sha256(recording_id.encode()).hexdigest()[:20] + ".json")
@@ -300,8 +329,12 @@ def audit(staged_root: Path, source_roots: list[Path], readiness_csv: Path, outp
                         "staged": False, "original_source_msrd": source["source_msrd_path"]})
     report = {"schema_version": 1, "generated_utc": datetime.now(timezone.utc).isoformat(),
               "staged_root": str(staged_root), "source_roots": [str(p) for p in source_roots],
+              "policies": {"allow_staged_geometry": allow_staged_geometry,
+                           "allow_short_recordings": allow_short_recordings,
+                           "established_minimum_duration_s": minimum_duration},
               "summary": {"records": len(records), "staged_records": len(staged_ids),
                           "status_counts": dict(Counter(row["status"] for row in records)),
+                          "geometry_counts": dict(Counter(row.get("geometry_status", "not_staged") for row in records)),
                           "matched_xml": sum(bool(row["source_xml"]) for row in records),
                           "matched_valid_h5": sum(bool(row["source_h5"]) for row in records),
                           "unmatched_local_sources": sorted(set(index) - staged_ids)}, "records": records}
@@ -325,9 +358,13 @@ def main() -> None:
     parser.add_argument("--readiness-csv", type=Path, default=ROOT / "audit-output/mcs_sorting_readiness.csv")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--minimum-duration", type=float, default=30)
+    parser.add_argument("--allow-staged-geometry", action="store_true")
+    parser.add_argument("--allow-short-recordings", action="store_true")
     args = parser.parse_args()
     report = audit(args.staged_root.resolve(), [p.resolve() for p in args.source_root],
-                   args.readiness_csv, args.output_dir.resolve(), args.minimum_duration)
+                   args.readiness_csv, args.output_dir.resolve(), args.minimum_duration,
+                   allow_staged_geometry=args.allow_staged_geometry,
+                   allow_short_recordings=args.allow_short_recordings)
     print(json.dumps(report["summary"], indent=2))
 
 

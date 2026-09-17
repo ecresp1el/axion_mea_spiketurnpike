@@ -10,6 +10,8 @@ Turbo project outputs and the Axion-to-MCS spike-sorting adaptation, see
 [the workflow map](docs/AXION_TO_MCS_WORKFLOW_MAP.md).
 The user-approved first full MCS AIND run is documented in
 [the single-recording run note](docs/MCS_SINGLE_RECORDING_RUN_20260917.md).
+Archive execution, inclusive metadata handling and guarded H5 cleanup are in
+[the batch run note](docs/MCS_BATCH_RUN_20260917.md).
 
 ## One Command
 

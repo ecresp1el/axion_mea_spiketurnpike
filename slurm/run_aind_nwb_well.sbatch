@@ -291,8 +291,39 @@ else
   cp "${AIND_PIPELINE_ROOT}/pipeline/capsule_versions.env" "${repro_dir}/capsule_versions.env"
 fi
 cp "$0" "${repro_dir}/submitted_job.sbatch"
-git -C "${REPO_ROOT}" rev-parse HEAD > "${repro_dir}/axion_repo_commit.txt"
-git -C "${REPO_ROOT}" status --short > "${repro_dir}/axion_repo_status.txt"
+if [[ -e "${REPO_ROOT}/source_git_commit.txt" || -e "${REPO_ROOT}/source_git_status.txt" ]]; then
+  for provenance_file in "${REPO_ROOT}/source_git_commit.txt" "${REPO_ROOT}/source_git_status.txt" "${REPO_ROOT}/../code_sha256.json"; do
+    if [[ ! -f "${provenance_file}" ]]; then
+      echo "ERROR: incomplete code snapshot provenance: ${provenance_file}" >&2
+      exit 2
+    fi
+  done
+  "${CONDA_ENV}/bin/python" - "${REPO_ROOT}" "${REPO_ROOT}/../code_sha256.json" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+hashes = json.loads(Path(sys.argv[2]).read_text())
+if not isinstance(hashes, dict) or not hashes:
+    raise SystemExit("ERROR: code snapshot hash manifest is empty or invalid")
+if not {"source_git_commit.txt", "source_git_status.txt"}.issubset(hashes):
+    raise SystemExit("ERROR: code snapshot hashes do not include original Git provenance")
+for relative, expected in hashes.items():
+    path = root / relative
+    if Path(relative).is_absolute() or not path.resolve().is_relative_to(root) or path.is_symlink() or not path.is_file():
+        raise SystemExit(f"ERROR: invalid code snapshot file: {relative}")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        raise SystemExit(f"ERROR: code snapshot changed: {relative}")
+PY
+  cp "${REPO_ROOT}/source_git_commit.txt" "${repro_dir}/axion_repo_commit.txt"
+  cp "${REPO_ROOT}/source_git_status.txt" "${repro_dir}/axion_repo_status.txt"
+  cp "${REPO_ROOT}/../code_sha256.json" "${repro_dir}/code_snapshot_sha256.json"
+else
+  git -C "${REPO_ROOT}" rev-parse HEAD > "${repro_dir}/axion_repo_commit.txt"
+  git -C "${REPO_ROOT}" status --short > "${repro_dir}/axion_repo_status.txt"
+fi
 git -C "${AIND_PIPELINE_ROOT}" rev-parse HEAD > "${repro_dir}/aind_pipeline_commit.txt"
 git -C "${AIND_PIPELINE_ROOT}" status --short > "${repro_dir}/aind_pipeline_status.txt"
 if [[ "${AIND_INPUT_MODE}" == "nwb" ]]; then
