@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one Axion well NWB through the current AIND ephys pipeline on Great Lakes.
+# Run one Axion well NWB or prepared SpikeInterface recording through AIND.
 #
 # Submit from repo root:
 #   AIND_CONFIG=config/example_aind_nwb_well.env sbatch slurm/run_aind_nwb_well.sbatch
@@ -26,6 +26,9 @@ if [[ -n "${AIND_CONFIG}" ]]; then
 fi
 
 RECORDING_STEM="${RECORDING_STEM:-}"
+AIND_INPUT_MODE="${AIND_INPUT_MODE:-nwb}"
+AIND_RECORDING_PATH="${AIND_RECORDING_PATH:-}"
+AIND_INPUT_DIR="${AIND_INPUT_DIR:-}"
 WELL="${WELL:-}"
 NWB_FILE="${NWB_FILE:-}"
 AIND_RUNMODE="${AIND_RUNMODE:-fast}"
@@ -39,14 +42,43 @@ if [[ -z "${RECORDING_STEM}" ]]; then
   echo "ERROR: set RECORDING_STEM." >&2
   exit 2
 fi
-if [[ -z "${WELL}" ]]; then
-  echo "ERROR: set WELL." >&2
-  exit 2
-fi
-if [[ -z "${NWB_FILE}" || ! -f "${NWB_FILE}" ]]; then
-  echo "ERROR: set NWB_FILE to an existing per-well NWB file." >&2
-  exit 2
-fi
+case "${AIND_INPUT_MODE}" in
+  nwb)
+    if [[ -z "${WELL}" ]]; then
+      echo "ERROR: set WELL." >&2
+      exit 2
+    fi
+    if [[ -z "${NWB_FILE}" || ! -f "${NWB_FILE}" ]]; then
+      echo "ERROR: set NWB_FILE to an existing per-well NWB file." >&2
+      exit 2
+    fi
+    run_relative_path="${RECORDING_STEM}/${WELL}"
+    input_dir="${AIND_NWB_INPUT_ROOT}/${run_relative_path}"
+    ;;
+  spikeinterface)
+    if [[ ! "${RECORDING_STEM}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+      echo "ERROR: RECORDING_STEM must be a simple session identifier." >&2
+      exit 2
+    fi
+    if [[ -z "${AIND_RECORDING_PATH}" || "${AIND_RECORDING_PATH}" == /* ||
+          "${AIND_RECORDING_PATH}" == */ || "${AIND_RECORDING_PATH}" == *//* ||
+          "${AIND_RECORDING_PATH}" == *$'\n'* || "${AIND_RECORDING_PATH}" == *$'\r'* ||
+          "/${AIND_RECORDING_PATH}/" == */./* || "/${AIND_RECORDING_PATH}/" == */../* ]]; then
+      echo "ERROR: set AIND_RECORDING_PATH to a safe relative recording/run path." >&2
+      exit 2
+    fi
+    if [[ -z "${AIND_INPUT_DIR}" || ! -d "${AIND_INPUT_DIR}" ]]; then
+      echo "ERROR: set AIND_INPUT_DIR to an existing prepared SpikeInterface input folder." >&2
+      exit 2
+    fi
+    run_relative_path="${AIND_RECORDING_PATH}"
+    input_dir="$(realpath "${AIND_INPUT_DIR}")"
+    ;;
+  *)
+    echo "ERROR: unsupported AIND_INPUT_MODE: ${AIND_INPUT_MODE}" >&2
+    exit 2
+    ;;
+esac
 if [[ ! -f "${AIND_PIPELINE_ROOT}/pipeline/main_multi_backend.nf" ]]; then
   echo "ERROR: missing maintained AIND repo at ${AIND_PIPELINE_ROOT}." >&2
   exit 2
@@ -86,12 +118,11 @@ mkdir -p \
   "${AIND_SINGULARITY_CACHE_DIR}" \
   "${AIND_SINGULARITY_TMPDIR}"
 
-input_dir="${AIND_NWB_INPUT_ROOT}/${RECORDING_STEM}/${WELL}"
-results_dir="${AIND_RESULTS_ROOT}/${RECORDING_STEM}/${WELL}"
-work_dir="${AIND_WORK_ROOT}/${RECORDING_STEM}/${WELL}"
+results_dir="${AIND_RESULTS_ROOT}/${run_relative_path}"
+work_dir="${AIND_WORK_ROOT}/${run_relative_path}"
 launch_dir="${work_dir}/launch"
-nxf_home="${AIND_NXF_HOME_ROOT}/${RECORDING_STEM}/${WELL}"
-run_job_dir="${AIND_JOBS_ROOT}/${RECORDING_STEM}/${WELL}"
+nxf_home="${AIND_NXF_HOME_ROOT}/${run_relative_path}"
+run_job_dir="${AIND_JOBS_ROOT}/${run_relative_path}"
 repro_dir="${results_dir}/repro"
 shared_aind_python_shim_dir="${AIND_PYTHON_SHIM_DIR}"
 aind_python_shim_run_id="${SLURM_JOB_ID:-manual_$$}"
@@ -107,8 +138,10 @@ if [[ -d "${results_dir}" && "${AIND_ALLOW_OVERWRITE}" != "true" ]]; then
 fi
 
 mkdir -p "${input_dir}" "${results_dir}/nextflow" "${work_dir}" "${launch_dir}" "${nxf_home}" "${run_job_dir}" "${repro_dir}" "${AIND_PYTHON_SHIM_DIR}"
-rm -f "${input_dir}"/*.nwb
-ln -s "$(realpath "${NWB_FILE}")" "${input_dir}/$(basename "${NWB_FILE}")"
+if [[ "${AIND_INPUT_MODE}" == "nwb" ]]; then
+  rm -f "${input_dir}"/*.nwb
+  ln -s "$(realpath "${NWB_FILE}")" "${input_dir}/$(basename "${NWB_FILE}")"
+fi
 
 if [[ -n "${AIND_OPENJDK_MODULE}" ]]; then
   module load "${AIND_OPENJDK_MODULE}"
@@ -124,7 +157,9 @@ export SINGULARITY_CACHEDIR="${AIND_SINGULARITY_CACHE_DIR}"
 export SINGULARITY_TMPDIR="${AIND_SINGULARITY_TMPDIR}"
 export APPTAINER_CACHEDIR="${AIND_SINGULARITY_CACHE_DIR}"
 export APPTAINER_TMPDIR="${AIND_SINGULARITY_TMPDIR}"
-export HOME="${AIND_CONTAINER_HOME}"
+if [[ "${AIND_INPUT_MODE}" == "nwb" ]]; then
+  export HOME="${AIND_CONTAINER_HOME}"
+fi
 export XDG_CACHE_HOME="${AIND_XDG_CACHE_HOME}"
 export MPLCONFIGDIR="${AIND_XDG_CACHE_HOME}/matplotlib"
 export TMPDIR="${TMPDIR:-${work_dir}/tmp_${SLURM_JOB_ID:-manual}}"
@@ -153,7 +188,7 @@ export PATH="${AIND_PYTHON_SHIM_DIR}:${PATH}"
 
 exec > >(tee -a "${results_dir}/run_aind_nwb_well_${SLURM_JOB_ID:-manual}.log") 2>&1
 
-echo "Axion AIND NWB job started: $(date)"
+echo "AIND ${AIND_INPUT_MODE} job started: $(date)"
 echo "Host: $(hostname)"
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
 echo "REPO_ROOT=${REPO_ROOT}"
@@ -161,8 +196,12 @@ echo "PROJECT_ROOT=${PROJECT_ROOT}"
 echo "AIND_PIPELINE_ROOT=${AIND_PIPELINE_ROOT}"
 echo "AIND_NEXTFLOW_BIN=${AIND_NEXTFLOW_BIN}"
 echo "RECORDING_STEM=${RECORDING_STEM}"
-echo "WELL=${WELL}"
-echo "NWB_FILE=${NWB_FILE}"
+echo "AIND_INPUT_MODE=${AIND_INPUT_MODE}"
+echo "AIND_RECORDING_PATH=${run_relative_path}"
+if [[ "${AIND_INPUT_MODE}" == "nwb" ]]; then
+  echo "WELL=${WELL}"
+  echo "NWB_FILE=${NWB_FILE}"
+fi
 echo "DATA_PATH=${input_dir}"
 echo "RESULTS_PATH=${results_dir}"
 echo "WORK_DIR=${work_dir}"
@@ -225,7 +264,9 @@ fi
   echo "export SINGULARITY_TMPDIR=${SINGULARITY_TMPDIR@Q}"
   echo "export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR@Q}"
   echo "export APPTAINER_TMPDIR=${APPTAINER_TMPDIR@Q}"
-  echo "export HOME=${HOME@Q}"
+  if [[ "${AIND_INPUT_MODE}" == "nwb" ]]; then
+    echo "export HOME=${HOME@Q}"
+  fi
   echo "export XDG_CACHE_HOME=${XDG_CACHE_HOME@Q}"
   echo "export MPLCONFIGDIR=${MPLCONFIGDIR@Q}"
   echo "export AIND_PYTHON_SHIM_DIR=${AIND_PYTHON_SHIM_DIR@Q}"
@@ -254,7 +295,10 @@ git -C "${REPO_ROOT}" rev-parse HEAD > "${repro_dir}/axion_repo_commit.txt"
 git -C "${REPO_ROOT}" status --short > "${repro_dir}/axion_repo_status.txt"
 git -C "${AIND_PIPELINE_ROOT}" rev-parse HEAD > "${repro_dir}/aind_pipeline_commit.txt"
 git -C "${AIND_PIPELINE_ROOT}" status --short > "${repro_dir}/aind_pipeline_status.txt"
-realpath "${NWB_FILE}" > "${repro_dir}/input_nwb.txt"
+if [[ "${AIND_INPUT_MODE}" == "nwb" ]]; then
+  realpath "${NWB_FILE}" > "${repro_dir}/input_nwb.txt"
+fi
+printf '%s\n' "${AIND_INPUT_MODE}" > "${repro_dir}/input_mode.txt"
 printf '%s\n' "${input_dir}" > "${repro_dir}/data_path.txt"
 printf '%s\n' "${results_dir}" > "${repro_dir}/results_path.txt"
 
@@ -283,4 +327,4 @@ fi
 cd "${launch_dir}"
 DATA_PATH="${input_dir}" RESULTS_PATH="${results_dir}" "${nextflow_command[@]}"
 
-echo "Axion AIND NWB job finished: $(date)"
+echo "AIND ${AIND_INPUT_MODE} job finished: $(date)"

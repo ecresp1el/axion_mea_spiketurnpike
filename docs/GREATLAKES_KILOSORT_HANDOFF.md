@@ -1,5 +1,10 @@
 # Great Lakes Kilosort Transition Handoff
 
+For a current map from the Turbo project README's folders to the responsible
+code, including the later AIND TH5 spike-handling route and its MCS adaptation,
+see [Axion-to-MCS workflow map](AXION_TO_MCS_WORKFLOW_MAP.md). The early direct
+Kilosort defaults below are historical and differ from the adopted TH5 run.
+
 Date: 2026-07-05
 
 This handoff mirrors the working habits from `mge_organoid_pipeline`:

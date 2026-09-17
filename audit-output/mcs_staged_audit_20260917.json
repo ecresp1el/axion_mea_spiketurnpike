@@ -1,0 +1,85 @@
+{
+  "audited_utc": "2026-09-17T15:55:57.148560+00:00",
+  "scope": "Read-only sidecar and binary-stat audit. No binary trace content read, no checksums of large binaries, no sorting, no source edits. Structural checks do not establish biological validity, signal quality, or treatment identity.",
+  "input_root": "/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/data/interim/mcs_sorting_inputs",
+  "ledger_sha256": "920e7911d58c98dc6cbab20e44ba17e282d9c52256e6c8502481ee411fc70f09",
+  "source_audit_rows": 118,
+  "source_readiness_counts": {
+    "ready_to_export_for_sorting": 114,
+    "blocked_source_too_small": 1,
+    "blocked_msrd_unreadable": 3
+  },
+  "ledger_rows": 116,
+  "latest_recordings": 114,
+  "latest_statuses": {
+    "already_validated": 1,
+    "prepared": 113
+  },
+  "groups": {
+    "Actuators & Effectors": {
+      "recordings": 60,
+      "channels_59": 36,
+      "pulse_markers": 32,
+      "no_markers": 12,
+      "channels_60": 24,
+      "chemical_marker": 16
+    },
+    "Actuators & Veh": {
+      "recordings": 22,
+      "channels_59": 22,
+      "pulse_markers": 18,
+      "no_markers": 4
+    },
+    "MEA 2023": {
+      "recordings": 19,
+      "channels_59": 19,
+      "no_markers": 19
+    },
+    "plain neurons & Effectors": {
+      "recordings": 13,
+      "channels_59": 13,
+      "pulse_markers": 12,
+      "no_markers": 1
+    }
+  },
+  "binary_bytes": 106797852000,
+  "binary_gib": 99.46325048804283,
+  "exported_channel_counts": {
+    "59": 90,
+    "60": 24
+  },
+  "sampling_frequency_hz": [
+    10000
+  ],
+  "binary_dtype": [
+    "int32"
+  ],
+  "duration_s_min": 1.3,
+  "duration_s_max": 852.8,
+  "recordings_shorter_than_30_s": 7,
+  "recordings_shorter_than_60_s": 10,
+  "event_label_counts": {
+    "STG 1 Single Pulse Start": 550,
+    "STG 1 Single Pulse Stop": 550,
+    "Chemical START": 16
+  },
+  "event_count_distribution": {
+    "0": 36,
+    "1": 16,
+    "10": 57,
+    "60": 3,
+    "140": 1,
+    "210": 1
+  },
+  "manifests_with_original_mac_paths": {
+    "binary_file": 114,
+    "channels_csv": 114,
+    "events_csv": 114,
+    "source_file": 114
+  },
+  "source_conversion_to_volts_sets": {
+    "[5.9605e-08]": 114
+  },
+  "channel_variant_difference": "At source index 14, the 90 59-channel exports have Ref excluded; the 24 60-channel exports instead have numeric label 15 included. These labels alone do not establish its physical reference role.",
+  "structural_check_failures": []
+}

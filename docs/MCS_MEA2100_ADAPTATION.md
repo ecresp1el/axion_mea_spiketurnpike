@@ -1,5 +1,30 @@
 # Multi Channel Systems MEA2100 intake
 
+## Current sorting adaptation checkpoint (2026-09-17)
+
+See [Axion-to-MCS workflow map](AXION_TO_MCS_WORKFLOW_MAP.md) for the code behind
+the Turbo project README, the adopted Axion TH5 spike-sorting workflow, and the
+remaining MCS changes. The subsequent user-approved
+[single-recording AIND run](MCS_SINGLE_RECORDING_RUN_20260917.md) records the new
+adapter, actual run status and saving paths. This document's earlier pilot
+examples are not a complete production sorting recipe.
+
+The staged archive has 114 recordings: **90 have 59 exported channels and 24
+have 60**, all int32 at 10 kHz. Available source XML declares both
+`60MEA200/30iR` and `60MEA100/10` configurations; the current exporter assigned
+200 um coordinates universally. Resolve geometry per recording before sorting.
+All preparation manifests also retain Mac paths that the runner must resolve
+against their current input directory. The old direct `run_mcs_kilosort.py`
+runner has not adopted the full TH5 settings or saved SpikeInterface
+sorting/analyzer output contract. The new `scripts/prepare_mcs_aind_recording.py`
+adapter instead prepares source-verified inputs for the established full AIND
+workflow, with one recording per run and no invented well identity.
+
+The [staged inventory](../audit-output/mcs_staged_inventory_20260917.csv) and
+[source geometry audit](../audit-output/mcs_source_geometry_20260917.csv) record
+the evidence. No sorting was launched during the initial mapping checkpoint;
+the subsequent one-recording execution is documented separately above.
+
 The Axion project builder cannot consume Multi Channel Systems (MCS) exports
 directly: Axion starts with detected spike CSVs and an Axion `.raw` stimulus
 file, while MCS stores continuous amplifier counts and event streams in HDF5.
@@ -44,11 +69,12 @@ python run_mcs_h5_prepare.py \
 
 ## Geometry
 
-The archive uses the MCS `60MEA200/30iR` layout. It has an 8×8 grid at 200 µm
+The initial verified example uses the MCS `60MEA200/30iR` layout. It has an 8×8 grid at 200 µm
 pitch; the four corners are absent and `Ref` is the non-signal reference site.
 Numeric MCS labels encode the row and column, so channel `47` has `x=1400 µm`
 and `y=800 µm`. Sorting excludes `Ref`; `channels.csv` and analysis HDF5 both
-retain the 59 signal-site coordinates.
+retain the 59 signal-site coordinates for that example. This is not a universal
+archive geometry; see the current checkpoint above for the source XML evidence.
 
 ## Write an analysis HDF5 copy
 
@@ -96,6 +122,10 @@ standard 200 um grid inferred from MCS labels such as `47` (row 4, column 7),
 and `events.csv` preserves the hardware event times. The JSON manifest retains
 the MCS scale (`ConversionFactor × 10^Exponent` volts per integer count).
 
+This is the historical single-file pilot interface. The archive's values do
+not fit int16; use the existing staged int32 exports described below. Do not
+re-export the archive with this pilot command.
+
 This export is intentionally not fed to the Axion CSV response pipeline. The
 next analysis stage should run spike sorting on the continuous binary, then
 normalize sorter output and MCS `events.csv` into a platform-neutral spike/event
@@ -118,9 +148,9 @@ For every recording this creates, under the same experimental-group and
 condition hierarchy:
 
 - `mcs_signal_channels.int32.bin`: continuous sample-major trace matrix
-  (`time × 59 channels`), with `Ref` excluded;
-- `channels.csv`: the channel order and 60MEA200 x/y coordinates used for the
-  sorter probe;
+  (`time × declared channel count`), with literal `Ref` labels excluded;
+- `channels.csv`: channel order and currently assigned x/y coordinates, which
+  require reconciliation with source acquisition geometry before sorting;
 - `events.csv`: original hardware events in seconds from recording start; and
 - `mcs_preparation_manifest.json`: sample count, 10 kHz sampling frequency,
   binary layout, channel count, event count, source HDF5 path, and volts/count
@@ -141,7 +171,7 @@ python run_mcs_kilosort.py \
   --output-dir /path/to/kilosort_runs/<recording>
 ```
 
-This writes `mcs_kilosort_ready_manifest.json` with the 59-channel probe,
+This writes `mcs_kilosort_ready_manifest.json` with the declared channel probe,
 10 kHz sampling frequency, binary dimensions, and Kilosort settings. Add
 `--run` only on a CUDA-capable Linux machine with Kilosort4 installed; this Mac
 is suitable for conversion and preparation but not GPU spike sorting. After
@@ -152,7 +182,7 @@ manifest and join spike times to `events.csv` for stimulus-locked analyses.
 
 On 2026-09-15, the complete standardized sorter-input archive was transferred
 from the Mac to Great Lakes. The transfer contains 114 validated recordings
-(about 100 GiB): 59-channel lossless int32 binaries, per-recording geometry and
+(about 100 GiB): lossless int32 binaries, per-recording geometry and
 event tables, preparation manifests, and the archive-level ledger.
 
 Great Lakes input root:
@@ -193,11 +223,13 @@ print('114 manifest rows and validated statuses')
 PY
 ```
 
-The next implementation task is a Great Lakes Slurm-array wrapper around
-`run_mcs_kilosort.py`: one 59-channel recording per GPU task, with inputs read
-from this staging root, output written below `results/kilosort/mcs_60mea200`,
-and an append-only job-status ledger. Start with one canary recording, inspect
-its Kilosort output and event alignment, then submit the remaining recordings.
+The original next task was a Slurm-array wrapper around `run_mcs_kilosort.py`.
+The 2026-09-17 audit establishes prerequisite work: portable paths, source-backed
+geometry/reference mapping, explicit adopted TH5 settings, and the saved-spike/
+analyzer contract. Use the sequence in [the workflow map](AXION_TO_MCS_WORKFLOW_MAP.md#6-implementation-sequence-and-acceptance-checks)
+before scheduling. Each task still represents one complete single-MEA recording.
+The formerly proposed `results/kilosort/mcs_60mea200` name should not imply that
+all acquisitions used that array model.
 
 ## Direct-reader contract
 

@@ -5,7 +5,11 @@ Source-of-truth documentation for how this repository turns Axion Maestro Pro ex
 This README is intentionally constrained to what the current code actually does. If a statement below is not supported by the active Python files under `src/axion_mea/`, it should be treated as a bug in the documentation.
 
 Multi Channel Systems MEA2100 HDF5 recordings use a distinct continuous-trace
-preparation route; see `docs/MCS_MEA2100_ADAPTATION.md`.
+preparation route; see `docs/MCS_MEA2100_ADAPTATION.md`. For the code behind the
+Turbo project outputs and the Axion-to-MCS spike-sorting adaptation, see
+[the workflow map](docs/AXION_TO_MCS_WORKFLOW_MAP.md).
+The user-approved first full MCS AIND run is documented in
+[the single-recording run note](docs/MCS_SINGLE_RECORDING_RUN_20260917.md).
 
 ## One Command
 
@@ -94,9 +98,10 @@ Kilosort4 requires a continuous row-major per-well binary trace plus a probe
 geometry. The Axion spike-list CSVs and `.spk` files remain useful downstream
 products, but they are not raw continuous traces for spike sorting.
 
-For Multi Channel Systems 60MEA200 recordings, use the separate documented
-route: legacy `.msrd` → validated analysis HDF5 → 59-channel sorter binary and
-probe → Kilosort4. See [MCS MEA2100 adaptation](docs/MCS_MEA2100_ADAPTATION.md).
+For Multi Channel Systems recordings, use the separate documented
+route: legacy `.msrd` → validated analysis HDF5 → recording-specific int32
+sorter binary and probe → Kilosort4. Source geometry must be reconciled before
+sorting. See [MCS MEA2100 adaptation](docs/MCS_MEA2100_ADAPTATION.md).
 
 Default input:
 
