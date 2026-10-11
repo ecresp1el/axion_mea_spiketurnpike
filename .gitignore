@@ -3,3 +3,26 @@
 .nextflow/
 __pycache__/
 *.pyc
+
+# Generated audit data stay local; retain audit documentation and source scripts.
+/audit-output/**/*
+!/audit-output/**/
+!/audit-output/**/*.md
+!/audit-output/**/*.py
+/audit_previews/
+/slurm-*.out
+/slurm-*.err
+
+# Raw recordings and derived signal arrays (including future exports).
+*.raw
+*.spk
+*.msrd
+*.mcs
+*.h5
+*.hdf5
+*.nwb
+*.bin
+*.dat
+*.npy
+*.npz
+*.mat
