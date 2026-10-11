@@ -1,9 +1,13 @@
 # Great Lakes Kilosort Transition Handoff
 
+**Current LFP entry point (2026-09-17): [Consolidated Axion metadata and LFP readiness](AXION_LFP_CONSOLIDATED_HANDOFF_20260917.md).** It joins101 physical raw files/58 recordings and630 well records, preserves DIV140 plot-derived identities, and identifies18 longer LFP sources plus one5.25s clip. Three dorsal/ventral exports named1–200Hz are excluded because acquisition used200Hz high-pass. Calibrated reader, sampled signal QC, previews, and extraction instructions are included.
+
 For a current map from the Turbo project README's folders to the responsible
 code, including the later AIND TH5 spike-handling route and its MCS adaptation,
 see [Axion-to-MCS workflow map](AXION_TO_MCS_WORKFLOW_MAP.md). The early direct
 Kilosort defaults below are historical and differ from the adopted TH5 run.
+
+Metadata preservation update, 2026-09-17: the [older Axion inventory](../audit-output/axion_2024_inventory_20260917/README.md) retains all five D212–D235 raw-file metadata records. The separate DIV140 plot/analysis history strongly supports **A1–A3 as cortical–cortical controls and B1–B3 as cortical–MGE assembloids**. The [inferred well map, original saved plots, and provenance](../audit-output/axion_2024_inventory_20260917/DIV140_COMPARISON_EVIDENCE.md) preserve this reconstruction separately from embedded raw annotations. Do not apply the DIV140 row mapping to the D212–D235 plate. DIV140 LFP availability is still unconfirmed. The [newer LFP and well-metadata inventory](../audit-output/assembloid_lfp_inventory_20260917/WELL_METADATA_FINDINGS.md) is retained alongside it.
 
 Date: 2026-07-05
 

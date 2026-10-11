@@ -12,6 +12,8 @@ The user-approved first full MCS AIND run is documented in
 [the single-recording run note](docs/MCS_SINGLE_RECORDING_RUN_20260917.md).
 Archive execution, inclusive metadata handling and guarded H5 cleanup are in
 [the batch run note](docs/MCS_BATCH_RUN_20260917.md).
+The latest paused-batch status and isolated fallback test are in
+[the current MCS handoff](docs/HANDOFF_MCS_BATCH_PAUSED_FALLBACK_20260917.md).
 
 ## One Command
 

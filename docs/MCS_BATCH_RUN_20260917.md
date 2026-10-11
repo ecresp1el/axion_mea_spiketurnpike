@@ -1,5 +1,29 @@
 # MCS archive batch, 2026-09-17
 
+**Hold checkpoint, 20:40 UTC:** following the user's request to revisit the
+historical Axion template failures, queued array tasks `23-114` (92 recordings)
+are held with `JobHeldUser`. Tasks 21 and 22 were already running and were not
+cancelled. At the checkpoint: 5 completed, 16 failed, 2 running, 92 held, plus
+3 unavailable source rows. Frozen code and settings are unchanged. See
+`jobs/aind_mcs_batch_th5_20260917_195003/hold_review_20260917.json` for the recorded
+hold action and per-task failure classification.
+
+Historical review found the separate `low_activity_ks4_nt2_npcs2` retry:
+`n_templates`, `nearest_templates` and `n_pcs` must all become 2. Actual old
+B6/C7/F6 outputs completed with this change; changing templates alone failed.
+Three current failed tasks (2, 11, 12) have 2-5 training snippets and match that
+documented eligibility. Two have one snippet and eleven have zero; the old
+fallback did not establish a remedy for those cases. The successful old runs
+used an older TH9/preprocessing profile, not the later standard TH5 recipe.
+Do not copy their entire settings or treat technical completion as biological
+validation. No MCS fallback or changed-threshold retry has been launched.
+
+See the historical decision in
+`docs/KEMPNER_WORKFLOW_ADAPTATION_PLAN.md`, particularly lines 4954-4972 and
+6405-6422. Main TH5 settings remained standard; selective fallback handling was
+separate, and later fallback execution had been deferred rather than globally
+changing all runs to two templates/components.
+
 Submitted at 19:54 UTC: Slurm array `61332895`, tasks `0-114`, concurrency 2.
 The final scheduler/ledger collection job is `61332896` (`afterany:61332895`).
 Run ID: `th5_batch_20260917_195003`. The full repository suite passed 99 tests.
