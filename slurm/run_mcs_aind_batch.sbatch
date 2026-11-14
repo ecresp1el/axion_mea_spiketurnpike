@@ -11,7 +11,12 @@
 
 set -euo pipefail
 : "${MCS_BATCH_DIR:?Set MCS_BATCH_DIR to the prepared batch directory}"
+export PYTHONUNBUFFERED=1
 python=/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/envs/axion-kilosort/bin/python
+if [[ "${MCS_BATCH_WATCH_ONLY:-0}" == 1 ]]; then
+    exec "${python}" "${MCS_BATCH_DIR}/code/scripts/run_mcs_aind_batch.py" watch \
+        --batch-dir "${MCS_BATCH_DIR}" --interval 20
+fi
 if [[ "${MCS_BATCH_SUMMARY_ONLY:-0}" == 1 ]]; then
     sleep 10
     exec "${python}" "${MCS_BATCH_DIR}/code/scripts/run_mcs_aind_batch.py" status \

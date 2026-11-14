@@ -1,3 +1,9 @@
+> October 24, 2026 review: both selective retries subsequently completed and
+> passed independent validation. The unique-recording total is now 10 technically
+> validated, 13 unresolved, 92 canceled before execution, and 3 unavailable.
+> See [the failure review and workflow update](/nfs/turbo/umms-parent/axion_mea_spiketurnpike_projectfolder/handoffs/MCS_FAILURE_REVIEW_20261024.md).
+> The checkpoint below remains a historical September 17 snapshot.
+
 # MCS stale batch canceled; selective retries running
 
 Current checkpoint: 2026-09-17 21:31 UTC. The 92 unstarted main-array tasks
