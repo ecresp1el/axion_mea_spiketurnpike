@@ -1,0 +1,113 @@
+{
+  "status": "targeted_phenotype_registry",
+  "scope": "Actuators + effectors",
+  "unit_is_observation": true,
+  "pool_sua_mua": true,
+  "event": "first STG train, t=0",
+  "unit_key": [
+    "recording_id",
+    "unit_id"
+  ],
+  "units": 1554,
+  "phenotype_names": [
+    "firing_rate",
+    "burst_spike_fraction",
+    "active_1s_fraction",
+    "short_isi_fraction",
+    "long_pause_fraction"
+  ],
+  "post_window_selection": "Maximize weakest absolute Cliff delta versus 371 Control across DREADD/LMO/PSAM",
+  "selected_conditions": [
+    {
+      "metric": "firing_rate",
+      "window_index": 32,
+      "post_start_s": 0.0,
+      "post_end_s": 5.0,
+      "pre_start_s": -5.0,
+      "pre_end_s": -0.0,
+      "post_min_abs_cliff_delta": 0.2587952563424947,
+      "change_min_abs_cliff_delta": 0.09518284223044393,
+      "post_search_permutation_holm_p": 0.01,
+      "change_selection_permutation_holm_p": 0.015
+    },
+    {
+      "metric": "burst_spike_fraction",
+      "window_index": 35,
+      "post_start_s": 0.25,
+      "post_end_s": 5.25,
+      "pre_start_s": -5.25,
+      "pre_end_s": -0.25,
+      "post_min_abs_cliff_delta": 0.21036860005515212,
+      "change_min_abs_cliff_delta": 0.006255184069549058,
+      "post_search_permutation_holm_p": 0.01,
+      "change_selection_permutation_holm_p": 0.771
+    },
+    {
+      "metric": "active_1s_fraction",
+      "window_index": 28,
+      "post_start_s": 0.5,
+      "post_end_s": 2.5,
+      "pre_start_s": -2.5,
+      "pre_end_s": -0.5,
+      "post_min_abs_cliff_delta": 0.18227968094195712,
+      "change_min_abs_cliff_delta": 0.047210113067285286,
+      "post_search_permutation_holm_p": 0.01,
+      "change_selection_permutation_holm_p": 0.26
+    },
+    {
+      "metric": "short_isi_fraction",
+      "window_index": 13,
+      "post_start_s": 1.0,
+      "post_end_s": 1.5,
+      "pre_start_s": -1.5,
+      "pre_end_s": -1.0,
+      "post_min_abs_cliff_delta": 0.34589800443458985,
+      "change_min_abs_cliff_delta": 0.13725490196078427,
+      "post_search_permutation_holm_p": 0.01,
+      "change_selection_permutation_holm_p": 0.43199999999999994
+    },
+    {
+      "metric": "long_pause_fraction",
+      "window_index": 38,
+      "post_start_s": 2.0,
+      "post_end_s": 7.0,
+      "pre_start_s": -7.0,
+      "pre_end_s": -2.0,
+      "post_min_abs_cliff_delta": 0.257414145738204,
+      "change_min_abs_cliff_delta": 0.07679516250944818,
+      "post_search_permutation_holm_p": 0.01,
+      "change_selection_permutation_holm_p": 0.43199999999999994
+    }
+  ],
+  "paired_baseline": "Mirror post [a,b) to pre [-b,-a)",
+  "raw_targeted_feature_names": [
+    "firing_rate_post",
+    "burst_spike_fraction_post",
+    "active_1s_fraction_post",
+    "short_isi_fraction_post",
+    "long_pause_fraction_post",
+    "firing_rate_change",
+    "burst_spike_fraction_change",
+    "active_1s_fraction_change",
+    "short_isi_fraction_change",
+    "long_pause_fraction_change"
+  ],
+  "targeted_feature_count": 10,
+  "targeted_data_table": "/scratch/parent_root/parent0/elcrespo/mcs_unit_analysis/poststim_publication/selected_unit_pre_post.csv",
+  "targeted_data_sha256": "414ec7b25d1db04c0a4d7581ea3e329f32d63da51a9c1fbed2541ae1a3ea8c87",
+  "figure_lda_mode": "locked215",
+  "figure_lda_inputs": 215,
+  "active_215_model_replaced": false,
+  "fractions": "Raw fractions 0-1; display post percentages and change percentage points",
+  "definitions": {
+    "firing_rate": "spikes divided by interval duration, Hz",
+    "burst_spike_fraction": "spikes in maximal consecutive-ISI clusters <=25 ms with >=3 spikes, divided by all spikes; no-spike units=0",
+    "active_1s_fraction": "fraction of complete 1-second bins containing >=1 spike; undefined for intervals <1 s",
+    "short_isi_fraction": "fraction of adjacent ISIs <50 ms; >=2 spikes required",
+    "long_pause_fraction": "fraction of adjacent ISIs >200 ms; >=2 spikes required"
+  },
+  "mean_sem": "Mean and SD/sqrt(n) across finite unit values; no missing ISIs imputed in descriptive plots",
+  "effects": "Cliff delta = P(group > Control)-P(group < Control); separate for post values and paired changes",
+  "intervals": "Saved pointwise 95% percentile unit-bootstrap intervals, 2000 resamples, not adjusted for selection",
+  "stars": "Previously saved Welch mean tests versus Control; Holm over 4111 previous/current hypotheses"
+}

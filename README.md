@@ -14,6 +14,12 @@ Archive execution, inclusive metadata handling and guarded H5 cleanup are in
 [the batch run note](docs/MCS_BATCH_RUN_20260917.md).
 The latest paused-batch status and isolated fallback test are in
 [the current MCS handoff](docs/HANDOFF_MCS_BATCH_PAUSED_FALLBACK_20260917.md).
+The active MCS e-stim analysis uses **87 original + 128 burst metrics**, one unit
+per observation, and LDA. See [the locked metric access guide](metadata/MCS_ACTIVE_LDA_ACCESS.md)
+for the exact feature list, frozen data/model locations, loading code, and
+channel/unit post-minus-pre heatmaps. New analysis outputs belong on scratch.
+The [targeted post-stim figure guide](metadata/MCS_TARGETED_POSTSTIM_FIGURE.md)
+links the phenotype panels, effect sizes, locked LDA, and per-panel provenance.
 
 ## One Command
 
