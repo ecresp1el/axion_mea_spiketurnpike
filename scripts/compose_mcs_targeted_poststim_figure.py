@@ -148,7 +148,7 @@ def main():
         effects='Cliff delta = P(group > Control)-P(group < Control); separate for post values and paired changes',
         intervals='Saved pointwise 95% percentile unit-bootstrap intervals, 2000 resamples, not adjusted for selection',
         stars='Previously saved Welch mean tests versus Control; Holm over 4111 previous/current hypotheses')
-    registry_path=REPO/'metadata/mcs_targeted_poststim_metrics.json'
+    registry_path=OUT/'mcs_targeted_poststim_metrics.json'
     registry_path.write_text(json.dumps(registry,indent=2)+'\n')
     fig=plt.figure(figsize=(17,15))
     outer=fig.add_gridspec(3,1,height_ratios=[1,1,1.5],hspace=1.05,left=.06,right=.98,top=.90,bottom=.105)
@@ -170,6 +170,13 @@ def main():
         vals,vecs=np.linalg.eigh(np.cov(points.T))
         ax_lda.add_patch(Ellipse(points.mean(axis=0),2*np.sqrt(max(vals[-1],0)),2*np.sqrt(max(vals[0],0)),
             angle=np.degrees(np.arctan2(vecs[1,-1],vecs[0,-1])),facecolor=COLORS[c],edgecolor=COLORS[c],alpha=.12))
+    for c,label in enumerate(base.CLASSES):
+        mask=y==c
+        for recording in np.unique(archive['recording_id'][mask]):
+            center=coordinates[archive['recording_id']==recording].mean(axis=0)
+            ax_lda.scatter(*center,s=24,color=COLORS[c],linewidths=0,zorder=5)
+        dark=tuple(np.array(matplotlib.colors.to_rgb(COLORS[c]))*.55)
+        ax_lda.scatter(*coordinates[mask].mean(axis=0),s=65,color=dark,edgecolor='#111111',lw=1,zorder=10)
     ax_lda.axhline(0,color='gray',ls='--',lw=.5);ax_lda.axvline(0,color='gray',ls='--',lw=.5)
     title='Locked 215-input LDA' if args.lda_input=='locked215' else 'Targeted 10-input LDA'
     ax_lda.set_title(title+'\nEach dot = one unit',fontsize=10,pad=12)

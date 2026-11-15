@@ -108,7 +108,11 @@ def main():
         scatter.scatter(*values.T, s=8, c=color, alpha=.35, linewidths=0,
                         label=f'{group} (n = {mask.sum()})', rasterized=True)
         center = values.mean(axis=0)
-        scatter.scatter(*center, marker='*', s=210, c=color, edgecolor='#222222', linewidth=.7, zorder=5)
+        for recording in metadata.loc[mask, 'recording_id'].unique():
+            center_r = coords[metadata['recording_id'].to_numpy()==recording].mean(axis=0)
+            scatter.scatter(*center_r, marker='o', s=35, color=color, linewidths=0, zorder=4)
+        dark = tuple(np.array(matplotlib.colors.to_rgb(color))*.55)
+        scatter.scatter(*center, marker='o', s=100, color=dark, edgecolor='#111111', linewidth=1.2, zorder=10)
         for j in range(2):
             summaries.append({'construct': group, 'axis': f'LD{j+1}', 'n_units': len(values),
                               'mean': center[j], 'sd': values[:, j].std(ddof=1),
@@ -117,7 +121,7 @@ def main():
     scatter.axvline(0, color='#dddddd', lw=.6, zorder=0)
     scatter.set(xlabel='LD1', ylabel='LD2', title='Unit projections onto the locked LDA')
     scatter.legend(frameon=False, fontsize=7, loc='best', markerscale=1.5)
-    scatter.text(.02, .02, '★ Group centroid', transform=scatter.transAxes, fontsize=7)
+    scatter.text(.02, .02, 'Filled circles: recording / dark group centroids', transform=scatter.transAxes, fontsize=7)
     scatter.text(-.13, 1.07, 'b', transform=scatter.transAxes, fontsize=13, fontweight='bold')
     for j in range(2):
         ax = fig.add_subplot(grid[1, j+1])
@@ -149,7 +153,7 @@ def main():
     fig.suptitle('Actuators + effectors | Locked 215-metric unit LDA', fontsize=15, y=.97)
     fig.text(.56, .935, '87 original + 128 burst metrics • 1,554 units • stimulation begins at 0 s',
              ha='center', fontsize=9)
-    fig.text(.56, .015, 'Each dot = one unit (SUA/MUA pooled). Stars = group centroids; black bars = means.\n'
+    fig.text(.56, .015, 'Each dot = one unit (SUA/MUA pooled). Filled circles = recording/group centroids; black bars = means.\n'
              'Supervised full-data descriptive fit; identical frozen LD1/LD2 coordinates. No model refit.',
              ha='center', fontsize=8)
     for suffix in ['png', 'pdf']:
